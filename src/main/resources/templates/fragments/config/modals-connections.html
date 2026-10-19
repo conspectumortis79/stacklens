@@ -1,0 +1,344 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" lang="de">
+<body>
+<th:block th:fragment="modals-connections">
+<div class="modal fade cf-modal" id="gitlabModal" tabindex="-1">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="bi bi-gitlab text-warning me-2"></i><span id="gitlabModalTitle">GitLab-Verbindung</span></h5>
+        <button type="button" class="btn-close" onclick="__hideModal('gitlabModal')" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="glId"/>
+        <div class="row g-3">
+          <div class="col-12"><label class="form-label">Name *</label><input class="form-control" id="glName" placeholder="Firmen-GitLab"/></div>
+          <div class="col-12"><label class="form-label">GitLab-URL *</label><input class="form-control" id="glUrl" placeholder="https://gitlab.example.com"/></div>
+          <div class="col-12">
+            <label class="form-label">Access Token * <span class="text-muted small">(Scope: read_api, read_repository)</span></label>
+            <div class="input-group">
+              <input class="form-control" id="glToken" type="password" placeholder="glpat-…"/>
+              <button class="btn btn-outline-secondary" type="button" onclick="togglePw('glToken')"><i class="bi bi-eye"></i></button>
+            </div>
+          </div>
+          <div class="col-md-6"><label class="form-label">Gruppen-ID / Namespace <span class="text-muted small">(optional)</span></label><input class="form-control" id="glGroup" placeholder="my-org"/></div>
+          <div class="col-md-6"><label class="form-label">Repository(s) <span class="text-muted small">(kommagetrennt, optional)</span></label><input class="form-control" id="glProjects" placeholder="group/repo-a, repo-b, 123"/></div>
+          <div class="col-md-6"><label class="form-label">Standard-Branch</label><input class="form-control" id="glBranch" placeholder="main"/></div>
+          <div class="col-md-6 d-flex align-items-end pb-2">
+            <div class="form-check form-switch"><input class="form-check-input" type="checkbox" id="glActive" checked/><label class="form-check-label" for="glActive">Aktiv</label></div>
+          </div>
+          <div class="col-12" id="glTestResult" style="display:none"></div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-outline-secondary" onclick="__hideModal('gitlabModal')" data-bs-dismiss="modal"><i class="bi bi-x-lg me-1"></i><span data-i18n="common.cancel">Abbrechen</span></button>
+        <button class="btn btn-outline-secondary" id="glTestBtn" onclick="testGitlabConnection()"><i class="bi bi-plug me-1"></i><span data-i18n="config.test_connection">Verbindung testen</span></button>
+        <button class="btn btn-primary" onclick="saveGitlab()"><i class="bi bi-save me-1"></i><span data-i18n="common.save">Speichern</span></button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="modal fade cf-modal" id="dbModal" tabindex="-1">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="bi bi-database text-info me-2"></i><span id="dbModalTitle">Datenbank-Verbindung</span></h5>
+        <button type="button" class="btn-close" onclick="__hideModal('dbModal')" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="dbId"/>
+        <div class="row g-3">
+          <div class="col-12"><label class="form-label">Name *</label><input class="form-control" id="dbName" placeholder="Produktion PostgreSQL"/></div>
+          <div class="col-md-6">
+            <label class="form-label">Datenbanktyp</label>
+            <select class="form-select" id="dbType" onchange="updateDefaultPort()">
+              <option value="POSTGRESQL">PostgreSQL</option>
+              <option value="MYSQL">MySQL / MariaDB</option>
+              <option value="MSSQL">Microsoft SQL Server</option>
+            </select>
+          </div>
+          <div class="col-md-4"><label class="form-label">Host *</label><input class="form-control" id="dbHost" placeholder="localhost"/></div>
+          <div class="col-md-2"><label class="form-label">Port</label><input class="form-control" id="dbPort" type="number" value="5432"/></div>
+          <div class="col-md-6"><label class="form-label">Datenbankname</label><input class="form-control" id="dbDatabase" placeholder="mydb"/></div>
+          <div class="col-md-6"><label class="form-label">Schemata <span class="text-muted small">(kommagetrennt)</span></label><input class="form-control" id="dbSchemas" placeholder="public, myschema"/></div>
+          <div class="col-md-6"><label class="form-label">Benutzername *</label><input class="form-control" id="dbUser" placeholder="postgres"/></div>
+          <div class="col-md-6">
+            <label class="form-label">Passwort *</label>
+            <div class="input-group"><input class="form-control" id="dbPass" type="password"/><button class="btn btn-outline-secondary" type="button" onclick="togglePw('dbPass')"><i class="bi bi-eye"></i></button></div>
+          </div>
+          <div class="col-12"><div class="form-check form-switch"><input class="form-check-input" type="checkbox" id="dbActive" checked/><label class="form-check-label" for="dbActive">Aktiv</label></div></div>
+          <div class="col-12" id="dbTestResult" style="display:none"></div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-outline-secondary" onclick="__hideModal('dbModal')" data-bs-dismiss="modal"><i class="bi bi-x-lg me-1"></i><span data-i18n="common.cancel">Abbrechen</span></button>
+        <button class="btn btn-outline-secondary" id="dbTestBtn" onclick="testDbConnection()"><i class="bi bi-plug me-1"></i><span data-i18n="config.test_connection">Verbindung testen</span></button>
+        <button class="btn btn-primary" onclick="saveDb()"><i class="bi bi-save me-1"></i><span data-i18n="common.save">Speichern</span></button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="modal fade cf-modal" id="confluenceModal" tabindex="-1">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="bi bi-book text-primary me-2"></i><span id="cfModalTitle">Confluence-Verbindung</span></h5>
+        <button type="button" class="btn-close" onclick="__hideModal('confluenceModal')" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="cfId"/>
+        <div class="row g-3">
+          <div class="col-12"><label class="form-label">Name *</label><input class="form-control" id="cfName" placeholder="Firmen Confluence"/></div>
+          <div class="col-12">
+            <label class="form-label">Basis-URL *</label>
+            <input class="form-control" id="cfUrl" placeholder="https://company.atlassian.net  oder  https://confluence.example.com"/>
+            <div class="form-text">Cloud: nur die Root-Domain ohne <code>/wiki</code>, z.&nbsp;B. <code>https://company.atlassian.net</code>.</div>
+          </div>
+          <div class="col-12">
+            <label class="form-label">Modus</label>
+            <div class="d-flex gap-3">
+              <div class="form-check"><input class="form-check-input" type="radio" name="cfMode" id="cfCloud" value="true" checked/><label class="form-check-label" for="cfCloud">Atlassian Cloud</label></div>
+              <div class="form-check"><input class="form-check-input" type="radio" name="cfMode" id="cfServer" value="false"/><label class="form-check-label" for="cfServer">Server / Data Center</label></div>
+            </div>
+          </div>
+          <div class="col-md-6">
+            <label class="form-label">Benutzername / E-Mail *</label>
+            <input class="form-control" id="cfUser" placeholder="user@example.com"/>
+            <div class="form-text">Cloud: E-Mail-Adresse · Server/DC: Benutzername</div>
+          </div>
+          <div class="col-md-6">
+            <label class="form-label">API-Token / Passwort *</label>
+            <div class="input-group">
+              <input class="form-control" id="cfToken" type="password" placeholder="API-Token oder Passwort"/>
+              <button class="btn btn-outline-secondary" type="button" onclick="togglePw('cfToken')"><i class="bi bi-eye"></i></button>
+            </div>
+            <div class="form-text">Cloud: <span class="text-muted">API-Token erstellen (id.atlassian.com)</span></div>
+          </div>
+          <div class="col-12"><div class="form-check form-switch"><input class="form-check-input" type="checkbox" id="cfActive" checked/><label class="form-check-label" for="cfActive">Aktiv</label></div></div>
+          <div class="col-12" id="cfTestResult" style="display:none"></div>
+          <div class="col-12" id="cfTestKeywordRow" style="display:none">
+            <div class="input-group input-group-sm">
+              <span class="input-group-text"><i class="bi bi-search"></i></span>
+              <input type="text" class="form-control" id="cfTestKeyword" placeholder="Testsuchbegriff, z.B. Grafana"/>
+              <button class="btn btn-outline-secondary" type="button" onclick="testConfluenceSearch()">Suche testen</button>
+            </div>
+            <div id="cfSearchResult" class="mt-1" style="display:none"></div>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-outline-secondary" onclick="__hideModal('confluenceModal')" data-bs-dismiss="modal"><i class="bi bi-x-lg me-1"></i><span data-i18n="common.cancel">Abbrechen</span></button>
+        <button class="btn btn-outline-secondary" id="cfTestBtn" onclick="testConfluenceConnection()"><i class="bi bi-plug me-1"></i><span data-i18n="config.test_connection">Verbindung testen</span></button>
+        <button class="btn btn-primary" onclick="saveConfluence()"><i class="bi bi-save me-1"></i><span data-i18n="common.save">Speichern</span></button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="modal fade cf-modal" id="keepassImportModal" tabindex="-1">
+  <div class="modal-dialog modal-xl">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="bi bi-file-earmark-arrow-up text-info me-2"></i>Datenbanken aus KeePassX importieren</h5>
+        <button type="button" class="btn-close" onclick="__hideModal('keepassImportModal')"></button>
+      </div>
+      <div class="modal-body">
+
+        <div id="kpStep1" class="text-center py-5">
+          <i class="bi bi-database-fill-gear fs-1 d-block mb-3" style="color:var(--ns-muted);"></i>
+          <div class="fw-semibold mb-1">KeePassX XML-Datei ausw&auml;hlen</div>
+          <div class="text-muted small mb-4">KeePassX 0.4 XML und KeePassXC&nbsp;/ KeePass 2 XML-Export</div>
+          <button class="btn btn-primary" onclick="cfOpenKeepassBrowser()">
+            <i class="bi bi-folder2-open me-2"></i>Datei ausw&auml;hlen &hellip;
+          </button>
+          <div id="kpFileError" class="alert alert-danger mt-3 mx-auto" style="display:none;max-width:420px;font-size:13px;"></div>
+        </div>
+
+        <div id="kpStep2" style="display:none">
+          <div class="d-flex justify-content-between align-items-center mb-3">
+            <span class="fw-semibold small" id="kpEntryCount"></span>
+            <div class="d-flex gap-2">
+              <button class="btn btn-sm btn-outline-secondary" onclick="kpSelectAll(true)" data-i18n="common.select_all">Alle auswählen</button>
+              <button class="btn btn-sm btn-outline-secondary" onclick="kpSelectAll(false)" data-i18n="common.select_none">Keine auswählen</button>
+              <button class="btn btn-sm btn-outline-secondary" onclick="kpReset()" data-i18n="config.other_file"><i class="bi bi-arrow-left me-1"></i>Andere Datei</button>
+            </div>
+          </div>
+          <div class="table-responsive">
+            <table class="table table-hover align-middle mb-0 small" id="kpPreviewTable">
+              <thead class="table-light">
+                <tr>
+                  <th style="width:36px"><input type="checkbox" id="kpSelectAllChk" class="form-check-input" checked onchange="kpSelectAll(this.checked)"/></th>
+                  <th>Name</th>
+                  <th>Benutzername</th>
+                  <th>Host</th>
+                  <th style="width:84px">Port</th>
+                  <th>Datenbankname</th>
+                  <th style="width:170px">Typ</th>
+                </tr>
+              </thead>
+              <tbody id="kpPreviewBody"></tbody>
+            </table>
+          </div>
+          <div id="kpImportResult" class="mt-3" style="display:none"></div>
+        </div>
+
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-outline-secondary" onclick="__hideModal('keepassImportModal')"><i class="bi bi-x-lg me-1"></i>Abbrechen</button>
+        <button class="btn btn-primary" id="kpImportBtn" onclick="kpImportSelected()" style="display:none"><i class="bi bi-download me-1"></i>Ausgewählte importieren</button>
+      </div>
+    </div>
+  </div>
+</div>
+<div id="kpBrowserOverlay"
+     style="position:fixed;inset:0;z-index:3100;background:rgba(0,0,0,.55);display:none;align-items:center;justify-content:center;padding:16px;overflow-y:auto;"
+     onclick="if(event.target===this)kpCloseBrowser()">
+  <div style="background:var(--ns-paper);border-radius:16px;width:100%;max-width:600px;box-shadow:0 12px 48px rgba(0,0,0,.3);padding:24px 28px;border:1px solid var(--ns-line);">
+    <div class="d-flex justify-content-between align-items-center mb-0">
+      <h4 style="margin:0;font-size:1.05rem;font-weight:700;">
+        <i class="bi bi-folder2-open me-2" style="color:var(--ns-accent);"></i>KeePassX XML-Datei ausw&auml;hlen
+      </h4>
+      <button onclick="kpCloseBrowser()" class="btn-close" title="Schlie&szlig;en"></button>
+    </div>
+    <div class="mt-3 mb-2 px-2 py-1 kp-browser-path"
+         style="font-size:13px;font-family:monospace;border-radius:4px;border:1px solid var(--ns-line);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;"
+         id="kpBrowserPath">/</div>
+    <div id="kpBrowserContent" class="kp-browser-content"
+         style="height:300px;overflow-y:auto;border-radius:8px;border:1px solid var(--ns-line);padding:5px;">
+    </div>
+    <div id="kpBrowserAlert" class="alert alert-danger py-2 mt-3 mb-0" style="display:none;font-size:13px;border-radius:8px;"></div>
+    <div class="d-flex justify-content-end mt-4">
+      <button class="btn btn-outline-secondary" onclick="kpCloseBrowser()"><i class="bi bi-x-lg me-1"></i>Abbrechen</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal fade" id="mcpModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-xl modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="bi bi-hdd-network me-2"></i>MCP-Server</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body" style="overflow:hidden;display:flex;flex-direction:row;padding:0;">
+        <div id="mcpModalScroll" class="sl-scroll-content" style="min-height:0;padding:1rem;">
+        <input type="hidden" id="mcpId">
+        <div class="row g-3">
+          <div class="col-md-6">
+            <label class="form-label fw-semibold">Name</label>
+            <input type="text" class="form-control" id="mcpName" placeholder="z.B. Stacklens MCP">
+          </div>
+          <div class="col-md-6">
+            <label class="form-label fw-semibold">Basis-URL</label>
+            <input type="text" class="form-control" id="mcpBaseUrl" placeholder="http://localhost:7456">
+          </div>
+          <div class="col-md-8">
+            <label class="form-label fw-semibold">Bearer-Token (optional)</label>
+            <input type="password" class="form-control" id="mcpAuthToken" placeholder="leer lassen = kein Auth">
+            <div class="form-text">Muss mit <code>MCP_AUTH_TOKEN</code> auf dem Server &uuml;bereinstimmen.</div>
+          </div>
+          <div class="col-md-4 d-flex align-items-end">
+            <div class="form-check form-switch">
+              <input class="form-check-input" type="checkbox" id="mcpActive">
+              <label class="form-check-label fw-semibold" for="mcpActive">Aktiv</label>
+            </div>
+          </div>
+        </div>
+
+        <hr class="my-4">
+        <h6 class="fw-bold mb-3"><i class="bi bi-arrow-left-right me-1"></i>Routing — welche Anbieter sollen &uuml;ber MCP gehen?</h6>
+        <div class="row g-2">
+          <div class="col-md-3"><div class="form-check form-switch"><input class="form-check-input" type="checkbox" id="mcpRouteJira" checked><label class="form-check-label" for="mcpRouteJira">Jira</label></div></div>
+          <div class="col-md-3"><div class="form-check form-switch"><input class="form-check-input" type="checkbox" id="mcpRouteConfluence" checked><label class="form-check-label" for="mcpRouteConfluence">Confluence</label></div></div>
+          <div class="col-md-3"><div class="form-check form-switch"><input class="form-check-input" type="checkbox" id="mcpRouteGitlab" checked><label class="form-check-label" for="mcpRouteGitlab">GitLab</label></div></div>
+          <div class="col-md-3"><div class="form-check form-switch"><input class="form-check-input" type="checkbox" id="mcpRouteGithub" checked><label class="form-check-label" for="mcpRouteGithub">GitHub</label></div></div>
+          <div class="col-md-3"><div class="form-check form-switch"><input class="form-check-input" type="checkbox" id="mcpRouteGrafana" checked><label class="form-check-label" for="mcpRouteGrafana">Grafana</label></div></div>
+          <div class="col-md-3"><div class="form-check form-switch"><input class="form-check-input" type="checkbox" id="mcpRouteDatabase" checked><label class="form-check-label" for="mcpRouteDatabase">Datenbanken (MySQL / MariaDB / PostgreSQL)</label></div></div>
+        </div>
+        <div class="form-text mt-2">Datenbank-Verbindungen werden automatisch aus den aktiven StackLens-Datenbank-Configs an den MCP-Server weitergereicht – keine separate Eingabe n&ouml;tig.</div>
+
+        <hr class="my-4">
+        <h6 class="fw-bold mb-3"><i class="bi bi-key me-1"></i>Upstream-Zugangsdaten (werden vom MCP-Server an die jeweilige API weitergereicht)</h6>
+
+        <div class="card mb-3"><div class="card-body">
+          <h6 class="fw-semibold"><i class="bi bi-kanban text-info me-1"></i>Jira</h6>
+          <div class="row g-2">
+            <div class="col-md-6"><label class="form-label small">Base-URL</label><input class="form-control form-control-sm" id="mcpJiraBaseUrl" placeholder="https://example.atlassian.net"></div>
+            <div class="col-md-3"><label class="form-label small">Username/Email</label><input class="form-control form-control-sm" id="mcpJiraUsername"></div>
+            <div class="col-md-3"><label class="form-label small">API-Token</label><input type="password" class="form-control form-control-sm" id="mcpJiraApiToken" placeholder="leer = unverändert"></div>
+            <div class="col-md-3 d-flex align-items-end"><div class="form-check"><input class="form-check-input" type="checkbox" id="mcpJiraCloudMode" checked><label class="form-check-label small" for="mcpJiraCloudMode">Cloud-Modus</label></div></div>
+          </div>
+        </div></div>
+
+        <div class="card mb-3"><div class="card-body">
+          <h6 class="fw-semibold"><i class="bi bi-book text-primary me-1"></i>Confluence</h6>
+          <div class="row g-2">
+            <div class="col-md-6"><label class="form-label small">Base-URL</label><input class="form-control form-control-sm" id="mcpConfBaseUrl" placeholder="https://example.atlassian.net"></div>
+            <div class="col-md-3"><label class="form-label small">Username/Email</label><input class="form-control form-control-sm" id="mcpConfUsername"></div>
+            <div class="col-md-3"><label class="form-label small">API-Token</label><input type="password" class="form-control form-control-sm" id="mcpConfApiToken" placeholder="leer = unverändert"></div>
+            <div class="col-md-3 d-flex align-items-end"><div class="form-check"><input class="form-check-input" type="checkbox" id="mcpConfCloudMode" checked><label class="form-check-label small" for="mcpConfCloudMode">Cloud-Modus</label></div></div>
+          </div>
+        </div></div>
+
+        <div class="card mb-3"><div class="card-body">
+          <h6 class="fw-semibold"><i class="bi bi-gitlab text-warning me-1"></i>GitLab</h6>
+          <div class="row g-2">
+            <div class="col-md-6"><label class="form-label small">Base-URL</label><input class="form-control form-control-sm" id="mcpGitlabBaseUrl" placeholder="https://gitlab.com"></div>
+            <div class="col-md-6"><label class="form-label small">Access Token</label><input type="password" class="form-control form-control-sm" id="mcpGitlabAccessToken" placeholder="leer = unverändert"></div>
+          </div>
+        </div></div>
+
+        <div class="card mb-1"><div class="card-body">
+          <h6 class="fw-semibold"><i class="bi bi-github me-1"></i>GitHub</h6>
+          <div class="row g-2">
+            <div class="col-md-6"><label class="form-label small">API-Base</label><input class="form-control form-control-sm" id="mcpGithubApiBase" placeholder="https://api.github.com"></div>
+            <div class="col-md-6"><label class="form-label small">Token (PAT)</label><input type="password" class="form-control form-control-sm" id="mcpGithubToken" placeholder="leer = unverändert"></div>
+          </div>
+        </div></div>
+
+        <div class="card mb-1"><div class="card-body">
+          <h6 class="fw-semibold"><i class="bi bi-graph-up text-success me-1"></i>Grafana</h6>
+          <div class="row g-2">
+            <div class="col-md-6"><label class="form-label small">Base-URL</label><input class="form-control form-control-sm" id="mcpGrafanaBaseUrl" placeholder="https://grafana.example.com"></div>
+            <div class="col-md-6"><label class="form-label small">API-Key</label><input type="password" class="form-control form-control-sm" id="mcpGrafanaApiKey" placeholder="leer = unverändert"></div>
+          </div>
+        </div></div>
+
+        <div class="card mb-1"><div class="card-body">
+          <div class="d-flex align-items-center justify-content-between mb-2">
+            <h6 class="fw-semibold mb-0"><i class="bi bi-database text-info me-1"></i>Datenbanken
+              <span class="badge bg-secondary ms-1" id="mcpDbCount">0</span>
+            </h6>
+            <button type="button" class="btn btn-sm btn-outline-primary" onclick="__openDbModal()">
+              <i class="bi bi-plus-circle me-1"></i>Datenbank hinzufügen
+            </button>
+          </div>
+          <div class="form-text mb-2">
+            Alle aktiven StackLens-Datenbank-Verbindungen werden bei jedem MCP-Aufruf automatisch an den MCP-Server weitergereicht (Header <code>X-Stacklens-Config</code>). Mehrere DBs sind möglich – einfach in der StackLens-Datenbankliste anlegen und auf <em>Aktiv</em> stellen.
+          </div>
+          <div id="mcpDbList" class="d-flex flex-column gap-1">
+            <div class="text-muted small fst-italic">Keine aktiven Datenbank-Verbindungen.</div>
+          </div>
+        </div></div>
+
+        <div class="form-check form-switch mt-3">
+          <input class="form-check-input" type="checkbox" id="mcpAutoStartManaged">
+          <label class="form-check-label fw-semibold" for="mcpAutoStartManaged">Lokalen MCP-Server automatisch mit StackLens starten</label>
+        </div>
+        <div class="form-text">Startet den geb&uuml;ndelten Node-MCP-Server (<code>mcp-server/dist/index.js</code>) automatisch beim Application-Start. Der manuelle Start/Stopp und das Live-Log befinden sich auf der MCP-&Uuml;bersichtsseite.</div>
+        </div>
+        <div class="sl-scroll-track" id="mcpModalTrack"><div class="sl-scroll-thumb" id="mcpModalThumb"></div></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-outline-secondary" data-bs-dismiss="modal">Abbrechen</button>
+        <button class="btn btn-primary" onclick="mcpSave()"><i class="bi bi-save me-1"></i>Speichern</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+</th:block>
+</body>
+</html>

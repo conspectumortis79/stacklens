@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org"
+      xmlns:layout="http://www.ultraq.net.nz/thymeleaf/layout"
+      layout:decorate="~{layout}" lang="de">
+<head><title>Ticket Creation</title>
+<meta name="mcp-sources" content="jira">
+</head>
+<body>
+
+<th:block layout:fragment="page-title">
+  <span data-i18n="page_titles.ticket_creation">Ticket Creation</span>
+</th:block>
+
+<th:block layout:fragment="page-subtitle">
+  <p class="page-subtitle">
+    <span data-i18n="page_subtitles.ticket_creation">Describe your goal and let AI create a structured Jira ticket in User Story format.</span>
+  </p>
+</th:block>
+
+<th:block layout:fragment="page-actions">
+  <div style="display:flex;gap:8px;align-items:center;">
+    <button class="btn btn-sm btn-outline-secondary" style="border-color:#ddd7cb;color:#5b564d;"
+            data-prompt-prefix="ticketcreation" disabled
+            onclick="openPromptEditorForPrefix('ticketcreation', (window.i18n&&window.i18n.t('page_titles.ticket_creation'))||'Ticket Creation', null, 'ticketcreation.create_story', null)">
+      <i class="bi bi-cpu me-1"></i><span>KI-Prompt</span>
+    </button>
+    <button class="btn btn-sm" style="background:linear-gradient(135deg,#7c5cbf,#5b8ef0);color:#fff;border:none;"
+            onclick="kiChatToggle()" data-i18n-title="ticket_creation.ki_chat_title"
+            title="KI Chat – context-aware help for ticket creation">
+      <i class="bi bi-chat-dots-fill me-1"></i><span data-i18n="common.ki_chat_btn">KI Chat</span>
+    </button>
+  </div>
+</th:block>
+
+<th:block layout:fragment="head-extra">
+<script th:inline="javascript">
+/*<![CDATA[*/
+window.kiChatConfig = {
+  tabId: 'ticket-creation',
+  tabLabel: 'Ticket Creation',
+  tabLabelKey: 'ki_chat.ticket_creation.tab_label',
+  introMessage: 'Hi! I help you create structured Jira tickets. Pick the issue type (Story, Technical Task or Bug) on the form, describe your goal and I will turn it into a properly structured Jira ticket.',
+  introMessageKey: 'ki_chat.ticket_creation.intro',
+  suggestionsKey: 'ki_chat.ticket_creation.suggestions',
+  suggestions: [
+    'How do I write a good User Story?',
+    'Which acceptance criteria are typically missing?',
+    'What belongs in the Background section of a User Story?',
+    'Turn these bullet points into a User Story',
+    'How do I write ACs in Given/When/Then format?',
+    'How do I estimate Story Points for this ticket?'
+  ],
+  systemHint: 'You are a senior product engineer helping to create well-structured Jira sprint tickets. The user has already picked the issue type (Story, Technical Task or Bug) — the AI uses the matching template automatically. Each ticket should have a clear summary, a description with the sections defined by the chosen template, and verifiable acceptance criteria / Definition of Done items. Be concrete and actionable; never invent missing facts — surface them as open points instead.',
+  contextProvider: function() {
+    var parts = [];
+    try {
+      var input = (document.getElementById('tcInputText') || {}).value || '';
+      if (input && input.trim()) parts.push('Current input: ' + input.trim().substring(0, 500));
+      var summary = (document.querySelector('#tcResultContent .tc-jira-summary-line') || {}).textContent || '';
+      if (summary && summary.trim()) parts.push('Generated ticket (summary): ' + summary.trim());
+    } catch(e) {}
+    return parts.join('\n');
+  }
+};
+/*]]>*/
+</script>
+</th:block>
+
+<div layout:fragment="content">
+  <th:block th:replace="~{fragments/ticket-creation/styles :: styles}"></th:block>
+<th:block th:replace="~{fragments/shared/token-usage :: styles}"></th:block>
+
+  <div class="tc-page" data-cf-token-usage-anchor="">
+
+    <section class="tc-card tc-form-card">
+      <h3 class="tc-card-title" data-i18n="ticket_creation.form_title">Create Sprint Ticket</h3>
+      <form id="tcForm" class="tc-form" autocomplete="off" onsubmit="return false;">
+
+        <div class="tc-row">
+          <label class="tc-label" for="tcGenerateIssueTypeSeg">
+            <span data-i18n="ticket_creation.form_issue_type">Issue type</span>
+          </label>
+          <div class="tc-issue-type-seg" id="tcGenerateIssueTypeSeg">
+            <button type="button" class="tc-issue-type-btn tc-it-story active" data-value="Story"
+                    onclick="tcSetGenerateIssueType('Story')">
+              <i class="bi bi-bookmark-star-fill"></i>
+              <span data-i18n="ticket_creation.issue_type_story">Story</span>
+            </button>
+            <button type="button" class="tc-issue-type-btn tc-it-task" data-value="Technical Task"
+                    onclick="tcSetGenerateIssueType('Technical Task')">
+              <i class="bi bi-check2-square"></i>
+              <span data-i18n="ticket_creation.issue_type_task">Technical Task</span>
+            </button>
+            <button type="button" class="tc-issue-type-btn tc-it-bug" data-value="Bug"
+                    onclick="tcSetGenerateIssueType('Bug')">
+              <i class="bi bi-bug-fill"></i>
+              <span data-i18n="ticket_creation.issue_type_bug">Bug</span>
+            </button>
+          </div>
+
+          <select id="tcGenerateIssueType" class="tc-input" style="display:none;">
+            <option value="Story" data-i18n="ticket_creation.issue_type_story">Story</option>
+            <option value="Technical Task" data-i18n="ticket_creation.issue_type_task">Technical Task</option>
+            <option value="Bug" data-i18n="ticket_creation.issue_type_bug">Bug</option>
+          </select>
+          <small class="tc-hint" data-i18n="ticket_creation.form_issue_type_hint">
+            The chosen type controls the template the AI uses to draft the ticket.
+          </small>
+        </div>
+
+        <div class="tc-row">
+          <label class="tc-label" for="tcInputText">
+            <span data-i18n="ticket_creation.form_input_label">Your requirements / notes</span>
+            <span id="tcCharCount" class="tc-hint" style="font-weight:400;"></span>
+          </label>
+          <div class="tc-textarea-wrap" id="tcInputWrap">
+            <textarea id="tcInputText" class="tc-textarea-box" rows="10"
+                      data-i18n-placeholder="ticket_creation.form_input_placeholder"
+                      placeholder="Describe what you want to implement. The more details, the better the result."></textarea>
+            <div class="sl-scroll-track" id="tcInputScrollTrack"><div class="sl-scroll-thumb" id="tcInputScrollThumb"></div></div>
+          </div>
+          <small class="tc-hint" data-i18n="ticket_creation.form_input_hint">
+            Bullet points, requirements, links, technical details – everything is welcome.
+          </small>
+        </div>
+
+        <div class="tc-row">
+          <label class="tc-label">
+            <span data-i18n="ticket_creation.form_files_label">Attachments (optional)</span>
+          </label>
+          <div class="tc-upload-zone" id="tcUploadZone" onclick="tcOpenFileBrowser()">
+            <i class="bi bi-folder2-open tc-upload-icon"></i>
+            <div class="tc-upload-text" data-i18n="ticket_creation.form_files_hint">
+              Klicken zum Auswählen von Dateien
+            </div>
+          </div>
+          <div class="tc-file-chips" id="tcFileChips"></div>
+        </div>
+
+        <div class="tc-row">
+          <label class="tc-label" for="tcJiraConfig">
+            <span data-i18n="ticket_creation.form_jira_config">Jira configuration</span>
+          </label>
+          <select id="tcJiraConfig" class="tc-input"></select>
+        </div>
+
+        <div class="tc-row">
+          <label class="tc-label" for="tcProjectKey">
+            <span data-i18n="ticket_creation.form_project_key">Project key</span>
+          </label>
+          <input id="tcProjectKey" type="text" class="tc-input"
+                 data-i18n-placeholder="ticket_creation.form_project_key_placeholder"
+                 placeholder="e.g. PROJ"
+                 style="width: 180px;"
+                 autocomplete="off" spellcheck="false" />
+          <small class="tc-hint" data-i18n="ticket_creation.form_project_key_hint">
+            Only needed when creating the ticket directly in Jira.
+          </small>
+        </div>
+
+        <div class="tc-row tc-actions">
+          <button id="tcCancel" type="button" class="tc-btn tc-btn-cancel" disabled
+                  data-i18n="common.cancel">Cancel</button>
+          <button id="tcStart" type="submit" class="tc-btn tc-btn-primary">
+            <i class="bi bi-magic"></i>
+            <span data-i18n="ticket_creation.btn_generate">Generate ticket</span>
+          </button>
+        </div>
+      </form>
+    </section>
+
+    <section id="tcProgressCard" class="tc-card tc-progress-card" style="display:none;">
+      <div class="tc-progress-header">
+        <i class="bi bi-arrow-clockwise tc-progress-spin"></i>
+        <span data-i18n="ticket_creation.progress_title">AI is creating ticket…</span>
+      </div>
+      <div id="tcProgressStep" class="tc-progress-step"></div>
+    </section>
+
+    <section id="tcResultCard" class="tc-card" style="display:none;">
+      <h3 class="tc-card-title">
+        <span data-i18n="ticket_creation.result_title">Generated Ticket</span>
+        <button id="tcBtnRegenerate" type="button" class="tc-btn tc-btn-secondary" style="padding:5px 12px;font-size:.82rem;">
+          <i class="bi bi-arrow-repeat"></i>
+          <span data-i18n="ticket_creation.btn_regenerate">Regenerate</span>
+        </button>
+      </h3>
+
+      <div id="tcError" class="tc-error" style="display:none;"></div>
+      <div id="tcResultContent"></div>
+
+      <div id="tcCreateSection" style="margin-top:20px; border-top:1px solid var(--tc-line); padding-top:16px; display:none;">
+        <h4 style="margin:0 0 12px;font-size:.9rem;font-weight:700;color:var(--tc-muted);text-transform:uppercase;letter-spacing:.04em;"
+            data-i18n="ticket_creation.create_in_jira_title">Create in Jira</h4>
+        <div class="tc-create-row">
+          <div class="tc-create-field">
+            <label class="tc-create-label" data-i18n="ticket_creation.form_jira_config">Jira configuration</label>
+            <select id="tcCreateJiraConfig" class="tc-input" style="width:auto;"></select>
+          </div>
+          <div class="tc-create-field" style="flex:0 0 140px;">
+            <label class="tc-create-label" data-i18n="ticket_creation.form_project_key">Project key</label>
+            <input id="tcCreateProjectKey" type="text" class="tc-input"
+                   data-i18n-placeholder="ticket_creation.form_project_key_placeholder"
+                   placeholder="PROJ"
+                   autocomplete="off" spellcheck="false" />
+          </div>
+          <div class="tc-create-field" style="flex:0 0 auto;">
+            <label class="tc-create-label" data-i18n="ticket_creation.form_issue_type">Issue type</label>
+            <div class="tc-issue-type-seg" id="tcIssueTypeSeg" aria-disabled="true">
+              <button type="button" class="tc-issue-type-btn tc-it-story active" data-value="Story" disabled
+                      onclick="return false;">
+                <i class="bi bi-bookmark-star-fill"></i>
+                <span data-i18n="ticket_creation.issue_type_story">Story</span>
+              </button>
+              <button type="button" class="tc-issue-type-btn tc-it-task" data-value="Technical Task" disabled
+                      onclick="return false;">
+                <i class="bi bi-check2-square"></i>
+                <span data-i18n="ticket_creation.issue_type_task">Technical Task</span>
+              </button>
+              <button type="button" class="tc-issue-type-btn tc-it-bug" data-value="Bug" disabled
+                      onclick="return false;">
+                <i class="bi bi-bug-fill"></i>
+                <span data-i18n="ticket_creation.issue_type_bug">Bug</span>
+              </button>
+            </div>
+            <select id="tcCreateIssueType" class="tc-input" style="display:none;">
+              <option value="Story"  data-i18n="ticket_creation.issue_type_story">Story</option>
+              <option value="Technical Task" data-i18n="ticket_creation.issue_type_task">Technical Task</option>
+              <option value="Bug"    data-i18n="ticket_creation.issue_type_bug">Bug</option>
+            </select>
+            <small class="tc-hint" data-i18n="ticket_creation.form_issue_type_locked">
+              The issue type was chosen before generation and cannot be changed here.
+            </small>
+          </div>
+          <div style="padding-bottom:2px;">
+            <button id="tcBtnCreate" type="button" class="tc-btn tc-btn-create">
+              <i class="bi bi-plus-circle"></i>
+              <span data-i18n="ticket_creation.btn_create">Create</span>
+            </button>
+          </div>
+        </div>
+        <div id="tcRequiredFields" class="tc-required-fields" aria-live="polite"></div>
+        <div id="tcCreateStatus" style="margin-top:8px;"></div>
+      </div>
+    </section>
+
+  </div>
+
+  <th:block th:replace="~{fragments/shared/history :: card('ticket-creation', 'hx-card--top')}"></th:block>
+
+  <th:block th:replace="~{fragments/ticket-creation/scripts :: scripts}"></th:block>
+<th:block th:replace="~{fragments/shared/token-usage :: scripts}"></th:block>
+
+<script>
+
+  if (window.slTokenUsagePage) window.slTokenUsagePage({
+        kind: 'ticket_creation',
+        anchor: document.querySelector('.sl-page-header'),
+        resolveId: function () { return window._tc && window._tc.historyId; }
+    });
+function tcInitTokenUsageBar() {
+  if (window.slTokenUsageRebind) window.slTokenUsageRebind('ticket_creation');
+}
+</script>
+</div>
+
+</body>
+</html>

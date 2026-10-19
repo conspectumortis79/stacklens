@@ -1,0 +1,544 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" lang="de">
+<body>
+<th:block th:fragment="scripts">
+<script th:inline="none">
+/*<![CDATA[*/
+
+if (!window._sr) { window._sr = { gen: 0, runningId: null, lastOpenId: null }; }
+window._sr.gen++;
+
+(function(){
+  function t(key, fb){ return (window.slHelpers && window.slHelpers.t) ? window.slHelpers.t(key, fb) : (fb || key); }
+
+  var $ = function(id){ return document.getElementById(id); };
+  var _srPageGen = window._sr.gen;
+  var state = {
+    activeId: null,
+    pollTimer: null,
+  };
+
+  function loadJiraConfigs(){
+    var _gen = _srPageGen;
+    return fetch('/api/config/jira', { credentials:'same-origin' })
+      .then(function(r){ return r.ok ? r.json() : []; })
+      .catch(function(){ return []; })
+      .then(function(list){
+        if (window._sr.gen !== _gen) return;
+        var sel = $('srJiraConfig');
+        if (!sel) return;
+        sel.innerHTML = '';
+        var active = (list || []).filter(function(c){ return c.active; });
+        if (!active.length) {
+          var placeholder = document.createElement('option');
+          placeholder.value = '';
+          placeholder.disabled = true;
+          placeholder.selected = true;
+          placeholder.textContent = t('sprint_review.no_jira_configs', '– keine Jira-Konfiguration vorhanden –');
+          sel.appendChild(placeholder);
+          return;
+        }
+        active.forEach(function(c){
+          var o = document.createElement('option');
+          o.value = c.id;
+          o.textContent = c.name + ' — ' + c.baseUrl;
+          o.setAttribute('data-baseurl', c.baseUrl || '');
+          o.setAttribute('data-name', c.name || '');
+          sel.appendChild(o);
+        });
+        applyDemoAutoFill();
+      });
+  }
+
+  var DEMO_SPRINT_NAME = 'Sprint Demo Review';
+  var DEMO_TARGET_KEY  = 'SPRINT-200';
+  function applyDemoAutoFill(){
+    var sel = $('srJiraConfig');
+    if (!sel) return;
+    var opt = sel.options[sel.selectedIndex];
+    if (!opt) return;
+    var baseUrl    = opt.getAttribute('data-baseurl') || '';
+    var configName = (opt.getAttribute('data-name') || '').toLowerCase();
+    var isDemo = baseUrl.indexOf('localhost') !== -1 || configName.indexOf('demo') !== -1;
+    var sprintInput = $('srSprintName');
+    var targetInput = $('srTargetKey');
+    if (!isDemo) {
+      if (sprintInput && sprintInput.value.trim() === DEMO_SPRINT_NAME) sprintInput.value = '';
+      if (targetInput && targetInput.value.trim() === DEMO_TARGET_KEY) targetInput.value = '';
+      return;
+    }
+    if (sprintInput && !sprintInput.value.trim()) {
+      sprintInput.value = DEMO_SPRINT_NAME;
+    }
+    if (targetInput && !targetInput.value.trim()) {
+      targetInput.value = DEMO_TARGET_KEY;
+    }
+  }
+
+  function startReview(){
+    var sprintName = ($('srSprintName').value || '').trim();
+    if (!sprintName) { $('srSprintName').focus(); return; }
+    var targetKey = ($('srTargetKey').value || '').trim();
+    if (!targetKey) { $('srTargetKey').focus(); return; }
+    var configId = $('srJiraConfig').value || null;
+    var template = ($('srTemplate').value || '').trim();
+    var includeEl = $('srIncludeImprovement');
+    var includeImprovement = includeEl ? !!includeEl.checked : true;
+    var btn = $('srStart');
+    btn.disabled = true;
+    fetch('/api/sprint-review', {
+      method:'POST',
+      headers:{ 'Content-Type':'application/json' },
+      body: JSON.stringify({
+        sprintName: sprintName,
+        targetTicketKey: targetKey,
+        jiraConfigId: configId ? Number(configId) : null,
+        templateOverride: template || null,
+        includeImprovement: includeImprovement
+      })
+    })
+      .then(function(r){
+        return r.ok ? r.json() : r.json().then(function(j){ throw new Error(j.error || 'error'); });
+      })
+      .then(function(j){
+        window._sr.runningId = j.id;
+        if (typeof srInitTokenUsageBar === 'function') srInitTokenUsageBar();
+        loadHistory(j.id).then(function(){ openReview(j.id); });
+      })
+      .catch(function(e){ showAlert(e.message || 'Error', 'danger'); })
+      .finally(function(){ btn.disabled = false; });
+  }
+
+  function cancelReview(){
+    var id = state.activeId;
+    if (!id) return;
+    var cancelBtn = $('srCancel');
+    if (cancelBtn) cancelBtn.disabled = true;
+    fetch('/api/sprint-review/' + id + '/cancel', { method:'POST', credentials:'same-origin' })
+      .then(function(){ fetchAndRender(id); })
+      .catch(function(){})
+      .finally(function(){ if (cancelBtn) cancelBtn.disabled = false; });
+  }
+
+  function showDefault(){
+    fetch('/api/sprint-review/template/default', { credentials:'same-origin' })
+      .then(function(r){ return r.ok ? r.json() : { template: '' }; })
+      .then(function(j){
+        $('srTemplate').value = j.template || '';
+      });
+  }
+
+  var _srHistory = null;
+
+  function srHistory() {
+    if (_srHistory) return _srHistory;
+    _srHistory = window.slHistory.mount({
+      root: 'hxCard-sprint-review',
+      page: 'sprint-review',
+      titleKey: 'sprint_review.history_heading',
+      emptyKey: 'sprint_review.history_empty',
+      columns: {
+        title: { key: 'sprint_review.col_sprint', fallback: 'Sprint' },
+        metric: { key: 'common.history_col_tickets', fallback: 'Tickets' }
+      },
+      map: {
+        id: function(it) { return it.id; },
+        status: function(it) { return it.status; },
+        createdAt: function(it) { return it.createdAt; },
+        typeIcon: function() { return 'bi-clipboard-check'; },
+        title: function(it) { return (it.sprintName || '') + ' \u2192 ' + (it.targetTicketKey || ''); },
+        metric: function(it) { return it.totalIssues ? String(it.totalIssues) : ''; },
+        isCurrent: function(it) { return state.activeId === it.id; }
+      },
+      actions: {
+        open: function(it) { openReview(it.id); },
+        cancel: function(it) { srCancelHistoryItem(it.id); },
+        remove: function(it) { srDeleteHistoryItem(it.id); },
+        deleteAll: function() { deleteAll(); }
+      }
+    });
+    return _srHistory;
+  }
+
+  function srCancelHistoryItem(id) {
+    fetch('/api/sprint-review/' + id + '/cancel', { method:'POST', credentials:'same-origin' })
+      .then(function(){ loadHistory(); })
+      .catch(function(){ loadHistory(); });
+  }
+
+  function srDeleteHistoryItem(id) {
+    fetch('/api/sprint-review/' + id, { method:'DELETE', credentials:'same-origin' })
+      .then(function(){ loadHistory(); });
+  }
+
+  function loadHistory(selectId){
+    return fetch('/api/sprint-review', { credentials:'same-origin' })
+      .then(function(r){ return r.ok ? r.json() : []; })
+      .then(function(list){
+        srHistory().setData(Array.isArray(list) ? list : []);
+        if (selectId != null && _srHistory) _srHistory.refresh();
+        return list;
+      })
+      .catch(function(){ return []; });
+  }
+
+  function deleteAll(){
+    fetch('/api/sprint-review', { method:'DELETE', credentials:'same-origin' })
+      .then(function(){ loadHistory(); $('srResultsCard').style.display = 'none'; });
+  }
+
+  function openReview(id){
+    state.activeId = id;
+    fetch('/api/sprint-review/' + id, { credentials:'same-origin' })
+      .then(function(r){ return r.ok ? r.json() : null; })
+      .then(function(d){ if (d) render(d); });
+  }
+
+  function fetchAndRender(id){
+    fetch('/api/sprint-review/' + id + '/status', { credentials:'same-origin' })
+      .then(function(r){ return r.ok ? r.json() : null; })
+      .then(function(s){
+        if (!s) return;
+        var status = s.status;
+        if (status === 'RUNNING' || status === 'PENDING') {
+          showProgress(s.currentStep);
+          schedulePoll(id);
+        } else {
+          openReview(id);
+        }
+      });
+  }
+
+  function showProgress(step){
+    var prog = $('srProgressCard');
+    var res = $('srResultsCard');
+    if (prog) prog.style.display = '';
+    if (res) res.style.display = 'none';
+    if (step && $('srProgressStep')) $('srProgressStep').textContent = step;
+    var cncl = $('srCancel');
+    if (cncl) cncl.disabled = false;
+  }
+
+  function schedulePoll(id){
+    if (_srPageGen !== window._sr.gen) return;
+    clearTimeout(state.pollTimer);
+    state.pollTimer = setTimeout(function(){
+      fetchAndRender(id);
+    }, 1500);
+  }
+
+  function render(d){
+    var prog = $('srProgressCard');
+    var res = $('srResultsCard');
+    var status = d.status;
+    var cancelled = status === 'CANCELLED';
+    var failed = status === 'FAILED';
+    var running = status === 'RUNNING' || status === 'PENDING';
+
+    if (running) {
+      showProgress(d.currentStep);
+      schedulePoll(d.id);
+      return;
+    }
+    if (prog) prog.style.display = 'none';
+    if (res) res.style.display = '';
+    var cncl = $('srCancel');
+    if (cncl) cncl.disabled = true;
+
+    var rows = [];
+    try { rows = d.rowsJson ? JSON.parse(d.rowsJson) : []; } catch(_){ rows = []; }
+    renderRows(rows, d);
+
+    var statusEl = $('srStatus');
+    if (statusEl) {
+      statusEl.className = 'sr-status' + (failed ? ' error' : cancelled ? ' cancelled' : '');
+      var summary =
+        (failed ? ('✗ ' + (d.errorMessage || status)) :
+         cancelled ? ('⌀ ' + (d.errorMessage || status)) :
+         ('✓ ' + (d.totalIssues || rows.length) + ' ' + t('sprint_review.col_ticket', 'Ticket') + 's'));
+      statusEl.innerHTML = '';
+      var s1 = document.createElement('span');
+      s1.textContent = summary;
+      statusEl.appendChild(s1);
+      if (d.errorMessage && (failed || cancelled)) {
+        var br = document.createElement('div');
+        br.style.fontSize = '.82em';
+        br.textContent = d.errorMessage;
+        statusEl.appendChild(br);
+      }
+    }
+
+    var postInfo = $('srPostInfo');
+    if (postInfo) {
+      if (d.status === 'COMPLETED' && d.tableAdfJson) {
+        postInfo.style.display = '';
+        postInfo.className = 'sr-post-info' + (d.errorMessage ? ' sr-post-info--failed' : '');
+        postInfo.innerHTML = '';
+        var icon = d.errorMessage ? '⚠ ' : '⏳ ';
+        var prefix = d.errorMessage
+          ? t('sprint_review.err_post_failed', 'Posting to Jira failed:')
+          : t('sprint_review.post_ready_hint', 'Table ready — press the button below to post it to:');
+        postInfo.appendChild(document.createTextNode(icon + prefix + ' ' + d.targetTicketKey));
+        if (d.errorMessage) {
+          var br = document.createElement('div');
+          br.style.fontSize = '.82em';
+          br.textContent = d.errorMessage;
+          postInfo.appendChild(br);
+        }
+      } else {
+        postInfo.style.display = 'none';
+      }
+    }
+
+    var adf = $('srAdfPreview');
+    if (adf) {
+      if (d.tableAdfJson) {
+        adf.style.display = '';
+        adf.textContent = d.tableAdfJson;
+      } else {
+        adf.style.display = 'none';
+      }
+    }
+
+    var postBtn = $('srPostToJira');
+    if (postBtn) {
+      var canPost = d.status === 'COMPLETED' && !!d.tableAdfJson;
+      postBtn.style.display = canPost ? '' : 'none';
+      postBtn.disabled = !canPost;
+    }
+
+    var jiraLink = $('srViewInJira');
+    if (jiraLink) {
+      if (d.tableAdfJson) {
+        jiraLink.style.display = '';
+      } else {
+        jiraLink.style.display = 'none';
+      }
+    }
+
+    window._sr.lastOpenId = d.id;
+    loadHistory(d.id);
+  }
+
+  function renderRows(rows, entity){
+    var host = $('srTableBody');
+    var empty = $('srEmptyState');
+    var wrap = $('srTableWrap');
+    if (!host) return;
+    host.innerHTML = '';
+    if (!rows || rows.length === 0) {
+      if (empty) empty.style.display = '';
+      if (wrap) wrap.style.display = 'none';
+      return;
+    }
+    if (empty) empty.style.display = 'none';
+    if (wrap) wrap.style.display = '';
+
+    var counts = { BEARBEITET: 0, OFFENE_FRAGE: 0, REFINEMENT: 0, FAILED: 0 };
+    rows.forEach(function(r){ if (counts[r.state] != null) counts[r.state]++; });
+
+    var legend = $('srLegend');
+    if (legend) {
+      legend.innerHTML = '';
+      function addPill(state, key){
+        var span = document.createElement('span');
+        span.className = 'sr-state sr-state-' + state;
+        span.innerHTML = '<span class="sr-state-pill">' + pill(state) + '</span> ' + escapeHtml(t(key, state));
+        legend.appendChild(span);
+      }
+      addPill('BEARBEITET', 'sprint_review.state_bearbeitet');
+      addPill('OFFENE_FRAGE', 'sprint_review.state_offene_frage');
+      addPill('REFINEMENT', 'sprint_review.state_refinement');
+      addPill('FAILED', 'sprint_review.state_failed');
+      var total = document.createElement('span');
+      total.textContent = '∑ ' + rows.length;
+      legend.appendChild(total);
+    }
+
+    rows.forEach(function(r){
+      var tr = document.createElement('tr');
+      var td1 = document.createElement('td');
+      td1.className = 'sr-cell-ticket-key';
+      var keyLink = document.createElement('a');
+      keyLink.href = r.ticketUrl;
+      keyLink.target = '_blank';
+      keyLink.rel = 'noopener';
+      keyLink.textContent = r.ticketKey;
+      td1.appendChild(keyLink);
+      if (r.ticketSummary) {
+        var sum = document.createElement('div');
+        sum.className = 'sr-cell-ticket-summary';
+        sum.textContent = r.ticketSummary;
+        td1.appendChild(sum);
+      }
+      var metaBits = [];
+      if (r.issueType) metaBits.push(r.issueType);
+      if (r.status) metaBits.push(r.status);
+      if (r.assignee) metaBits.push(r.assignee);
+      if (metaBits.length) {
+        var m = document.createElement('div');
+        m.className = 'sr-cell-ticket-meta';
+        m.textContent = metaBits.join(' · ');
+        td1.appendChild(m);
+      }
+      tr.appendChild(td1);
+
+      var td2 = document.createElement('td');
+      var stateSpan = document.createElement('span');
+      stateSpan.className = 'sr-state sr-state-' + r.state;
+      stateSpan.innerHTML = '<span class="sr-state-pill">' + pill(r.state) + '</span> ' + escapeHtml(t('sprint_review.state_' + (r.state || '').toLowerCase(), r.state));
+      td2.appendChild(stateSpan);
+
+      if (entity && entity.includeImprovement && r.improvementSummary) {
+        var sm = document.createElement('div');
+        sm.className = 'sr-cell-summary';
+        sm.textContent = r.improvementSummary;
+        td2.appendChild(sm);
+      }
+      if (entity && entity.includeImprovement && r.openPoints && r.openPoints.length) {
+        var op = document.createElement('div');
+        op.className = 'sr-cell-open-points';
+        var strong = document.createElement('strong');
+        strong.textContent = t('sprint_review.open_points_label', 'Open points');
+        op.appendChild(strong);
+        var ul = document.createElement('ul');
+        r.openPoints.forEach(function(p){
+          var li = document.createElement('li');
+          li.textContent = p;
+          ul.appendChild(li);
+        });
+        op.appendChild(ul);
+        td2.appendChild(op);
+      }
+      if (entity && entity.includeImprovement && r.refinementReasons && r.refinementReasons.length) {
+        var rf = document.createElement('div');
+        rf.className = 'sr-cell-refinement-reasons';
+        var rfStrong = document.createElement('strong');
+        rfStrong.textContent = t('sprint_review.refinement_reasons_label', 'Missing / unclear:');
+        rf.appendChild(rfStrong);
+        var rfUl = document.createElement('ul');
+        r.refinementReasons.forEach(function(reason){
+          var li = document.createElement('li');
+          li.textContent = t('sprint_review.row_reason_' + reason, reason);
+          rfUl.appendChild(li);
+        });
+        rf.appendChild(rfUl);
+        td2.appendChild(rf);
+      }
+      if (r.errorMessage) {
+        var err = document.createElement('div');
+        err.style.marginTop = '4px';
+        err.style.fontSize = '.82em';
+        err.style.color = 'var(--sr-fail)';
+        err.textContent = r.errorMessage;
+        td2.appendChild(err);
+      }
+      tr.appendChild(td2);
+      host.appendChild(tr);
+    });
+  }
+
+  function pill(state){
+    switch (state) {
+      case 'BEARBEITET': return '✅';
+      case 'OFFENE_FRAGE': return '❓';
+      case 'REFINEMENT': return '📝';
+      case 'FAILED': return '⚠️';
+      default: return '·';
+    }
+  }
+
+  function tryResumeRunning(list){
+    var running = null;
+    if (list && list.length) {
+      for (var i = 0; i < list.length; i++) {
+        var s = (list[i].status || '').toUpperCase();
+        if (s === 'RUNNING' || s === 'PENDING') { running = list[i]; break; }
+      }
+    }
+    if (running) {
+      window._sr.runningId = running.id;
+      if (typeof srInitTokenUsageBar === 'function') srInitTokenUsageBar();
+      openReview(running.id);
+      return;
+    }
+    var storedId = window._sr.lastOpenId || window._sr.runningId;
+    if (!storedId) return;
+    openReview(storedId);
+  }
+
+  function bindListeners(){
+    var form = $('srForm');
+    if (!form) return false;
+    if (form.dataset.srBound === '1') return true;
+    form.dataset.srBound = '1';
+    loadJiraConfigs();
+    var sel = $('srJiraConfig');
+    if (sel) sel.addEventListener('change', applyDemoAutoFill);
+    $('srStart')  && $('srStart').addEventListener('click',  function(ev){ ev.preventDefault(); startReview(); });
+    $('srCancel') && $('srCancel').addEventListener('click', function(ev){ ev.preventDefault(); cancelReview(); });
+    $('srShowDefault') && $('srShowDefault').addEventListener('click', function(ev){ ev.preventDefault(); showDefault(); });
+    $('srBtnDelAll')   && $('srBtnDelAll').addEventListener('click', function(ev){ ev.preventDefault(); deleteAll(); });
+    $('srPostToJira')  && $('srPostToJira').addEventListener('click', function(ev){ ev.preventDefault(); postToJira(); });
+    return true;
+  }
+
+  function postToJira(){
+    var id = state.activeId;
+    if (!id) return;
+    var btn = $('srPostToJira');
+    if (!btn || btn.disabled) return;
+    btn.disabled = true;
+    var originalLabel = btn.querySelector('span') ? btn.querySelector('span').textContent : '';
+    if (btn.querySelector('span')) btn.querySelector('span').textContent = t('sprint_review.post_in_progress', 'Posting…');
+    fetch('/api/sprint-review/' + id + '/post-to-jira', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'same-origin',
+    })
+      .then(function(r){
+        return r.json().then(function(j){ return { ok: r.ok, status: r.status, body: j }; });
+      })
+      .then(function(resp){
+        if (resp.ok) {
+          openReview(id);
+        } else {
+          showAlert(resp.body && resp.body.error ? resp.body.error : t('common.error', 'Error'), 'danger');
+          openReview(id);
+        }
+      })
+      .catch(function(e){
+        showAlert(e && e.message ? e.message : t('common.error', 'Error'), 'danger');
+      })
+      .finally(function(){
+        if (btn.querySelector('span')) btn.querySelector('span').textContent = originalLabel;
+        btn.disabled = false;
+      });
+  }
+
+  function init(){
+    if (!bindListeners()) return;
+    loadHistory().then(tryResumeRunning);
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', init);
+  } else {
+    init();
+  }
+
+  if (window._srNavHandler) document.removeEventListener('app:navigate', window._srNavHandler);
+  window._srNavHandler = function(){
+    if (!document.getElementById('srForm')) {
+      window._sr.gen++;
+      return;
+    }
+    init();
+  };
+  document.addEventListener('app:navigate', window._srNavHandler);
+})();
+/*]]>*/
+</script>
+</th:block>
+</body>
+</html>

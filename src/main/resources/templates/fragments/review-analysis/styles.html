@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" lang="de">
+<body>
+<th:block th:fragment="styles">
+<style>
+  :root {
+    --ra-bg:      var(--app-cream-2);
+    --ra-paper:   var(--app-cream);
+    --ra-ink:     var(--app-text);
+    --ra-muted:   var(--app-text-muted);
+    --ra-line:    var(--app-border);
+    --ra-accent:  var(--app-accent-purple);
+    --ra-accent2: #eab308;
+    --ra-danger: #b91c1c;
+  }
+
+  .ra-page { color: var(--ra-ink); }
+
+  .ra-card {
+    background: var(--ra-paper);
+    border: 1px solid var(--ra-line);
+    border-radius: 18px;
+    padding: 24px;
+    box-shadow: 0 8px 24px rgba(0,0,0,.06);
+    margin-bottom: 20px;
+  }
+  .ra-card h2 { font-size: 17px; font-weight: 700; margin: 0 0 16px; color: var(--ra-ink); }
+  .ra-card h3 { font-size: 14px; font-weight: 700; margin: 12px 0 6px; }
+
+  .ra-label { font-size: 13px; font-weight: 700; color: var(--ra-muted); text-transform: uppercase; letter-spacing: .04em; margin-bottom: 4px; }
+  .ra-input { border: 1.5px solid var(--ra-line); border-radius: 10px; padding: 9px 14px; font-size: 15px; width: 100%; background: var(--ra-paper, #fff); color: var(--ra-ink); }
+  .ra-input:focus { outline: none; border-color: var(--ra-accent); box-shadow: 0 0 0 3px rgba(124, 92, 191,.12); }
+  .ra-select { border: 1.5px solid var(--ra-line); border-radius: 10px; padding: 8px 14px; font-size: 14px; background: var(--ra-paper, #fff); color: var(--ra-ink); box-sizing: border-box; }
+  .ra-select:focus { outline: none; border-color: var(--ra-accent); box-shadow: 0 0 0 3px rgba(124, 92, 191,.12); }
+
+  .ra-btn-primary {
+    background: var(--ra-accent); color: #fff; border: 1.5px solid transparent;
+    border-radius: 10px; padding: 7px 16px; font-size: 13px; font-weight: 700;
+    cursor: pointer; transition: opacity .15s; white-space: nowrap; box-sizing: border-box;
+  }
+  .ra-btn-primary:hover { opacity: .88; }
+  .ra-btn-primary:disabled { opacity: .5; cursor: not-allowed; }
+  .ra-btn-danger {
+    background: #b91c1c; color: #fff; border: 1.5px solid transparent;
+    border-radius: 10px; padding: 7px 16px; font-size: 13px; font-weight: 700;
+    cursor: pointer; transition: opacity .15s; white-space: nowrap; box-sizing: border-box;
+  }
+  .ra-btn-danger:hover { opacity: .88; }
+  .ra-btn-danger:disabled { opacity: .5; cursor: not-allowed; }
+
+  .ra-btn-outline {
+    background: transparent; color: var(--ra-accent);
+    border: 1.5px solid var(--ra-accent); border-radius: 10px;
+    padding: 6px 14px; font-size: 13px; font-weight: 700; cursor: pointer;
+    transition: background .15s;
+  }
+  .ra-btn-outline:hover { background: rgba(124, 92, 191,.08); }
+
+  .ra-progress-wrap { display: none; }
+  .ra-step-list { display: flex; flex-direction: column; gap: 6px; margin-top: 12px; }
+  .ra-step { display: flex; align-items: center; gap: 10px; font-size: 13px; color: var(--ra-muted); }
+  .ra-step.active { color: var(--ra-ink); font-weight: 600; }
+  .ra-step.done { color: var(--ra-accent); }
+  .ra-step-icon { width: 22px; height: 22px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 11px; flex-shrink: 0; }
+  .ra-step-icon.pending { background: var(--ra-line); color: var(--ra-muted); }
+  .ra-step-icon.active { background: var(--ra-accent2); color: #fff; }
+  .ra-step-icon.done { background: var(--ra-accent); color: #fff; }
+
+  .ra-markdown-body h1 { font-size: 20px; font-weight: 700; margin: 22px 0 10px; padding-bottom: 6px; border-bottom: 2px solid var(--ra-line); }
+  .ra-markdown-body h2 { font-size: 17px; font-weight: 700; margin: 20px 0 8px; padding-bottom: 4px; border-bottom: 1px solid var(--ra-line); }
+  .ra-markdown-body h3 { font-size: 15px; font-weight: 700; margin: 14px 0 6px; color: var(--ra-accent, #2563eb); }
+  .ra-markdown-body h4 { font-size: 13px; font-weight: 700; margin: 10px 0 4px; }
+  .ra-markdown-body p { margin: 6px 0; line-height: 1.6; font-size: 14px; overflow-wrap: break-word; word-break: break-word; }
+  .ra-markdown-body ul { list-style-type: disc; margin: 6px 0 6px 22px; padding: 0; font-size: 14px; }
+  .ra-markdown-body ol { list-style-type: decimal; margin: 6px 0 6px 22px; padding: 0; font-size: 14px; }
+  .ra-markdown-body ul ul { list-style-type: circle; margin-top: 2px; margin-bottom: 2px; }
+  .ra-markdown-body ul ul ul { list-style-type: square; }
+  .ra-markdown-body li { margin: 4px 0; overflow-wrap: break-word; word-break: break-word; line-height: 1.55; }
+  .ra-markdown-body hr { border: none; border-top: 1px solid var(--ra-line); margin: 16px 0; }
+  .ra-markdown-body code { background: var(--ra-bg, #f0ede8); border-radius: 4px; padding: 1px 5px; font-size: 12px; }
+  .ra-markdown-body pre { background: var(--ra-bg, #f2f0eb); color: var(--ra-ink); border-radius: 8px; padding: 10px 14px; overflow-x: auto; max-width: 100%; font-size: 12px; line-height: 1.6; }
+  .ra-markdown-body pre code { background: transparent; padding: 0; }
+  .ra-markdown-body blockquote { border-left: 3px solid var(--ra-line); margin-left: 0; padding-left: 12px; color: var(--ra-muted); }
+  .ra-markdown-body strong { font-weight: 700; }
+  .ra-markdown-body em { font-style: italic; }
+  .ra-markdown-body table { border-collapse: collapse; width: 100%; max-width: 100%; font-size: 13px; margin: 10px 0; display: block; overflow-x: auto; }
+  .ra-markdown-body table td, .ra-markdown-body table th { border: 1px solid var(--ra-line); padding: 5px 10px; vertical-align: top; white-space: normal; }
+  .ra-markdown-body table th { background: var(--ra-bg, #f0ede8); font-weight: 600; color: var(--ra-ink); }
+  .ra-markdown-body table tr:nth-child(even) td { background: var(--ra-paper, #faf8f4); }
+
+
+  .ra-result-card { padding: 0; overflow: hidden; }
+  .ra-result-action-bar {
+    background: var(--ra-paper, #fff); border-bottom: 1.5px solid var(--ra-line);
+    padding: 10px 22px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  }
+  .ra-result-action-label {
+    font-size: 10px; font-weight: 800; letter-spacing: .1em;
+    text-transform: uppercase; color: var(--ra-muted); margin-right: 4px;
+  }
+  .ra-dl-chip {
+    display: flex; align-items: center; gap: 5px;
+    background: var(--ra-paper, #fff); border: 1.5px solid var(--ra-line); border-radius: 20px;
+    padding: 5px 13px; font-size: 12px; font-weight: 700; color: var(--ra-ink, #444);
+    cursor: pointer; transition: all .12s;
+  }
+  .ra-dl-chip:hover { border-color: var(--ra-accent); color: var(--ra-accent); background: #edf4f2; }
+  .ra-dl-chip-primary { background: var(--ra-accent); color: #fff; border-color: var(--ra-accent); }
+  .ra-dl-chip-primary:hover { background: #0d5047; }
+  .ra-dl-chip--detected { border-color: #7e57c2; color: #7e57c2; }
+  .ra-dl-chip--detected:hover { border-color: #5e35b1; color: #5e35b1; background: #f3f0fb; }
+  .ra-dl-chip--dashboard { border-color: #126a5a; color: #126a5a; font-weight: 700; }
+  .ra-dl-chip--dashboard:hover { border-color: #0d4f44; color: #0d4f44; background: #edf4f2; }
+  .ra-supported-formats-hint {
+    padding: 6px 16px 6px;
+    font-size: 11.5px; color: var(--ra-muted); background: var(--ra-bg);
+    border-top: 1px solid var(--ra-line);
+  }
+  .ra-supported-formats-hint code { font-size: 11px; background: var(--ra-line); padding: 1px 4px; border-radius: 3px; }
+  .ra-result-content { padding: 28px 30px; overflow-x: hidden; min-width: 0; }
+  .ra-result-done {
+    display: flex; align-items: center; gap: 16px;
+    padding: 24px 28px;
+  }
+  .ra-result-done-icon { font-size: 28px; color: var(--ra-accent); flex-shrink: 0; }
+  .ra-result-done-title { font-size: 15px; font-weight: 700; color: var(--ra-ink); }
+  .ra-result-done-sub { font-size: 13px; color: var(--ra-muted); margin-top: 3px; }
+
+  .ra-pptx-section { margin-top: 16px; }
+  .ra-pptx-dropzone {
+    border: 2px dashed var(--ra-line);
+    border-radius: 10px;
+    padding: 18px 12px;
+    text-align: center;
+    cursor: pointer;
+    transition: border-color .15s, background .15s;
+    background: var(--ra-bg);
+    color: var(--ra-muted);
+  }
+  .ra-pptx-dropzone:hover,
+  .ra-pptx-dropzone:focus { border-color: var(--ra-accent); outline: none; }
+  .ra-pptx-dropzone.ra-drop-over { border-color: var(--ra-accent); background: rgba(124,92,191,.06); }
+  .ra-pptx-dropzone-icon { font-size: 1.8rem; color: var(--ra-accent); display: block; margin-bottom: 6px; }
+  .ra-pptx-dropzone-title { font-size: .9rem; font-weight: 700; color: var(--ra-ink); }
+  .ra-pptx-dropzone-sub { font-size: .75rem; color: var(--ra-muted); margin-top: 2px; }
+  .ra-pptx-chip {
+    display: inline-flex; align-items: center; gap: 6px;
+    background: rgba(124,92,191,.1); color: var(--ra-accent);
+    border-radius: 999px; padding: 4px 10px 4px 10px;
+    font-size: .78rem; font-weight: 600;
+    margin-top: 8px;
+  }
+  .ra-pptx-chip-del {
+    background: none; border: none; cursor: pointer;
+    color: var(--ra-muted); padding: 0; line-height: 1;
+    font-size: .9rem; transition: color .1s;
+  }
+  .ra-pptx-chip-del:hover { color: var(--ra-danger); }
+
+  .ra-pptx-browser-win {
+    background: var(--ra-paper);
+    color: var(--ra-ink);
+    animation: raWinIn .2s ease;
+  }
+  @keyframes raWinIn {
+    from { opacity: 0; transform: translateY(-20px); }
+    to   { opacity: 1; transform: none; }
+  }
+</style>
+<style>
+  @keyframes ra-spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+  .ra-spin { display: inline-block; animation: ra-spin 1.2s linear infinite; }
+</style>
+<style>
+</style>
+</th:block>
+</body>
+</html>

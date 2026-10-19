@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" lang="de">
+<body>
+<th:block th:fragment="scripts">
+<script th:inline="javascript">
+/*<![CDATA[*/
+
+var dashboards = [];
+var rebuiltDashboardData = null;
+
+async function visualizeDashboard(cachedPanelData) {
+  try {
+    if (!window.GrafanaBoard) {
+      let waited = 0;
+      while (!window.GrafanaBoard && waited < 8000) {
+        await new Promise(r => setTimeout(r, 100));
+        waited += 100;
+      }
+    }
+    if (!window.GrafanaBoard) {
+      showAlert((window.i18n ? window.i18n.t('grafana_analysis.visualize_error_no_board') : 'Visualisierung fehlgeschlagen: GrafanaBoard nicht geladen. Bitte Seite neu laden.'), 'danger');
+      return;
+    }
+    var renderPromise = GrafanaBoard.renderFromTextarea(cachedPanelData || null);
+    await renderPromise;
+    saveState();
+  } catch (err) {
+    showAlert((window.i18n ? window.i18n.t('grafana_analysis.visualize_error') : 'Visualisierung fehlgeschlagen') + ': ' + err.message, 'danger');
+  }
+}
+
+var _gaScrollHidden = false;
+
+function _gaHideBackgroundScrollbars() {
+  if (_gaScrollHidden) return;
+  _gaScrollHidden = true;
+  var splitLeft = document.getElementById('splitLeft');
+  if (splitLeft) splitLeft.style.overflowY = 'hidden';
+  var jsonTa = document.getElementById('inputDashboardJson');
+  if (jsonTa) jsonTa.style.overflowY = 'hidden';
+  document.body.style.overflowY = 'hidden';
+}
+function _gaRestoreBackgroundScrollbars() {
+  if (!_gaScrollHidden) return;
+  _gaScrollHidden = false;
+  var splitLeft = document.getElementById('splitLeft');
+  if (splitLeft) splitLeft.style.overflowY = '';
+  var jsonTa = document.getElementById('inputDashboardJson');
+  if (jsonTa) jsonTa.style.overflowY = '';
+  document.body.style.overflowY = '';
+  void document.body.offsetHeight;
+}
+
+
+['inputDashboardJson', 'inputRebuildInstructions'].forEach(id => {
+  document.getElementById(id)?.addEventListener('input', function() { if (typeof saveState === 'function') saveState(); });
+});
+
+(function () {
+  var _autoVizTimer = null;
+  var _lastAutoVizJson = '';
+  var ta = document.getElementById('inputDashboardJson');
+  if (!ta) return;
+  ta.addEventListener('input', function () {
+    clearTimeout(_autoVizTimer);
+    _autoVizTimer = setTimeout(function () {
+      var raw = ta.value.trim();
+      if (!raw || raw === _lastAutoVizJson) return;
+      try {
+        var obj = JSON.parse(raw);
+        var dash = obj.dashboard || obj;
+        if (!Array.isArray(dash.panels) || dash.panels.length === 0) return;
+        _lastAutoVizJson = raw;
+        var pretty = JSON.stringify(obj, null, 2);
+        if (pretty !== ta.value) ta.value = pretty;
+        if (typeof visualizeDashboard === 'function') visualizeDashboard();
+      } catch (_) {  }
+    }, 800);
+  });
+})();
+window.addEventListener('beforeunload', function() { if (typeof saveState === 'function') saveState(); });
+document.addEventListener('visibilitychange', function() { if (document.visibilityState === 'hidden' && typeof saveState === 'function') saveState(); });
+document.addEventListener('click', function(e) {
+  if (e.target.closest('.sidebar-link') && typeof saveState === 'function') saveState();
+}, true);
+
+if (typeof restoreState === 'function') restoreState();
+
+(function() {
+  function _initGaScroll(taId, trackId, thumbId) {
+    var ta    = document.getElementById(taId);
+    var track = document.getElementById(trackId);
+    var thumb = document.getElementById(thumbId);
+    if (ta && track && thumb && window.SLScroll) {
+      return window.SLScroll(ta, track, thumb);
+    }
+    return null;
+  }
+  window._gaJsonScroll        = _initGaScroll('inputDashboardJson',      'gaJsonScrollTrack',       'gaJsonScrollThumb');
+  window._gaRebuildScroll     = _initGaScroll('inputRebuildInstructions','gaRebuildScrollTrack',    'gaRebuildScrollThumb');
+})();
+
+/*]]>*/
+</script>
+<th:block th:replace="~{fragments/grafana-analysis/scripts-dashboard-mgmt :: scripts-dashboard-mgmt}"></th:block>
+<th:block th:replace="~{fragments/grafana-analysis/scripts-helpers-persistence :: scripts-helpers-persistence}"></th:block>
+<th:block th:replace="~{fragments/grafana-analysis/scripts-export-save-browser :: scripts-export-save-browser}"></th:block>
+<th:block th:replace="~{fragments/grafana-analysis/scripts-ki-rebuild :: scripts-ki-rebuild}"></th:block>
+</th:block>
+</body>
+</html>

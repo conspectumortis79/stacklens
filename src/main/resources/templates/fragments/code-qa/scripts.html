@@ -1,0 +1,12 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" lang="de">
+<body>
+<th:block th:fragment="scripts">
+<script th:src="@{/js/marked.min.js}"></script>
+<script th:src="@{/js/mr-violations.js}" data-page-script="1"></script>
+<script th:src="@{/js/mr-link-builder.js}" data-page-script="1"></script>
+<script th:src="@{/js/fragments/code-qa-it-panel.js}" data-page-script="1"></script>
+<script th:src="@{/js/fragments/code-qa.js}" data-page-script="1"></script>
+</th:block>
+</body>
+</html>

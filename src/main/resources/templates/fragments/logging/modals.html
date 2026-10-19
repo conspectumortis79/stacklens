@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" lang="de">
+<body>
+<th:block th:fragment="modals">
+
+<div id="lgFixWriteModal">
+  <div class="lg-fix-modal-backdrop" onclick="lgCloseFixWriteModal()"></div>
+  <div class="lg-fix-modal" role="dialog" aria-modal="true" aria-labelledby="lgFixWriteModalTitle">
+    <div class="lg-fix-modal-head">
+      <i class="bi bi-folder-symlink-fill icon"></i>
+      <span class="title" id="lgFixWriteModalTitle" data-i18n="logging.fix_write_modal_title">Fix-Dateien in Repository schreiben</span>
+      <button class="lg-fix-modal-close" onclick="lgCloseFixWriteModal()" title="Schließen" aria-label="Schließen">&times;</button>
+    </div>
+    <div class="lg-fix-modal-body">
+      <p class="lg-fix-modal-hint" data-i18n="logging.fix_write_hint">Die folgenden Dateien werden im verknüpften Repository erstellt oder überschrieben:</p>
+      <div id="lgFixWriteRepoPath" class="lg-fix-modal-repo-path"></div>
+      <div id="lgFixWriteFileList" class="lg-fix-modal-file-list"></div>
+      <div id="lgFixWriteError" class="lg-fix-modal-error"></div>
+    </div>
+    <div class="lg-fix-modal-foot">
+      <button class="lg-fix-modal-btn lg-fix-modal-btn-cancel" onclick="lgCloseFixWriteModal()">
+        <span data-i18n="common.cancel">Abbrechen</span>
+      </button>
+      <button id="lgBtnFixWriteConfirm" class="lg-fix-modal-btn lg-fix-modal-btn-confirm" onclick="lgConfirmFixWriteFiles()">
+        <i class="bi bi-check-lg me-1"></i><span data-i18n="logging.fix_write_confirm">Jetzt schreiben</span>
+      </button>
+    </div>
+  </div>
+</div>
+
+</th:block>
+</body>
+</html>

@@ -1,0 +1,504 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" lang="de">
+<body>
+<th:block th:fragment="scripts-k6">
+
+<script>
+function ltShowK6(script) {
+  var container = document.getElementById('ltK6Content');
+  var tabK6Btn = document.getElementById('tabBtnLtK6');
+  if (!script) {
+    container.innerHTML = '<div class="lt-empty"><i class="bi bi-code-square"></i>Kein k6-Skript generiert.</div>';
+    if (tabK6Btn) tabK6Btn.style.display = 'none';
+    if (document.getElementById('tabLtK6').classList.contains('active')) ltSwitch('tabLtSummary', document.querySelector('.lt-tab-btn'));
+    return;
+  }
+  if (tabK6Btn) tabK6Btn.style.display = '';
+  _ltK6Script = script;
+  if (_ltK6UserParams) {
+    _ltK6Script = ltPatchK6Script(_ltK6Script, _ltK6UserParams.maxVUs, _ltK6UserParams.rampUpSec, _ltK6UserParams.steadySec, _ltK6UserParams.rampDownSec);
+  }
+  _ltK6Urls = ltParseK6Urls(_ltK6Script);
+  _ltK6Script = ltInjectMissingThresholds(_ltK6Script);
+  _ltK6Stages = ltParseK6Stages(_ltK6Script);
+  var _k6p = _ltK6UserParams || ltParseK6Params(_ltK6Script);
+  var _newUrlKeySet = new Set(_ltK6Urls.map(function(u) { return u.method + ' ' + u.path; }));
+  if (_ltK6SelectedUrls === null) {
+    _ltK6SelectedUrls = new Set(_newUrlKeySet);
+  } else {
+    var _preserved = new Set();
+    _ltK6SelectedUrls.forEach(function(k) { if (_newUrlKeySet.has(k)) _preserved.add(k); });
+    _ltK6SelectedUrls = _preserved.size > 0 ? _preserved : new Set(_newUrlKeySet);
+  }
+  var urlPillsHtml = _ltK6Urls.map(function(u) {
+    var key = u.method + ' ' + u.path;
+    var sel = _ltK6SelectedUrls.has(key);
+    return '<span class="lt-k6-urlpill lt-k6-urlpill-toggle' + (sel ? '' : ' deselected') + '" data-key="' + escHtml(key) + '" onclick="ltToggleK6Url(this)" title="Klicken um Endpunkt ein-/auszuschlie\xdfen">' +
+      '<span class="lt-k6-urlmethod ' + escHtml(u.method) + '">' + escHtml(u.method) + '</span>' + escHtml(u.path) + '</span>';
+  }).join('');
+  container.innerHTML =
+    '<div class="lt-k6-ready-card" id="ltK6ReadyCard">' +
+      ltEnvSelectorHtml() +
+      '<div class="lt-k6-ready-header">' +
+        '<i class="bi bi-file-earmark-code" style="font-size:1.6rem;color:var(--lt-green);flex-shrink:0;"></i>' +
+        '<div>' +
+          '<div style="font-weight:800;font-size:15px;color:var(--lt-ink);">' + (window.i18n ? window.i18n.t('load_test.k6_script_ready') : 'k6-Skript bereit') + '</div>' +
+          '<div id="ltK6UrlsCounter" style="font-size:12px;color:var(--lt-muted);">' + (_ltK6Urls.length ? _ltK6Urls.length + ' ' + (window.i18n ? (_ltK6Urls.length !== 1 ? window.i18n.t('load_test.endpoints_tested_plural') : window.i18n.t('load_test.endpoints_tested_singular')) : (_ltK6Urls.length !== 1 ? 'Endpunkte werden getestet' : 'Endpunkt wird getestet')) : (window.i18n ? window.i18n.t('load_test.script_ready') : 'Skript bereit zum Ausführen')) + '</div>' +
+        '</div>' +
+      '</div>' +
+      (_ltK6Urls.length ? '<div class="lt-k6-urlpills" style="margin-bottom:14px;">' + urlPillsHtml + '</div>' : '') +
+      '<div class="lt-k6-actions" style="margin-bottom:0;">' +
+        '<button class="btn btn-sm btn-outline-secondary" style="border-radius:999px;font-size:12px;" onclick="ltOpenSaveOverlay(\u0027k6\u0027)">' +
+          '<i class="bi bi-floppy me-1"></i>Skript (.js)</button>' +
+        '<button class="btn btn-sm btn-success" style="border-radius:999px;font-size:12px;" id="ltK6RunBtn" onclick="ltRunK6()">' +
+          '<i class="bi bi-play-fill me-1"></i>Ausf\u00fchren</button>' +
+        '<button class="btn btn-sm btn-warning" style="border-radius:999px;font-size:12px;display:none;" id="ltK6StopBtn" onclick="ltStopK6()">' +
+          '<i class="bi bi-stop-fill me-1"></i>Stopp</button>' +
+      '</div>' +
+      '<div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--lt-border);">' +
+        '<div style="display:flex;align-items:center;gap:8px;">' +
+          '<i class="bi bi-shield-lock" style="font-size:12px;color:var(--lt-muted);flex-shrink:0;"></i>' +
+          '<input id="ltK6BearerInput" type="password" placeholder="' + (window.i18n ? window.i18n.t('load_test.bearer_placeholder') : 'Bearer Token (leer = keine Authentifizierung)') + '" ' +
+            'style="flex:1;font-size:11px;font-family:monospace;padding:3px 8px;border:1px solid var(--lt-border);border-radius:6px;background:var(--lt-bg,#faf8f4);color:var(--lt-ink);outline:none;" ' +
+            'oninput="ltSaveBearerToken(\'k6\')" />' +
+          '<button onclick="ltToggleBearerVisible(\'ltK6BearerInput\',this)" title="anzeigen" ' +
+            'style="background:none;border:none;padding:2px 4px;cursor:pointer;color:var(--lt-muted);font-size:12px;">' +
+            '<i class="bi bi-eye"></i></button>' +
+        '</div>' +
+      '</div>' +
+      ltK6ParamsPanelHtml(_k6p) +
+    '</div>' +
+    '<textarea id="ltK6Block" class="lt-k6-block" style="display:none;margin-bottom:14px;min-height:240px;resize:vertical;width:100%;box-sizing:border-box;font-family:monospace;font-size:11px;white-space:pre;" oninput="_ltK6Script=this.value;">' + escHtml(_ltK6Script) + '</textarea>' +
+    '<div id="ltK6ErrorBanner" style="display:none;padding:10px 14px;margin-bottom:12px;background:#fee2e2;border:1px solid #fca5a5;border-radius:10px;color:#b91c1c;font-size:13px;font-weight:600;"></div>' +
+    '<div id="ltK6Progress" style="display:none;" class="lt-k6-progress">' +
+      '<div style="display:flex;align-items:center;justify-content:space-between;">' +
+        '<span style="font-size:13px;font-weight:700;color:var(--lt-ink);" id="ltK6ProgLabel">k6 l\u00e4uft\u2026</span>' +
+        '<span style="font-size:12px;color:var(--lt-muted);font-family:monospace;" id="ltK6ProgMeta"></span>' +
+      '</div>' +
+      '<div style="display:flex;align-items:center;gap:10px;">' +
+        '<div class="lt-k6-pbar-track" style="flex:1;margin:8px 0 6px;"><div class="lt-k6-pbar-fill" id="ltK6PbarFill" style="width:0%"></div></div>' +
+        '<span id="ltK6PbarPct" style="font-size:15px;font-weight:900;color:var(--lt-accent);min-width:42px;text-align:right;line-height:1;">0%</span>' +
+      '</div>' +
+      '<div style="display:flex;gap:16px;font-size:11px;color:var(--lt-muted);margin-bottom:8px;">' +
+        '<span id="ltK6ProgVUs"></span>' +
+        '<span id="ltK6ProgStage"></span>' +
+      '</div>' +
+      (_ltK6Stages.length > 1 ? '<div id="ltK6StagesBar" style="margin-bottom:10px;"></div>' : '') +
+    '</div>' +
+    '<div id="ltK6Ampel" style="display:none;margin-bottom:14px;"></div>' +
+    '<div id="ltK6MetricsGrid" style="display:none;" class="lt-k6-metrics"></div>' +
+    '<div id="ltK6EndpointTable" style="display:none;margin-bottom:12px;"></div>' +
+    '<div id="ltK6ResultChart" style="display:none;margin-bottom:14px;"></div>' +
+    '<div id="ltK6VuChart" style="display:none;margin-bottom:14px;"></div>' +
+    '<div id="ltK6Waterfall" style="display:none;margin-bottom:14px;"></div>' +
+    '<div id="ltK6Checks" style="display:none;margin-bottom:14px;"></div>' +
+    '';
+  ltRestoreBearerToken('k6');
+}
+function ltToggleK6Url(pill) {
+  if (!_ltK6SelectedUrls || !pill) return;
+  var key = pill.getAttribute('data-key');
+  if (!key) return;
+  if (_ltK6SelectedUrls.has(key)) {
+    if (_ltK6SelectedUrls.size <= 1) return;
+    _ltK6SelectedUrls.delete(key);
+    pill.classList.add('deselected');
+  } else {
+    _ltK6SelectedUrls.add(key);
+    pill.classList.remove('deselected');
+  }
+  var counter = document.getElementById('ltK6UrlsCounter');
+  if (counter && _ltK6Urls.length) {
+    var sel = _ltK6SelectedUrls.size;
+    var tot = _ltK6Urls.length;
+    if (sel === tot) {
+      counter.textContent = tot + (tot !== 1 ? ' Endpunkte werden getestet' : ' Endpunkt wird getestet');
+    } else {
+      counter.textContent = sel + ' von ' + tot + ' Endpunkten ausgewählt';
+    }
+  }
+}
+function ltFilterK6Script(script) {
+  if (!script || !_ltK6SelectedUrls || !_ltK6Urls || !_ltK6Urls.length) return script;
+  if (_ltK6SelectedUrls.size >= _ltK6Urls.length) return script;
+  var deselected = _ltK6Urls.filter(function(u) { return !_ltK6SelectedUrls.has(u.method + ' ' + u.path); });
+  if (!deselected.length) return script;
+  var result = script;
+  deselected.forEach(function(u) {
+    var ek = (u.method + ' ' + u.path).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    result = result.replace(new RegExp("[ \\t]*'http_req_duration\\{name:" + ek + "\\}'[^\\n]*\\n?", 'g'), '');
+    result = result.replace(new RegExp("[ \\t]*'http_req_failed\\{name:" + ek + "\\}'[^\\n]*\\n?", 'g'), '');
+  });
+  var deselectedKeys = deselected.map(function(u) { return u.method + ' ' + u.path; });
+  var lines = result.split('\n');
+  var out = [];
+  var i = 0;
+  while (i < lines.length) {
+    var ln = lines[i];
+    if (/(?:const|let|var\s+\w+\s*=\s*)?http\.(get|post|put|delete|patch|del)\s*\(/i.test(ln)) {
+      var stmtLines = [ln];
+      var depth = 0;
+      for (var ci = 0; ci < ln.length; ci++) { if (ln[ci] === '(') depth++; else if (ln[ci] === ')') depth--; }
+      var j = i;
+      while (depth > 0 && j + 1 < lines.length) {
+        j++;
+        stmtLines.push(lines[j]);
+        for (var ci2 = 0; ci2 < lines[j].length; ci2++) { if (lines[j][ci2] === '(') depth++; else if (lines[j][ci2] === ')') depth--; }
+      }
+      var stmtText = stmtLines.join('\n');
+      var isDeselected = deselectedKeys.some(function(key) {
+        return stmtText.indexOf('name:') !== -1 && stmtText.indexOf(key) !== -1;
+      });
+      if (isDeselected) {
+        stmtLines.forEach(function(sl) { out.push('// ' + sl); });
+      } else {
+        stmtLines.forEach(function(sl) { out.push(sl); });
+      }
+      i = j + 1;
+    } else {
+      out.push(ln);
+      i++;
+    }
+  }
+  return out.join('\n');
+}
+function ltParseK6Urls(script) {
+  if (!script) return [];
+  var urls = [], seen = {};
+  var re = /http\.(get|post|put|delete|patch|del)\s*\([^,)]*?['"`](\/[^'"`\n]+)/gi;
+  var m;
+  while ((m = re.exec(script)) !== null) {
+    var method = m[1].toUpperCase().replace('DEL', 'DELETE');
+    var path = m[2].split('?')[0];
+    var key = method + path;
+    if (!seen[key] && urls.length < 12) { seen[key] = true; urls.push({method: method, path: path}); }
+  }
+  return urls;
+}
+function ltParseK6Stages(script) {
+  if (!script) return [];
+  var stages = [];
+  var re = /duration\s*:\s*['"`]?(\d+(?:\.\d+)?)(s|m|h)['"`]?\s*,\s*target\s*:\s*(\d+)/gi;
+  var m;
+  while ((m = re.exec(script)) !== null) {
+    var mult = m[2] === 'm' ? 60 : m[2] === 'h' ? 3600 : 1;
+    stages.push({duration: parseFloat(m[1]) * mult, target: parseInt(m[3])});
+  }
+  return stages;
+}
+function ltGetStageName(pct) {
+  if (!_ltK6Stages || !_ltK6Stages.length) {
+    return pct < 30 ? (window.i18n ? window.i18n.t('load_test.phase_warmup') : 'Aufwärmphase') : pct < 80 ? (window.i18n ? window.i18n.t('load_test.phase_load') : 'Lastphase') : (window.i18n ? window.i18n.t('load_test.phase_cooldown') : 'Abkühlphase');
+  }
+  var total = _ltK6Stages.reduce(function(s, st) { return s + st.duration; }, 0);
+  var elapsed = total * pct / 100;
+  var cum = 0, prevTarget = 0;
+  for (var i = 0; i < _ltK6Stages.length; i++) {
+    cum += _ltK6Stages[i].duration;
+    if (elapsed <= cum) {
+      var t = _ltK6Stages[i].target;
+      if (t > prevTarget) return (window.i18n ? window.i18n.t('load_test.phase_warmup_rampup') : 'Aufwärmphase (Ramp-up)');
+      if (t < prevTarget) return (window.i18n ? window.i18n.t('load_test.phase_cooldown_rampdown') : 'Abkühlphase (Ramp-down)');
+      return (window.i18n ? window.i18n.t('load_test.phase_load') : 'Lastphase');
+    }
+    prevTarget = _ltK6Stages[i].target;
+  }
+  return (window.i18n ? window.i18n.t('load_test.phase_cooldown') : 'Abkühlphase');
+}
+function ltParseDuration(s) {
+  if (!s) return 0;
+  var total = 0;
+  var hm = s.match(/(\d+)h/);      if (hm) total += parseInt(hm[1]) * 3600;
+  var mm = s.match(/(\d+)m(?!s)/); if (mm) total += parseInt(mm[1]) * 60;
+  var sm = s.match(/([\d.]+)s/);   if (sm) total += parseFloat(sm[1]);
+  return total;
+}
+function ltFormatDuration(sec) {
+  sec = Math.round(Math.max(0, sec));
+  var h = Math.floor(sec / 3600);
+  var m = Math.floor((sec % 3600) / 60);
+  var s = sec % 60;
+  if (h > 0) return h + 'h ' + String(m).padStart(2,'0') + 'm ' + String(s).padStart(2,'0') + 's';
+  if (m > 0) return m + 'm ' + String(s).padStart(2,'0') + 's';
+  return s + 's';
+}
+function ltParseK6Params(script) {
+  var result = { maxVUs: 20, rampUpSec: 30, steadySec: 60, rampDownSec: 10 };
+  if (!script) return result;
+  var range = ltFindStagesRange(script);
+  if (!range) return result;
+  var stagesContent = script.slice(range.arrStart + 1, range.arrEnd);
+  var entries = [], re = /duration\s*:\s*['"`]?(\d+(?:\.\d+)?)(s|m|h)['"`]?\s*,\s*target\s*:\s*(\d+)/gi, m;
+  while ((m = re.exec(stagesContent)) !== null) {
+    var mult = m[2] === 'm' ? 60 : m[2] === 'h' ? 3600 : 1;
+    entries.push({ duration: parseFloat(m[1]) * mult, target: parseInt(m[3]) });
+  }
+  if (!entries.length) return result;
+  var maxVUs = Math.max.apply(null, entries.map(function(e) { return e.target; }));
+  result.maxVUs = maxVUs;
+  var peakIdx = entries.reduce(function(best, e, i) { return e.target >= maxVUs ? i : best; }, 0);
+  result.rampUpSec = Math.round(entries.slice(0, peakIdx).reduce(function(s, e) { return s + e.duration; }, 0));
+  var last = entries[entries.length - 1];
+  if (last.target === 0) {
+    result.rampDownSec = Math.round(last.duration);
+    var mid = entries.slice(peakIdx, entries.length - 1);
+    result.steadySec = Math.round(mid.length ? mid.reduce(function(s, e) { return s + e.duration; }, 0) : (entries[peakIdx] ? entries[peakIdx].duration : 60));
+  } else {
+    result.rampDownSec = 0;
+    result.steadySec = Math.round(entries.slice(peakIdx).reduce(function(s, e) { return s + e.duration; }, 0));
+  }
+  return result;
+}
+function ltInjectMissingThresholds(script) {
+  if (!script) return script;
+  var labelSet = {};
+  var tagRe = /tags\s*:\s*\{[^}]*name\s*:\s*['"`]([^'"`\n]+)['"`]/g;
+  var tm;
+  while ((tm = tagRe.exec(script)) !== null) { labelSet[tm[1].trim()] = true; }
+  if (!Object.keys(labelSet).length) {
+    var urlRe = /http\.(get|post|put|delete|patch|del)\s*\([^,)]*?['"`](\/[^'"`\n]+)/gi;
+    var um;
+    while ((um = urlRe.exec(script)) !== null) {
+      var mth = um[1].toUpperCase().replace('DEL', 'DELETE');
+      var pth = um[2].split('?')[0];
+      labelSet[mth + ' ' + pth] = true;
+    }
+  }
+  var labels = Object.keys(labelSet);
+  if (!labels.length) return script;
+  var thIdx = script.indexOf('thresholds');
+  if (thIdx === -1) return script;
+  var openIdx = script.indexOf('{', thIdx);
+  if (openIdx === -1) return script;
+  var depth = 1, i = openIdx + 1, inStr = false, strChar = '';
+  while (i < script.length && depth > 0) {
+    var c = script[i];
+    if (inStr) {
+      if (c === strChar && script[i - 1] !== '\\') inStr = false;
+    } else if (c === '"' || c === "'" || c === '`') {
+      inStr = true; strChar = c;
+    } else if (c === '{') { depth++;
+    } else if (c === '}') { depth--; }
+    i++;
+  }
+  var closePos = i - 1;
+  var thContent = script.slice(openIdx, closePos);
+  var toAdd = [];
+  labels.forEach(function(label) {
+    if (thContent.indexOf('name:' + label) === -1) {
+      toAdd.push(
+        "  'http_req_duration{name:" + label + "}': ['p(95)<2000'],\n" +
+        "  'http_req_failed{name:" + label + "}':   ['rate<0.1'],"
+      );
+    }
+  });
+  if (!toAdd.length) return script;
+  return script.slice(0, closePos) + '\n' + toAdd.join('\n') + '\n' + script.slice(closePos);
+}
+function ltFindStagesRange(script) {
+  var keyRe = /stages\s*:\s*/g, m;
+  while ((m = keyRe.exec(script)) !== null) {
+    var openIdx = m.index + m[0].length;
+    if (script[openIdx] !== '[') continue;
+    var depth = 1, i = openIdx + 1, inStr = false, strChar = '';
+    while (i < script.length && depth > 0) {
+      var c = script[i];
+      if (inStr) {
+        if (c === strChar && script[i - 1] !== '\\') inStr = false;
+      } else if (c === '"' || c === "'" || c === '`') {
+        inStr = true; strChar = c;
+      } else if (c === '[') { depth++;
+      } else if (c === ']') { depth--; }
+      i++;
+    }
+    if (depth === 0) return { keyStart: m.index, arrStart: openIdx, arrEnd: i - 1 };
+  }
+  return null;
+}
+function ltPatchK6Script(script, maxVUs, rampUpSec, steadySec, rampDownSec) {
+  if (!script) return script;
+  var stages = [];
+  if (rampUpSec > 0) stages.push("{ duration: '" + rampUpSec + "s', target: " + maxVUs + " }");
+  if (steadySec > 0) stages.push("{ duration: '" + steadySec + "s', target: " + maxVUs + " }");
+  if (rampDownSec > 0) stages.push("{ duration: '" + rampDownSec + "s', target: 0 }");
+  var stagesStr = "[\n    " + stages.join(",\n    ") + "\n  ]";
+  var range = ltFindStagesRange(script);
+  if (!range) return script;
+  return script.slice(0, range.arrStart) + stagesStr + script.slice(range.arrEnd + 1);
+}
+function ltApplyK6Params() {
+  var maxVUs      = parseInt(document.getElementById('ltK6ParamVUs').value)    || 20;
+  var rampUpSec   = parseInt(document.getElementById('ltK6ParamRampUp').value) || 0;
+  var steadySec   = parseInt(document.getElementById('ltK6ParamSteady').value) || 60;
+  var rampDownSec = parseInt(document.getElementById('ltK6ParamRampDown').value) || 0;
+  if (!_ltK6Script) return;
+  _ltK6UserParams = { maxVUs: maxVUs, rampUpSec: rampUpSec, steadySec: steadySec, rampDownSec: rampDownSec };
+  var _k6Before = _ltK6Script;
+  _ltK6Script = ltPatchK6Script(_ltK6Script, maxVUs, rampUpSec, steadySec, rampDownSec);
+  var _patched = _ltK6Script !== _k6Before;
+  if (_patched) {
+    _ltK6Stages = ltParseK6Stages(_ltK6Script);
+  }
+  var ta = document.getElementById('ltK6Block');
+  if (ta) ta.value = _ltK6Script;
+  var fb = document.getElementById('ltK6ParamApplied');
+  if (fb) {
+    if (_patched) {
+      fb.textContent = '\u2713 ' + maxVUs + ' VUs \u00b7 ' + steadySec + 's ' + (window.i18n ? window.i18n.t('load_test.js_k6_applied') : 'angewendet');
+      fb.style.color = '#40a070';
+    } else {
+      fb.textContent = '\u26a0 ' + (window.i18n ? window.i18n.t('load_test.js_k6_not_applied') : 'Nicht übernommen – stages-Format nicht erkannt');
+      fb.style.color = '#b45309';
+    }
+    fb.style.display = '';
+    setTimeout(function() { fb.style.display = 'none'; }, 4000);
+  }
+}
+function ltK6ParamsPanelHtml(p) {
+  var iStyle = 'width:100%;font-size:12px;padding:4px 8px;border:1px solid var(--lt-border);border-radius:6px;background:var(--lt-bg,#faf8f4);color:var(--lt-ink);box-sizing:border-box;';
+  var lStyle = 'font-size:10px;color:var(--lt-muted);font-weight:700;margin-bottom:3px;display:flex;align-items:center;gap:3px;';
+  return '<div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--lt-border);">' +
+    '<div style="display:flex;align-items:center;gap:6px;margin-bottom:10px;">' +
+      '<i class="bi bi-sliders" style="font-size:12px;color:var(--lt-muted);"></i>' +
+      '<span style="font-size:12px;color:var(--lt-muted);font-weight:600;">Lastparameter anpassen</span>' +
+    '</div>' +
+    '<div id="ltK6ParamsPanel">' +
+      '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:8px;margin-bottom:10px;">' +
+        '<div><div style="' + lStyle + '"><span>Peak VUs</span>' + ltInfoBtn('load_test.param_peak_vus_info', 'Maximale Anzahl gleichzeitig aktiver virtueller Nutzer auf dem Höhepunkt der Last.') + '</div><input id="ltK6ParamVUs" type="number" min="1" max="10000" value="' + p.maxVUs + '" style="' + iStyle + '"/></div>' +
+        '<div><div style="' + lStyle + '"><span>Ramp-up (s)</span>' + ltInfoBtn('load_test.param_ramp_up_info', 'Zeit in Sekunden, in der die Nutzerzahl von 0 schrittweise auf Peak VUs erhöht wird.') + '</div><input id="ltK6ParamRampUp" type="number" min="0" max="3600" value="' + p.rampUpSec + '" style="' + iStyle + '"/></div>' +
+        '<div><div style="' + lStyle + '"><span>Steady-state (s)</span>' + ltInfoBtn('load_test.param_steady_info', 'Zeit in Sekunden, in der die Last konstant bei Peak VUs gehalten wird – die eigentliche Lastphase.') + '</div><input id="ltK6ParamSteady" type="number" min="0" max="86400" value="' + p.steadySec + '" style="' + iStyle + '"/></div>' +
+        '<div><div style="' + lStyle + '"><span>Ramp-down (s)</span>' + ltInfoBtn('load_test.param_ramp_down_info', 'Zeit in Sekunden, in der die Nutzerzahl nach der Lastphase schrittweise auf 0 abgesenkt wird.') + '</div><input id="ltK6ParamRampDown" type="number" min="0" max="3600" value="' + p.rampDownSec + '" style="' + iStyle + '"/></div>' +
+      '</div>' +
+      '<button type="button" class="btn btn-sm btn-outline-success" style="border-radius:999px;font-size:11px;" onclick="ltApplyK6Params()">' +
+        '<i class="bi bi-check2 me-1"></i>\u00dcbernehmen</button>' +
+      '<span id="ltK6ParamApplied" style="font-size:11px;color:#40a070;display:none;margin-left:8px;">\u2713 Angewendet</span>' +
+    '</div>' +
+  '</div>';
+}
+
+function ltInfoBtn(key, fallback) {
+  var text = (window.i18n ? window.i18n.t(key) : null) || fallback;
+  return '<button class="lt-tile-info-btn" tabindex="-1"><i class="bi bi-info-circle"></i><span class="lt-tile-info-popup">' + escHtml(text) + '</span></button>';
+}
+function ltRenderAmpel(items) {
+  var cfg = {
+    green:  {bg:'#f0faf7', border:'#7c5cbf', valColor:'#7c5cbf'},
+    yellow: {bg:'#fffbeb', border:'#f59e0b', valColor:'#d97706'},
+    red:    {bg:'#fef2f2', border:'#ef4444', valColor:'#dc2626'}
+  };
+  return '<div class="lt-ampel-row">' +
+    items.map(function(it) {
+      var c = cfg[it.color] || cfg.green;
+      return '<div class="lt-ampel-card" style="background:' + c.bg + ';border:1px solid ' + c.border + '30;border-left:4px solid ' + c.border + ';">' +
+        '<div class="lt-ampel-label"><i class="' + it.icon + '"></i>' + escHtml(it.label) + '</div>' +
+        '<div class="lt-ampel-value" style="color:' + c.valColor + ';">' + escHtml(it.value) + '</div>' +
+        (it.sub ? '<div class="lt-ampel-sub">' + escHtml(it.sub) + '</div>' : '') +
+      '</div>';
+    }).join('') +
+  '</div>';
+}
+
+function ltRenderRtRangeSvg(pts) {
+  if (!pts || pts.length < 2) return '';
+  var W = 560, H = 90, padL = 44, padR = 24, axisY = 44;
+  var minMs = pts[0].ms, maxMs = pts[pts.length - 1].ms;
+  if (minMs >= maxMs) maxMs = minMs + 1;
+  function xOf(ms) { return padL + (ms - minMs) / (maxMs - minMs) * (W - padL - padR); }
+  function fmtMs(ms) { return ms >= 1000 ? (ms / 1000).toFixed(1) + 's' : Math.round(ms) + 'ms'; }
+  var s = '<svg viewBox="0 0 560 90" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:90px;display:block;">';
+  s += '<line x1="' + xOf(minMs) + '" y1="' + axisY + '" x2="' + xOf(maxMs) + '" y2="' + axisY + '" stroke="#ddd7cb" stroke-width="5" stroke-linecap="round"/>';
+  var avgPt = null, p95Pt = null;
+  pts.forEach(function(p) { if (p.label === 'avg') avgPt = p; if (p.label === 'p95') p95Pt = p; });
+  if (avgPt && p95Pt) {
+    s += '<line x1="' + xOf(avgPt.ms) + '" y1="' + axisY + '" x2="' + xOf(p95Pt.ms) + '" y2="' + axisY + '" stroke="#6366f1" stroke-width="5" stroke-linecap="round" opacity="0.45"/>';
+  }
+  pts.forEach(function(pt, i) {
+    var x = xOf(pt.ms);
+    var below = (i % 2 !== 0);
+    var lblY = below ? axisY + 19 : axisY - 11;
+    var valY = below ? axisY + 31 : axisY - 24;
+    s += '<line x1="' + x + '" y1="' + axisY + '" x2="' + x + '" y2="' + (below ? axisY + 7 : axisY - 7) + '" stroke="' + pt.color + '" stroke-width="1.5"/>';
+    s += '<circle cx="' + x + '" cy="' + axisY + '" r="5" fill="' + pt.color + '" stroke="white" stroke-width="1.5"/>';
+    s += '<text x="' + x + '" y="' + lblY + '" text-anchor="middle" font-size="9" fill="#6a665f" font-family="system-ui,sans-serif">' + pt.label + '</text>';
+    s += '<text x="' + x + '" y="' + valY + '" text-anchor="middle" font-size="9.5" font-weight="700" fill="#1f1f1f" font-family="monospace,system-ui">' + fmtMs(pt.ms) + '</text>';
+  });
+  s += '</svg>';
+  return s;
+}
+
+function ltRenderVuProfileSvg(stages) {
+  if (!stages || !stages.length) return '';
+  var W = 560, H = 90, padL = 38, padR = 16, padT = 14, padB = 22;
+  var totalDur = stages.reduce(function(s, st) { return s + st.duration; }, 0);
+  var maxVUs   = stages.reduce(function(mx, st) { return Math.max(mx, st.target); }, 0);
+  if (totalDur === 0 || maxVUs === 0) return '';
+  var innerW = W - padL - padR, innerH = H - padT - padB;
+  function xOf(t) { return padL + t / totalDur * innerW; }
+  function yOf(v) { return padT + (1 - v / maxVUs) * innerH; }
+  function fmtT(sec) { return sec >= 3600 ? Math.round(sec / 3600) + 'h' : sec >= 60 ? Math.round(sec / 60) + 'm' : sec + 's'; }
+  var d = 'M ' + xOf(0) + ' ' + yOf(0);
+  var t = 0;
+  stages.forEach(function(st) { t += st.duration; d += ' L ' + xOf(t) + ' ' + yOf(st.target); });
+  var fillD = d + ' L ' + xOf(totalDur) + ' ' + yOf(0) + ' L ' + xOf(0) + ' ' + yOf(0) + ' Z';
+  var s = '<svg viewBox="0 0 560 90" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:90px;display:block;">';
+  s += '<line x1="' + padL + '" y1="' + yOf(0) + '" x2="' + (W - padR) + '" y2="' + yOf(0) + '" stroke="#ddd7cb" stroke-width="1"/>';
+  s += '<line x1="' + padL + '" y1="' + yOf(maxVUs) + '" x2="' + (W - padR) + '" y2="' + yOf(maxVUs) + '" stroke="#ddd7cb" stroke-width="1" stroke-dasharray="3,3"/>';
+  s += '<path d="' + fillD + '" fill="#b91c1c" opacity="0.09"/>';
+  s += '<path d="' + d + '" fill="none" stroke="#b91c1c" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>';
+  s += '<text x="' + (padL - 5) + '" y="' + (yOf(maxVUs) + 4) + '" text-anchor="end" font-size="9" fill="#6a665f" font-family="system-ui,sans-serif">' + maxVUs + ' VUs</text>';
+  s += '<text x="' + (padL - 5) + '" y="' + (yOf(0) - 2) + '" text-anchor="end" font-size="9" fill="#6a665f" font-family="system-ui,sans-serif">0</text>';
+  s += '<text x="' + xOf(0) + '" y="' + (H - 4) + '" text-anchor="middle" font-size="9" fill="#6a665f" font-family="system-ui,sans-serif">0</text>';
+  s += '<text x="' + xOf(totalDur / 2) + '" y="' + (H - 4) + '" text-anchor="middle" font-size="9" fill="#6a665f" font-family="system-ui,sans-serif">' + fmtT(totalDur / 2) + '</text>';
+  s += '<text x="' + xOf(totalDur) + '" y="' + (H - 4) + '" text-anchor="middle" font-size="9" fill="#6a665f" font-family="system-ui,sans-serif">' + fmtT(totalDur) + '</text>';
+  s += '</svg>';
+  return s;
+}
+function ltParseMs(s) {
+  if (!s) return null;
+  var m = s.match(/([\d.]+)\s*(ms|µs|s)/);
+  if (!m) return null;
+  var v = parseFloat(m[1]);
+  if (m[2] === 'µs') return v / 1000;
+  if (m[2] === 's') return v * 1000;
+  return v;
+}
+function ltK6SummaryReady(out) {
+  if (!out) return false;
+  if (/^\s*default\s+[✓✗]?\s+\[\s*100%\s*\]/m.test(out)) return true;
+  if (/^\s*checks[. ]+:/m.test(out)) return true;
+  if (/running \(\d+[smhµ]+\),\s*\d+\s+VUs?,/.test(out) && /█\s*TOTAL RESULTS/i.test(out)) return true;
+  return false;
+}
+function ltGetBearerTokenKey(tool) {
+  return 'lt_bearer_' + (ltCurrentAnalysisId || 'na') + '_' + tool;
+}
+function ltSaveBearerToken(tool) {
+  var id = 'ltK6BearerInput';
+  var el = document.getElementById(id);
+  if (!el) return;
+  try { localStorage.setItem(ltGetBearerTokenKey(tool), el.value); } catch(e) {}
+}
+function ltRestoreBearerToken(tool) {
+  var id = 'ltK6BearerInput';
+  var el = document.getElementById(id);
+  if (!el) return;
+  try { el.value = localStorage.getItem(ltGetBearerTokenKey(tool)) || ''; } catch(e) {}
+}
+function ltToggleBearerVisible(inputId, btn) {
+  var el = document.getElementById(inputId);
+  if (!el) return;
+  var show = el.type === 'password';
+  el.type = show ? 'text' : 'password';
+  btn.innerHTML = show ? '<i class="bi bi-eye-slash"></i>' : '<i class="bi bi-eye"></i>';
+}
+function ltGetBearerToken(tool) {
+  var id = 'ltK6BearerInput';
+  var el = document.getElementById(id);
+  if (el && el.value.trim()) return el.value.trim();
+  try { return localStorage.getItem(ltGetBearerTokenKey(tool)) || ''; } catch(e) { return ''; }
+}
+</script>
+<th:block th:replace="~{fragments/lasttest-analysis/scripts-k6-run :: scripts-k6-run}"></th:block>
+</th:block>
+</body>
+</html>

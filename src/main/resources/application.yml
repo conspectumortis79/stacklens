@@ -1,0 +1,135 @@
+spring:
+  main:
+    lazy-initialization: true
+    banner-mode: ${SPRING_MAIN_BANNER_MODE:off}
+  reactor:
+    netty:
+      shutdown-quiet-period: 1ms
+      shutdown-timeout: 1ms
+  jmx:
+    enabled: false
+  application:
+    name: stacklens
+  mvc:
+    servlet:
+      load-on-startup: 1
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:h2:file:${user.home}/.stacklens/data/stacklens;MODE=PostgreSQL;WRITE_DELAY=500;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE}
+    username: ${SPRING_DATASOURCE_USERNAME:sa}
+    password: ${SPRING_DATASOURCE_PASSWORD:}
+    driver-class-name: org.h2.Driver
+    hikari:
+      maximum-pool-size: ${HIKARI_MAX_POOL:30}
+      minimum-idle: ${HIKARI_MIN_IDLE:1}
+      connection-timeout: ${HIKARI_CONNECT_TIMEOUT:20000}
+      max-lifetime: ${HIKARI_MAX_LIFETIME:600000}
+      validation-timeout: 5000
+      pool-name: StackLensHikariPool
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: ${SPRING_JPA_HIBERNATE_DDL_AUTO:update}
+    show-sql: false
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.H2Dialect
+        boot.allow_jdbc_metadata_access: false
+  thymeleaf:
+    cache: ${THYMELEAF_CACHE:true}
+    mode: HTML
+  servlet:
+    multipart:
+      max-file-size: 50MB
+      max-request-size: 52MB
+  web:
+    resources:
+      chain:
+        strategy:
+          content:
+            enabled: true
+            paths: /**
+  lifecycle:
+    timeout-per-shutdown-phase: 200ms
+  jackson:
+    serialization:
+      write-dates-as-timestamps: false
+    deserialization:
+      fail-on-unknown-properties: false
+
+server:
+  shutdown: immediate
+  address: ${SERVER_ADDRESS:127.0.0.1}
+  port: ${SERVER_PORT:8090}
+  tomcat:
+    socket:
+      app-write-buf-size: 65536
+
+logging:
+  level:
+    com.stacklens: ${LOG_LEVEL:WARN}
+    org.springframework.web: WARN
+    org.apache.catalina.connector.CoyoteAdapter: WARN
+    reactor.netty.http.client.HttpClientConnect: ERROR
+
+webclient:
+  connect-timeout: 30000
+  read-timeout: 180000
+
+async:
+  search:
+    core-pool-size: 8
+    max-pool-size: 16
+  analysis:
+    core-pool-size: 4
+    max-pool-size: 4
+
+ai:
+  provider: ${AI_PROVIDER:auto}
+
+copilot:
+  binary: ${COPILOT_BINARY:}
+  cli-bin: ${COPILOT_CLI_BIN:}
+  timeout-seconds: ${COPILOT_TIMEOUT_SECONDS:600}
+  model: ${COPILOT_MODEL:gpt-5.4-mini}
+  local-repo-timeout-seconds: ${COPILOT_LOCAL_REPO_TIMEOUT_SECONDS:600}
+  search-analysis-timeout-seconds: ${COPILOT_SEARCH_ANALYSIS_TIMEOUT_SECONDS:600}
+  load-test-analysis-timeout-seconds: ${COPILOT_LOAD_TEST_ANALYSIS_TIMEOUT_SECONDS:600}
+  ticket-implementation-timeout-seconds: ${COPILOT_TICKET_IMPLEMENTATION_TIMEOUT_SECONDS:1800}
+  code-impl-timeout-seconds: ${COPILOT_CODE_IMPL_TIMEOUT_SECONDS:2400}
+  review-analysis-timeout-seconds: ${COPILOT_REVIEW_ANALYSIS_TIMEOUT_SECONDS:900}
+
+anthropic:
+  api-key: ${ANTHROPIC_API_KEY:}
+  oauth-token: ${CLAUDE_CODE_OAUTH_TOKEN:}
+  model: ${ANTHROPIC_MODEL:}
+  oauth-token-url: ${ANTHROPIC_OAUTH_TOKEN_URL:}
+  oauth-client-id: ${CLAUDE_CODE_OAUTH_CLIENT_ID:}
+
+github:
+  token: ${GITHUB_TOKEN:}
+  model: ${GITHUB_MODEL:gpt-5.4-mini}
+
+mock:
+  confluence-url:   ${MOCK_CONFLUENCE_URL:http://localhost:8081}
+  jira-url:         ${MOCK_JIRA_URL:http://localhost:8081}
+  gitlab-url:       ${MOCK_GITLAB_URL:http://localhost:3080}
+  grafana-url:      ${MOCK_GRAFANA_URL:}
+
+stacklens:
+  analysis:
+    stale-running:
+      default-timeout: 5m
+      ticket-creation-timeout: 10m
+  ai:
+    compatible:
+      default-base-url: ${AI_COMPATIBLE_BASE_URL:https://dashscope-intl.aliyuncs.com/compatible-mode/v1}
+      default-model: ${AI_COMPATIBLE_MODEL:qwen3.8-flash}
+    claude:
+      max-output-tokens: ${CLAUDE_MAX_OUTPUT_TOKENS:32000}
+      max-output-tokens-cap: ${CLAUDE_MAX_OUTPUT_TOKENS_CAP:128000}
+      truncation-retries: ${CLAUDE_TRUNCATION_RETRIES:1}
+      thinking:
+        mode: ${CLAUDE_THINKING_MODE:adaptive}
+        effort: ${CLAUDE_THINKING_EFFORT:low}
+  knowledge:
+    reset-on-factory-reset: ${KNOWLEDGE_RESET_ON_FACTORY_RESET:false}

@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" lang="de">
+<body>
+<th:block th:fragment="scripts-repo-panel">
+
+<script>
+  function ltOpenAddLocalRepoModal(id, name, path, active) {
+    document.getElementById('ltRepoId').value    = id   || '';
+    document.getElementById('ltRepoName').value  = name || '';
+    document.getElementById('ltRepoPath').value  = path || '';
+    document.getElementById('ltRepoActive').checked = (active === undefined || active === null) ? true : !!active;
+    document.getElementById('ltRepoModalError').classList.add('d-none');
+    var titleSpan = document.getElementById('ltRepoModalTitle').querySelector('span');
+    if (titleSpan) titleSpan.textContent = id
+      ? (window.i18n ? window.i18n.t('bug_analysis.repo_edit_title') : 'Repository bearbeiten')
+      : (window.i18n ? window.i18n.t('bug_analysis.repo_add_title')  : 'Repository hinzufügen');
+    new bootstrap.Modal(document.getElementById('ltRepoModal')).show();
+  }
+
+  function ltSaveLocalRepo() {
+    var id     = document.getElementById('ltRepoId').value;
+    var name   = document.getElementById('ltRepoName').value.trim();
+    var path   = document.getElementById('ltRepoPath').value.trim();
+    var active = document.getElementById('ltRepoActive').checked;
+    var err    = document.getElementById('ltRepoModalError');
+    if (!name || !path) {
+      err.textContent = window.i18n ? window.i18n.t('common.fill_required') : 'Pflichtfelder ausfüllen';
+      err.classList.remove('d-none');
+      return;
+    }
+    var url    = id ? '/api/local-repos/' + id : '/api/local-repos';
+    var method = id ? 'PUT' : 'POST';
+    fetch(url, {
+      method: method,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: id ? parseInt(id, 10) : null, name: name, path: path, active: active, scope: 'LOAD_TEST_ANALYSIS' })
+    })
+      .then(function(r) {
+        if (!r.ok) throw new Error(window.i18n ? window.i18n.t('common.error_save') : 'Fehler beim Speichern.');
+        return r.json();
+      })
+      .then(function(repo) {
+        if (repo.error) { err.textContent = repo.error; err.classList.remove('d-none'); return; }
+        bootstrap.Modal.getInstance(document.getElementById('ltRepoModal')).hide();
+        ltRefreshLocalRepoCard(repo);
+      })
+      .catch(function(e) { err.textContent = e.message; err.classList.remove('d-none'); });
+  }
+
+  function ltRefreshLocalRepoCard(repo) {
+    var card = document.getElementById('ltRepoCard-' + repo.id);
+    if (card) {
+      card.querySelector('.lt-repo-name').textContent = repo.name;
+      card.querySelector('.lt-repo-path').textContent = repo.path;
+      card.setAttribute('data-repo-name',   repo.name);
+      card.setAttribute('data-repo-path',   repo.path);
+      card.setAttribute('data-repo-active', repo.active);
+      card.classList.toggle('lt-repo-inactive', !repo.active);
+    } else {
+      var noHint = document.querySelector('#ltLocalRepoList .text-muted');
+      if (noHint) noHint.remove();
+
+      var newCard = document.createElement('div');
+      newCard.className = 'lt-repo-card' + (repo.active ? '' : ' lt-repo-inactive');
+      newCard.id = 'ltRepoCard-' + repo.id;
+      newCard.setAttribute('data-repo-id',     repo.id);
+      newCard.setAttribute('data-repo-name',   repo.name);
+      newCard.setAttribute('data-repo-path',   repo.path);
+      newCard.setAttribute('data-repo-active', repo.active);
+      newCard.setAttribute('onclick', 'ltSelectLocalRepo(+this.dataset.repoId, this.dataset.repoName)');
+      newCard.style.cursor = 'pointer';
+      newCard.innerHTML =
+        '<div class="lt-repo-name">' + escHtml(repo.name) + '</div>' +
+        '<div class="lt-repo-path">' + escHtml(repo.path) + '</div>' +
+        '<div class="lt-card-status"></div>' +
+        '<div class="lt-btn-row">' +
+          '<button class="lt-btn-xs lt-btn-xs-success"' +
+            ' onclick="event.stopPropagation(); var c=this.closest(\'.lt-repo-card\'); ltSelectLocalRepo(+c.dataset.repoId, c.dataset.repoName); ltClickStartLocal(+c.dataset.repoId, c.dataset.repoName)">' +
+            '<i class="bi bi-play-fill"></i> <span>' + (window.i18n ? window.i18n.t('bug_analysis.btn_start') : 'Starten') + '</span>' +
+          '</button>' +
+          '<button class="lt-btn-xs lt-btn-xs-cancel"' +
+            ' onclick="event.stopPropagation(); ltCancelAnalysis()" title="Abbrechen">' +
+            '<i class="bi bi-x-circle"></i>' +
+          '</button>' +
+          '<button class="lt-btn-xs lt-btn-xs-outline" data-lt-edit="true"' +
+            ' onclick="event.stopPropagation(); var c=this.closest(\'.lt-repo-card\'); ltOpenAddLocalRepoModal(+c.dataset.repoId, c.dataset.repoName, c.dataset.repoPath, c.dataset.repoActive === \'true\')">' +
+            '<i class="bi bi-pencil"></i>' +
+          '</button>' +
+          '<button class="lt-btn-xs lt-btn-xs-outline"' +
+            ' onclick="event.stopPropagation(); ltDeleteLocalRepo(+this.closest(\'.lt-repo-card\').dataset.repoId)">' +
+            '<i class="bi bi-trash"></i>' +
+          '</button>' +
+        '</div>';
+
+      var list = document.getElementById('ltLocalRepoList');
+      list.appendChild(newCard);
+      var cards = Array.prototype.slice.call(list.querySelectorAll('.lt-repo-card'));
+      cards.sort(function(a, b) {
+        return (a.getAttribute('data-repo-name') || '').localeCompare(b.getAttribute('data-repo-name') || '');
+      });
+      cards.forEach(function(c) { list.appendChild(c); });
+    }
+  }
+
+  function ltDeleteLocalRepo(id) {
+    showConfirm(
+      window.i18n ? window.i18n.t('bug_analysis.confirm_delete_repo') : 'Repository wirklich löschen?',
+      window.i18n ? window.i18n.t('common.delete') : 'Löschen',
+      function() {
+        fetch('/api/local-repos/' + id, { method: 'DELETE' })
+          .then(function() {
+            var card = document.getElementById('ltRepoCard-' + id);
+            if (card) card.remove();
+            if (ltCurrentLocalRepoId === id) {
+              ltCurrentLocalRepoId = null;
+              ltCurrentRepoType = null;
+              ltCurrentAnalysisId = null;
+              ltShowEmpty();
+            }
+          });
+      },
+      window.i18n ? window.i18n.t('common.delete') : 'Löschen',
+      'bi-trash',
+      '#b91c1c'
+    );
+  }
+
+  var _ltFbReturnToModal = false;
+
+
+  function ltFbDerivedName(path) {
+    return String(path).replace(/\\/g, '/').split('/').filter(Boolean).pop() || String(path);
+  }
+
+  function ltFbShowRepoModal() {
+    var el = document.getElementById('ltRepoModal');
+    if (el && document.body.contains(el)) new bootstrap.Modal(el).show();
+  }
+
+  function ltFbApplyPickedPath(path) {
+    var derivedName = ltFbDerivedName(path);
+    if (_ltFbReturnToModal) {
+      _ltFbReturnToModal = false;
+      fetch('/api/local-repos', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: null, name: derivedName, path: path, active: true, scope: 'LOAD_TEST_ANALYSIS' })
+      })
+        .then(function (r) { return r.json(); })
+        .then(function (data) {
+          if (data.error) { showAlert('Fehler: ' + data.error, 'danger'); return; }
+          ltRefreshLocalRepoCard(data);
+        });
+      return;
+    }
+    document.getElementById('ltRepoPath').value = path;
+    var nameEl = document.getElementById('ltRepoName');
+    if (nameEl && !nameEl.value.trim()) nameEl.value = derivedName;
+    ltFbShowRepoModal();
+  }
+
+  function ltFbOpenBrowserForNewRepo() {
+    _ltFbReturnToModal = true;
+    __kiChatOpenDirBrowser(function (path) {
+      if (path) ltFbApplyPickedPath(path);
+    });
+  }
+
+  function ltFbOpenBrowserForEdit() {
+    _ltFbReturnToModal = false;
+    var curPath = document.getElementById('ltRepoPath').value.trim();
+    var editModal = bootstrap.Modal.getInstance(document.getElementById('ltRepoModal'));
+    if (editModal) editModal.hide();
+    __kiChatOpenDirBrowser(function (path) {
+      if (path) { ltFbApplyPickedPath(path); return; }
+      ltFbShowRepoModal();
+    }, { startPath: curPath });
+  }
+
+
+  function ltToggleGithubAccordion(headerEl) {
+    var reposDiv = headerEl.parentElement.querySelector('.lt-github-repos');
+    var chevron  = headerEl.querySelector('.lt-gh-chevron');
+    if (!reposDiv) return;
+    var isOpen = !reposDiv.classList.contains('d-none');
+    if (isOpen) {
+      reposDiv.classList.add('d-none');
+      if (chevron) chevron.style.transform = '';
+      try { localStorage.setItem('lt_github_open', '0'); } catch(_) {}
+    } else {
+      reposDiv.classList.remove('d-none');
+      if (chevron) chevron.style.transform = 'rotate(180deg)';
+      try { localStorage.setItem('lt_github_open', '1'); } catch(_) {}
+      _ltInitGithubFilter(reposDiv);
+    }
+  }
+
+  function _ltInitGithubFilter(reposDiv) {
+    if (reposDiv.querySelector('.lt-gh-filter')) return;
+    var cards = Array.prototype.slice.call(reposDiv.querySelectorAll('.lt-repo-card'));
+    if (cards.length < 2) return;
+    var filterInput = document.createElement('input');
+    filterInput.type = 'search';
+    filterInput.className = 'form-control form-control-sm mb-2 mt-1 lt-gh-filter sl-search-input';
+    filterInput.setAttribute('autocomplete', 'off');
+    var _ltPh = window.i18n ? window.i18n.t('code_analysis.filter_projects') : null;
+    filterInput.placeholder = (_ltPh && _ltPh !== 'code_analysis.filter_projects') ? _ltPh : 'Projekt filtern…';
+    filterInput.style.borderRadius = '999px';
+    reposDiv.insertBefore(filterInput, reposDiv.firstChild);
+    filterInput.addEventListener('input', function() {
+      var term = filterInput.value.toLowerCase();
+      cards.forEach(function(c) {
+        var name = (c.querySelector('.lt-repo-name') || c).textContent.toLowerCase();
+        var path = (c.querySelector('.lt-repo-path') || c).textContent.toLowerCase();
+        c.style.display = (!term || name.indexOf(term) >= 0 || path.indexOf(term) >= 0) ? '' : 'none';
+      });
+    });
+    filterInput.addEventListener('keydown', function(e) {
+      if ((e.key === 'Escape' || e.key === 'Esc') && filterInput.value) {
+        filterInput.value = '';
+        filterInput.dispatchEvent(new Event('input', { bubbles: true }));
+      }
+    });
+  }
+
+</script>
+
+</th:block>
+</body>
+</html>

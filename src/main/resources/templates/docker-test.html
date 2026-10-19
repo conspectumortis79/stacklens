@@ -1,0 +1,1003 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org"
+      xmlns:layout="http://www.ultraq.net.nz/thymeleaf/layout"
+      layout:decorate="~{layout}" lang="de">
+<head><title>Testdocker</title></head>
+<body>
+
+<th:block layout:fragment="page-title"><span data-i18n="docker_test.page_title">Testdocker</span></th:block>
+
+<th:block layout:fragment="page-subtitle">
+  <p class="page-subtitle"><span data-i18n="docker_test.page_subtitle">Lokale Docker-Testumgebung starten und verwalten.</span></p>
+</th:block>
+
+<div layout:fragment="content">
+<style>
+  :root, html[data-theme="modern"] {
+    --dt-card-bg: #fffdf8;
+    --dt-card-border: #ddd7cb;
+    --dt-card-fg: #1f1f1f;
+    --dt-info-bg: #f4efe4;
+    --dt-info-fg: #6a665f;
+    --dt-info-border: #ddd7cb;
+    --dt-console-bg: #faf6ec;
+    --dt-console-fg: #2a2520;
+    --dt-console-hdr-bg: #f4efe4;
+    --dt-console-hdr-fg: #5b564d;
+    --dt-console-border: #ddd7cb;
+    --dt-file-list-bg: #f4efe4;
+    --dt-file-item-fg: #5b564d;
+    --dt-file-item-hover-bg: #e8e2d4;
+    --dt-file-item-hover-fg: #1f1f1f;
+    --dt-file-item-active-bg: #e8e2d4;
+    --dt-file-item-active-fg: #5d3fa1;
+    --dt-file-msg-fg: #8a857c;
+    --dt-overlay-bg: rgba(255,253,248,.92);
+    --dt-overlay-fg: #1f1f1f;
+    --dt-scroll-thumb-bg: rgba(100,80,50,.22);
+    --dt-scroll-thumb-hover-bg: rgba(100,80,50,.50);
+  }
+  html[data-theme="legacy"] {
+    --dt-card-bg: #ffffff;
+    --dt-card-border: #dee2e6;
+    --dt-card-fg: #212529;
+    --dt-info-bg: #f8f9fa;
+    --dt-info-fg: #495057;
+    --dt-info-border: #dee2e6;
+    --dt-console-bg: #f8f9fa;
+    --dt-console-fg: #1e1e1e;
+    --dt-console-hdr-bg: #e9ecef;
+    --dt-console-hdr-fg: #495057;
+    --dt-console-border: #dee2e6;
+    --dt-file-list-bg: #e9ecef;
+    --dt-file-item-fg: #495057;
+    --dt-file-item-hover-bg: #dee2e6;
+    --dt-file-item-hover-fg: #212529;
+    --dt-file-item-active-bg: #dee2e6;
+    --dt-file-item-active-fg: #126a5a;
+    --dt-file-msg-fg: #6c757d;
+    --dt-overlay-bg: rgba(255,255,255,.92);
+    --dt-overlay-fg: #212529;
+    --dt-scroll-thumb-bg: rgba(0,0,0,.18);
+    --dt-scroll-thumb-hover-bg: rgba(0,0,0,.38);
+  }
+  html[data-theme="dark"] {
+    --dt-card-bg: #1f1c2c;
+    --dt-card-border: #3a3550;
+    --dt-card-fg: #ece6ff;
+    --dt-info-bg: #252235;
+    --dt-info-fg: #bdb6d6;
+    --dt-info-border: #3a3550;
+    --dt-console-bg: #1a1728;
+    --dt-console-fg: #ece6ff;
+    --dt-console-hdr-bg: #252235;
+    --dt-console-hdr-fg: #bdb6d6;
+    --dt-console-border: #3a3550;
+    --dt-file-list-bg: #17152a;
+    --dt-file-item-fg: #bdb6d6;
+    --dt-file-item-hover-bg: #2d2a40;
+    --dt-file-item-hover-fg: #ece6ff;
+    --dt-file-item-active-bg: #2d2a40;
+    --dt-file-item-active-fg: #c9b8f5;
+    --dt-file-msg-fg: #9b97b0;
+    --dt-overlay-bg: rgba(26,23,40,.92);
+    --dt-overlay-fg: #ece6ff;
+    --dt-scroll-thumb-bg: rgba(180,180,220,.28);
+    --dt-scroll-thumb-hover-bg: rgba(180,180,220,.65);
+  }
+  html[data-theme="popos"] {
+    --dt-card-bg: #1b1b2b;
+    --dt-card-border: #363650;
+    --dt-card-fg: #e8e8f0;
+    --dt-info-bg: #222234;
+    --dt-info-fg: #b0b0c8;
+    --dt-info-border: #363650;
+    --dt-console-bg: #1e1e2e;
+    --dt-console-fg: #e8e8f0;
+    --dt-console-hdr-bg: #222234;
+    --dt-console-hdr-fg: #b0b0c8;
+    --dt-console-border: #363650;
+    --dt-file-list-bg: #161624;
+    --dt-file-item-fg: #b0b0c8;
+    --dt-file-item-hover-bg: #2d2d48;
+    --dt-file-item-hover-fg: #e8e8f0;
+    --dt-file-item-active-bg: #2d2d48;
+    --dt-file-item-active-fg: #faa41a;
+    --dt-file-msg-fg: #9090a8;
+    --dt-overlay-bg: rgba(30,30,46,.92);
+    --dt-overlay-fg: #e8e8f0;
+    --dt-scroll-thumb-bg: rgba(160,160,200,.30);
+    --dt-scroll-thumb-hover-bg: rgba(160,160,200,.65);
+  }
+
+  .dt-card {
+    background: var(--dt-card-bg);
+    border: 1px solid var(--dt-card-border);
+    color: var(--dt-card-fg);
+    border-radius: 16px;
+    padding: 24px 28px;
+    box-shadow: 0 2px 12px rgba(0,0,0,.05);
+    margin-bottom: 20px;
+  }
+  .dt-btn {
+    display: inline-flex; align-items: center; gap: 8px;
+    padding: 9px 20px; border-radius: 999px; font-size: 14px;
+    font-weight: 700; cursor: pointer; border: 1.5px solid transparent;
+    transition: opacity .15s;
+  }
+  .dt-btn:disabled { opacity: .55; cursor: not-allowed; }
+  .dt-btn-primary   { background: #7c5cbf; color: #fff; border-color: #7c5cbf; }
+  .dt-btn-danger    { background: #b91c1c; color: #fff; border-color: #b91c1c; }
+  .dt-output-wrap {
+    position: relative; display: flex; flex-direction: column;
+    border-radius: 10px; border: 1.5px solid var(--dt-console-border);
+    overflow: hidden; width: 100%; height: 260px;
+  }
+  .dt-output-hdr {
+    padding: 5px 10px 5px 12px; background: var(--dt-console-hdr-bg);
+    border-bottom: 1px solid var(--dt-console-border);
+    font-size: 12px; font-weight: 700; color: var(--dt-console-hdr-fg); flex-shrink: 0;
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .dt-output-content {
+    display: flex; flex: 1; overflow: hidden;
+  }
+  .dt-output-box {
+    background: var(--dt-console-bg); color: var(--dt-console-fg);
+    font-family: 'Cascadia Code','Fira Code','Consolas',monospace;
+    font-size: 12.5px; line-height: 1.6;
+    padding: 14px 16px;
+    flex: 1; overflow-y: scroll; white-space: pre-wrap; word-break: break-all;
+    scrollbar-width: none;
+  }
+  .dt-output-box::-webkit-scrollbar { display: none; }
+  .dt-status-badge {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 3px 12px; border-radius: 999px; font-size: 12px; font-weight: 700;
+  }
+  .dt-status-idle    { background: #f4efe4; color: #6a665f; }
+  .dt-status-running { background: #fef3c7; color: #92400e; }
+  .dt-status-done    { background: #d1fae5; color: #065f46; }
+  .dt-status-failed  { background: #fee2e2; color: #991b1b; }
+  .dt-spinner {
+    width: 14px; height: 14px; border: 2px solid currentColor;
+    border-top-color: transparent; border-radius: 50%;
+    animation: dt-spin .7s linear infinite; display: none;
+  }
+  .dt-restart-progress {
+    margin-top: 10px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 10px;
+    border-radius: 8px;
+    border: 1px solid var(--dt-info-border);
+    background: color-mix(in srgb, var(--dt-info-bg) 72%, transparent);
+    color: var(--dt-info-fg);
+    font-size: 12px;
+    font-weight: 700;
+  }
+  .dt-restart-progress .dt-restart-pulse {
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+    background: var(--accent, #7c5cbf);
+    animation: dt-restart-pulse 1.15s ease-in-out infinite;
+    flex-shrink: 0;
+  }
+  .dt-restart-progress .dt-restart-text {
+    letter-spacing: .01em;
+  }
+  .dt-restart-progress .dt-restart-dots {
+    display: inline-flex;
+    gap: 3px;
+    margin-left: 2px;
+  }
+  .dt-restart-progress .dt-restart-dots span {
+    width: 4px;
+    height: 4px;
+    border-radius: 50%;
+    background: currentColor;
+    opacity: .28;
+    animation: dt-restart-dots 1s ease-in-out infinite;
+  }
+  .dt-restart-progress .dt-restart-dots span:nth-child(2) { animation-delay: .16s; }
+  .dt-restart-progress .dt-restart-dots span:nth-child(3) { animation-delay: .32s; }
+  @keyframes dt-restart-pulse {
+    0%, 100% { transform: scale(1); opacity: .65; }
+    50% { transform: scale(1.45); opacity: 1; }
+  }
+  @keyframes dt-restart-dots {
+    0%, 100% { opacity: .28; transform: translateY(0); }
+    50% { opacity: 1; transform: translateY(-1px); }
+  }
+  #dtDockerNotAvailable.dt-restarting {
+    border-color: color-mix(in srgb, var(--accent, #7c5cbf) 35%, #f0b85a);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent, #7c5cbf) 14%, transparent);
+    transition: box-shadow .18s ease, border-color .18s ease;
+  }
+  @keyframes dt-spin { to { transform: rotate(360deg); } }
+  .dt-split-wrap {
+    display: flex; flex-direction: column; gap: 12px;
+  }
+  .dt-editor-panel {
+    width: 100%; min-height: 340px; max-height: 500px;
+    display: flex; flex-direction: column;
+    border-radius: 10px; border: 1.5px solid var(--dt-console-border);
+    overflow: hidden; background: var(--dt-console-bg); color: var(--dt-console-fg);
+  }
+  .dt-editor-hdr {
+    padding: 5px 10px 5px 12px; background: var(--dt-console-hdr-bg);
+    border-bottom: 1px solid var(--dt-console-border);
+    font-size: 12px; font-weight: 700; color: var(--dt-console-hdr-fg); flex-shrink: 0;
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .dt-hdr-actions { display: flex; align-items: center; gap: 6px; }
+  .dt-hdr-actions .dt-btn {
+    font-size: 11px; padding: 3px 11px; gap: 5px; font-weight: 700;
+  }
+  .dt-editor-body {
+    display: flex; flex: 1; overflow: hidden;
+  }
+  .dt-file-list-wrap {
+    width: var(--dt-file-list-width, 190px); flex-shrink: 0; display: flex;
+    border-right: none;
+  }
+  .dt-resize-handle {
+    width: 5px; flex-shrink: 0; cursor: col-resize;
+    background: var(--dt-console-border);
+    transition: background 0.15s;
+    user-select: none;
+  }
+  .dt-resize-handle:hover,
+  .dt-resize-handle.dragging {
+    background: var(--accent, #7c5cbf);
+  }
+  .dt-file-list {
+    flex: 1; overflow-y: scroll; overflow-x: hidden;
+    background: var(--dt-file-list-bg);
+    scrollbar-width: none;
+  }
+  .dt-file-list::-webkit-scrollbar { display: none; }
+  .dt-file-item {
+    padding: 6px 10px; font-size: 11px;
+    font-family: 'Cascadia Code','Fira Code','Consolas',monospace;
+    cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    color: var(--dt-file-item-fg); display: block; border: none; background: none;
+    width: 100%; text-align: left; line-height: 1.5;
+  }
+  .dt-file-item:hover { background: var(--dt-file-item-hover-bg); color: var(--dt-file-item-hover-fg); }
+  .dt-file-item.active { background: var(--dt-file-item-active-bg); color: var(--dt-file-item-active-fg); }
+  .dt-file-msg {
+    padding: 10px; font-size: 11.5px; color: var(--dt-file-msg-fg); font-style: italic;
+  }
+  .dt-editor-area {
+    flex: 1; display: flex; flex-direction: column; min-width: 0; position: relative;
+  }
+  .dt-editor-text-wrap {
+    display: flex; flex: 1; overflow: hidden;
+  }
+  .dt-editor-textarea {
+    flex: 1; background: var(--dt-console-bg); color: var(--dt-console-fg);
+    border: none; outline: none; resize: none;
+    padding: 12px 14px;
+    font-family: 'Cascadia Code','Fira Code','Consolas',monospace;
+    font-size: 12px; line-height: 1.6;
+    scrollbar-width: none;
+  }
+  .dt-editor-textarea::-webkit-scrollbar { display: none; }
+  .dt-editor-footer {
+    padding: 8px 12px; border-top: 1px solid var(--dt-console-border);
+    background: var(--dt-console-hdr-bg); flex-shrink: 0;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .dt-editor-overlay {
+    position: absolute; inset: 0;
+    background: var(--dt-overlay-bg);
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    gap: 12px; font-size: 13px; color: var(--dt-overlay-fg);
+  }
+  .dt-overlay-spinner {
+    width: 22px; height: 22px; border: 2.5px solid currentColor;
+    border-top-color: transparent; border-radius: 50%;
+    animation: dt-spin .7s linear infinite;
+  }
+
+  html[data-theme="dark"] .dt-status-idle    { background: #252235 !important; color: #9b97b0 !important; }
+  html[data-theme="dark"] .dt-status-running { background: rgba(234,179,8,.15) !important; color: #f5d778 !important; }
+  html[data-theme="dark"] .dt-status-done    { background: rgba(34,197,94,.12) !important; color: #86efac !important; }
+  html[data-theme="dark"] .dt-status-failed  { background: rgba(185,28,28,.15) !important; color: #f87171 !important; }
+  html[data-theme="popos"] .dt-status-idle    { background: #222234 !important; color: #9090a8 !important; }
+  html[data-theme="popos"] .dt-status-running { background: rgba(250,164,26,.15) !important; color: #fcd34d !important; }
+  html[data-theme="popos"] .dt-status-done    { background: rgba(61,186,112,.12) !important; color: #86efac !important; }
+  html[data-theme="popos"] .dt-status-failed  { background: rgba(240,120,120,.15) !important; color: #f87171 !important; }
+  html[data-theme="legacy"] .dt-status-idle    { background: #f8f9fa !important; color: #6c757d !important; }
+  html[data-theme="legacy"] .dt-status-running { background: #fff3cd !important; color: #856404 !important; }
+  html[data-theme="legacy"] .dt-status-done    { background: #d4edda !important; color: #155724 !important; }
+  html[data-theme="legacy"] .dt-status-failed  { background: #f8d7da !important; color: #721c24 !important; }
+  .dt-output-content .sl-scroll-track,
+  .dt-editor-text-wrap .sl-scroll-track {
+    background: var(--dt-console-bg);
+    border-left-color: var(--dt-console-border);
+  }
+  .dt-file-list-wrap .sl-scroll-track {
+    background: var(--dt-file-list-bg);
+    border-left-color: var(--dt-console-border);
+  }
+  .dt-output-content .sl-scroll-track .sl-scroll-thumb,
+  .dt-editor-text-wrap .sl-scroll-track .sl-scroll-thumb,
+  .dt-file-list-wrap .sl-scroll-track .sl-scroll-thumb {
+    background: var(--dt-scroll-thumb-bg);
+  }
+  .dt-output-content .sl-scroll-track .sl-scroll-thumb:hover,
+  .dt-output-content .sl-scroll-track .sl-scroll-thumb.dragging,
+  .dt-editor-text-wrap .sl-scroll-track .sl-scroll-thumb:hover,
+  .dt-editor-text-wrap .sl-scroll-track .sl-scroll-thumb.dragging,
+  .dt-file-list-wrap .sl-scroll-track .sl-scroll-thumb:hover,
+  .dt-file-list-wrap .sl-scroll-track .sl-scroll-thumb.dragging {
+    background: var(--dt-scroll-thumb-hover-bg);
+    cursor: grabbing;
+  }
+</style>
+
+<div class="dt-card">
+  <div class="d-flex align-items-center gap-3 mb-4">
+    <h5 class="mb-0 fw-bold" style="font-size:15px;">
+      <i class="bi bi-box me-2" style="color:var(--accent, #7c5cbf);"></i>
+      <span data-i18n="docker_test.page_title">Testdocker</span>
+    </h5>
+    <span id="dtStatusBadge" class="dt-status-badge dt-status-idle">
+      <span class="dt-spinner" id="dtSpinner"></span>
+      <span id="dtStatusText" data-i18n="docker_test.status_idle">Bereit</span>
+    </span>
+  </div>
+
+  <div id="dtComposeInfo" style="margin-bottom:10px;padding:7px 12px;background:var(--dt-info-bg);border:1px solid var(--dt-info-border);border-radius:8px;font-size:12px;color:var(--dt-info-fg);font-family:monospace;display:none;">
+    <i class="bi bi-file-earmark-code me-1"></i><span id="dtComposeInfoText"></span>
+  </div>
+  <div id="dtComposeNotFound" style="margin-bottom:10px;font-size:13px;display:none;" class="alert alert-warning py-2 mb-0">
+    <i class="bi bi-exclamation-triangle me-1"></i><span data-i18n="docker_test.compose_not_found">Kein docker-compose.yml gefunden. Bitte sicherstellen, dass sich das Verzeichnis im StackLens-Projektordner befindet.</span>
+  </div>
+  <div id="dtDockerNotAvailable" style="margin-bottom:10px;font-size:13px;display:none;" class="alert alert-warning py-2 mb-0">
+    <i class="bi bi-exclamation-triangle me-1"></i><span data-i18n="docker_test.docker_not_available">Docker ist nicht erreichbar. Bitte Docker Desktop starten.</span>
+    <button id="dtRestartDockerBtn" type="button" onclick="window.dtRestartDocker()" class="btn btn-sm btn-outline-secondary ms-2" style="font-size:12px;padding:1px 10px;" data-i18n="docker_test.btn_restart_docker">Docker neu starten</button>
+    <div id="dtRestartProgress" class="dt-restart-progress" style="display:none;">
+      <span class="dt-restart-pulse"></span>
+      <span class="dt-restart-text" data-i18n="docker_test.restarting">Neustart läuft...</span>
+      <span class="dt-restart-dots" aria-hidden="true"><span></span><span></span><span></span></span>
+    </div>
+    <div id="dtDockerDiagnostic" style="margin-top:6px;font-size:11px;font-family:monospace;color:var(--app-text-muted);opacity:0.85;word-break:break-all;"></div>
+  </div>
+
+  <div class="dt-split-wrap">
+    <div class="dt-output-wrap">
+      <div class="dt-output-hdr">
+        <span><i class="bi bi-terminal me-1"></i><span data-i18n="docker_test.output_title">Docker Container</span></span>
+        <div class="dt-hdr-actions">
+          <button id="dtStartBtn" class="dt-btn dt-btn-primary" onclick="dtStart()">
+            <i class="bi bi-play-fill"></i>
+            <span data-i18n="docker_test.btn_start">Docker Testumgebung starten</span>
+          </button>
+          <button id="dtResetBtn" class="dt-btn dt-btn-danger" onclick="dtConfirmReset()">
+            <i class="bi bi-trash3"></i>
+            <span data-i18n="docker_test.btn_reset">Docker zurücksetzen</span>
+          </button>
+        </div>
+      </div>
+      <div class="dt-output-content">
+        <div id="dtOutput" class="dt-output-box"></div>
+        <div class="sl-scroll-track" id="dtScrollTrack"><div class="sl-scroll-thumb" id="dtScrollThumb"></div></div>
+      </div>
+    </div>
+
+    <div class="dt-editor-panel">
+      <div class="dt-editor-hdr">
+        <span><i class="bi bi-pencil-square me-1"></i><span data-i18n="docker_test.data_files_title">Testdaten-Dateien</span></span>
+        <div class="dt-hdr-actions">
+          <button id="dtSaveBtn" class="dt-btn dt-btn-primary" onclick="dtSaveAndRebuild()" disabled>
+            <i class="bi bi-arrow-repeat"></i>
+            <span data-i18n="docker_test.btn_save_rebuild">Speichern &amp; Neu bauen</span>
+          </button>
+        </div>
+      </div>
+      <div class="dt-editor-body">
+        <div class="dt-file-list-wrap" id="dtFileListWrap">
+          <div id="dtFileList" class="dt-file-list">
+            <div class="dt-file-msg" data-i18n="docker_test.data_files_loading">Wird geladen…</div>
+          </div>
+          <div class="sl-scroll-track" id="dtFileScrollTrack"><div class="sl-scroll-thumb" id="dtFileScrollThumb"></div></div>
+        </div>
+        <div class="dt-resize-handle" id="dtResizeHandle"></div>
+        <div class="dt-editor-area">
+          <div class="dt-editor-text-wrap">
+            <textarea id="dtEditorTextarea" class="dt-editor-textarea"
+                      spellcheck="false" disabled></textarea>
+            <div class="sl-scroll-track" id="dtEditorScrollTrack"><div class="sl-scroll-thumb" id="dtEditorScrollThumb"></div></div>
+          </div>
+
+          <div id="dtEditorOverlay" class="dt-editor-overlay" style="display:none;">
+            <div class="dt-overlay-spinner"></div>
+            <span data-i18n="docker_test.editor_rebuilding">Container wird neu gebaut…</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+
+
+<script>
+(function() {
+  var _running = false;
+  var _eventSource = null;
+  var _status = 'idle';
+  var _autoScroll = true;
+  var _outputLines = [];
+  var _saveThrottle = null;
+  var _editorBusy = false;
+  var _selectedFilePath = null;
+  var _edScroll = { update: function() {} };
+  var _restartPollTimer = null;
+  var _restartInProgress = false;
+  var _attachSource = null;
+  var _stateRequestSeq = 0;
+  var _stateRetryTimer = null;
+  var _instanceToken = {};
+  window.__dtInstanceToken = _instanceToken;
+  var SESSION_KEY = 'dt_session';
+  var t = function(k) { return window.i18n ? window.i18n.t(k) : k; };
+
+  function dtIsActive() {
+    return window.__dtInstanceToken === _instanceToken && !!document.getElementById('dtStatusBadge');
+  }
+
+  function dtCancelStateRetry() {
+    if (_stateRetryTimer) {
+      clearTimeout(_stateRetryTimer);
+      _stateRetryTimer = null;
+    }
+  }
+
+  function dtScheduleStateReload() {
+    if (!dtIsActive()) return;
+    dtCancelStateRetry();
+    _stateRetryTimer = setTimeout(function() {
+      _stateRetryTimer = null;
+      if (dtIsActive()) dtLoadServerState();
+    }, 250);
+  }
+
+  function dtSetRestartUi(active) {
+    _restartInProgress = !!active;
+    var progress = document.getElementById('dtRestartProgress');
+    var notAvail = document.getElementById('dtDockerNotAvailable');
+    if (progress) progress.style.display = active ? '' : 'none';
+    if (notAvail) {
+      if (active) notAvail.classList.add('dt-restarting');
+      else notAvail.classList.remove('dt-restarting');
+    }
+  }
+
+  function dtSaveSession() {
+    try {
+      var textarea = document.getElementById('dtEditorTextarea');
+      sessionStorage.setItem(SESSION_KEY, JSON.stringify({
+        status: _status,
+        output: _outputLines.join('\n'),
+        editor: {
+          selectedPath: _selectedFilePath,
+          content: textarea ? textarea.value : null
+        }
+      }));
+    } catch(e) {}
+  }
+
+  function dtLoadInfo() {
+    fetch('/api/docker-test/info?_=' + Date.now())
+      .then(function(r) { return r.json(); })
+      .then(function(d) {
+        var dockerOk = d.dockerAvailable === 'true';
+        var composeOk = d.found === 'true' && d.composeFile;
+        var notAvailEl = document.getElementById('dtDockerNotAvailable');
+        var diagEl = document.getElementById('dtDockerDiagnostic');
+        if (diagEl) diagEl.textContent = d.dockerDiagnostic || '';
+        if (!dockerOk) {
+          if (notAvailEl) notAvailEl.style.display = '';
+          document.getElementById('dtStartBtn').disabled = true;
+          document.getElementById('dtResetBtn').disabled = true;
+        } else {
+          if (notAvailEl) notAvailEl.style.display = 'none';
+          if (!_running && composeOk) {
+            document.getElementById('dtStartBtn').disabled = false;
+            document.getElementById('dtResetBtn').disabled = false;
+          }
+        }
+        if (composeOk) {
+          var el = document.getElementById('dtComposeInfo');
+          var txt = document.getElementById('dtComposeInfoText');
+          if (el && txt) { txt.textContent = d.composeFile; el.style.display = ''; }
+          document.getElementById('dtComposeNotFound').style.display = 'none';
+        } else {
+          document.getElementById('dtComposeInfo').style.display = 'none';
+          document.getElementById('dtComposeNotFound').style.display = '';
+          document.getElementById('dtStartBtn').disabled = true;
+        }
+      }).catch(function() {});
+  }
+
+  function dtPollDockerAfterRestart(onReady, onTimeout) {
+    var maxAttempts = 30;
+    var attempts = 0;
+
+    if (_restartPollTimer) {
+      clearTimeout(_restartPollTimer);
+      _restartPollTimer = null;
+    }
+
+    function tick() {
+      fetch('/api/docker-test/info?_=' + Date.now())
+        .then(function(r) { return r.json(); })
+        .then(function(d) {
+          var dockerOk = d && d.dockerAvailable === 'true';
+          dtLoadInfo();
+          if (dockerOk) {
+            _restartPollTimer = null;
+            if (typeof onReady === 'function') onReady(d);
+            return;
+          }
+          attempts += 1;
+          if (attempts >= maxAttempts) {
+            _restartPollTimer = null;
+            if (typeof onTimeout === 'function') onTimeout(d);
+            return;
+          }
+          _restartPollTimer = setTimeout(tick, 3000);
+        })
+        .catch(function() {
+          attempts += 1;
+          if (attempts >= maxAttempts) {
+            _restartPollTimer = null;
+            if (typeof onTimeout === 'function') onTimeout(null);
+            return;
+          }
+          _restartPollTimer = setTimeout(tick, 3000);
+        });
+    }
+
+    tick();
+  }
+  window.dtLoadInfo = dtLoadInfo;
+
+  window.dtRestartDocker = function() {
+    var btn = document.getElementById('dtRestartDockerBtn');
+    var oldTxt = btn ? btn.textContent : '';
+    function finishRestartUi() {
+      if (btn) {
+        btn.disabled = false;
+        btn.textContent = oldTxt || t('docker_test.btn_restart_docker');
+      }
+      dtSetRestartUi(false);
+    }
+
+    if (btn) {
+      btn.disabled = true;
+      btn.textContent = t('docker_test.restarting');
+    }
+    dtSetRestartUi(true);
+
+    fetch('/api/docker-test/restart-docker', { method: 'POST' })
+      .then(function(r) { return r.json(); })
+      .then(function(d) {
+        var ok = d && d.ok === 'true';
+        var dockerReadyNow = d && d.dockerAvailable === 'true';
+        var msg = (d && d.message) ? d.message : (ok ? t('docker_test.restart_success') : t('docker_test.restart_failed'));
+        appendOutput('[docker-restart] ' + msg);
+
+        if (dockerReadyNow) {
+          dtLoadInfo();
+          finishRestartUi();
+          window.dtStart();
+          return;
+        }
+
+        dtPollDockerAfterRestart(
+          function() {
+            appendOutput('[docker-restart] ' + t('docker_test.restart_success'));
+            dtLoadInfo();
+            finishRestartUi();
+            window.dtStart();
+          },
+          function() {
+            dtLoadInfo();
+            showAlert(msg, 'warning');
+            finishRestartUi();
+          }
+        );
+      })
+      .catch(function() {
+        var msg = t('docker_test.restart_failed');
+        appendOutput('[docker-restart] ' + msg);
+        showAlert(msg, 'warning');
+        finishRestartUi();
+      })
+      .finally(function() {});
+  };
+
+  function dtLoadDataFiles() {
+    var list = document.getElementById('dtFileList');
+    if (!list) return;
+    list.innerHTML = '<div class="dt-file-msg">' + t('docker_test.data_files_loading') + '</div>';
+    fetch('/api/docker-test/data-files')
+      .then(function(r) { return r.json(); })
+      .then(function(files) {
+        var currentList = document.getElementById('dtFileList');
+        if (!currentList) return;
+        currentList.innerHTML = '';
+        if (!files || !files.length) {
+          currentList.innerHTML = '<div class="dt-file-msg">' + t('docker_test.data_files_empty') + '</div>';
+          return;
+        }
+        files.forEach(function(f) {
+          var btn = document.createElement('button');
+          btn.className = 'dt-file-item';
+          btn.title = f.path;
+          btn.textContent = f.label;
+          btn.setAttribute('data-path', f.path);
+          btn.addEventListener('click', function() { dtSelectFile(f.path, null); });
+          currentList.appendChild(btn);
+        });
+        if (_selectedFilePath) {
+          var match = currentList.querySelector('[data-path="' + CSS.escape(_selectedFilePath) + '"]');
+          if (match) match.classList.add('active');
+        }
+      })
+      .catch(function() {
+        var currentList = document.getElementById('dtFileList');
+        if (currentList) currentList.innerHTML = '<div class="dt-file-msg">' + t('docker_test.editor_save_error') + '</div>';
+      });
+  }
+
+  function dtSelectFile(path, preloadedContent) {
+    _selectedFilePath = path;
+    var items = document.querySelectorAll('.dt-file-item');
+    items.forEach(function(el) {
+      el.classList.toggle('active', el.getAttribute('data-path') === path);
+    });
+    var textarea = document.getElementById('dtEditorTextarea');
+    var saveBtn = document.getElementById('dtSaveBtn');
+    if (!textarea) return;
+    textarea.disabled = true;
+    textarea.value = '';
+    if (preloadedContent !== null && preloadedContent !== undefined) {
+      textarea.value = preloadedContent;
+      textarea.disabled = false;
+      if (saveBtn) saveBtn.disabled = false;
+      _edScroll.update();
+      return;
+    }
+    fetch('/api/docker-test/data-file?path=' + encodeURIComponent(path))
+      .then(function(r) { return r.json(); })
+      .then(function(d) {
+        textarea.value = d.content || '';
+        textarea.disabled = false;
+        if (saveBtn) saveBtn.disabled = false;
+        _edScroll.update();
+        dtSaveSession();
+      })
+      .catch(function() { textarea.disabled = false; });
+  }
+
+  function dtInit() {
+    var _dtBox = document.getElementById('dtOutput');
+    SLScroll(_dtBox, document.getElementById('dtScrollTrack'), document.getElementById('dtScrollThumb'));
+    SLScroll(document.getElementById('dtFileList'), document.getElementById('dtFileScrollTrack'), document.getElementById('dtFileScrollThumb'));
+    _edScroll = SLScroll(document.getElementById('dtEditorTextarea'), document.getElementById('dtEditorScrollTrack'), document.getElementById('dtEditorScrollThumb'));
+    var _dtTextarea = document.getElementById('dtEditorTextarea');
+    if (_dtTextarea) _dtTextarea.addEventListener('input', function() { _edScroll.update(); });
+    if (_dtBox) _dtBox.addEventListener('scroll', function() {
+      _autoScroll = this.scrollHeight - this.scrollTop - this.clientHeight < 60;
+    });
+    try {
+      var saved = JSON.parse(sessionStorage.getItem(SESSION_KEY));
+      if (saved && saved.editor && saved.editor.selectedPath) {
+        _selectedFilePath = saved.editor.selectedPath;
+        dtSelectFile(saved.editor.selectedPath, saved.editor.content != null ? saved.editor.content : null);
+      }
+    } catch (e) {}
+    dtLoadServerState();
+    dtLoadInfo();
+    dtLoadDataFiles();
+  }
+
+  function dtLoadServerState() {
+    var requestSeq = ++_stateRequestSeq;
+    fetch('/api/docker-test/state?_=' + Date.now())
+      .then(function (r) { return r && r.ok ? r.json() : null; })
+      .then(function (d) {
+        if (!dtIsActive() || requestSeq !== _stateRequestSeq || !d) return;
+        var output = d.output || [];
+        if (output.length) {
+          var box = document.getElementById('dtOutput');
+          if (box) {
+            box.textContent = output.join('\n') + '\n';
+            _outputLines = output.slice();
+            if (_autoScroll) { box.scrollTop = box.scrollHeight; }
+          }
+        }
+        var phase = d.status || 'idle';
+        if (phase !== 'idle' && phase !== 'running' && phase !== 'done' && phase !== 'failed') {
+          phase = 'idle';
+        }
+        setStatus(phase);
+        if (phase === 'running') {
+          setBusy(true);
+          dtAttachToJob(d.jobId, output.length);
+        } else {
+          setBusy(false);
+          dtEndEditorBusy();
+        }
+      })
+      .catch(function () {
+      });
+  }
+
+  function dtAttachToJob(jobId, sinceIndex) {
+    if (_attachSource) { _attachSource.close(); _attachSource = null; }
+    if (!jobId || !dtIsActive()) return;
+    var url = '/api/docker-test/attach?since=' + encodeURIComponent(sinceIndex || 0) + '&_=' + Date.now();
+    var source = new EventSource(url);
+    _attachSource = source;
+    source.onmessage = function (e) {
+      if (!dtIsActive() || _attachSource !== source) return;
+      if (e.data === '__DONE__') {
+        setStatus('done');
+        setBusy(false);
+        dtEndEditorBusy();
+        source.close();
+        if (_attachSource === source) _attachSource = null;
+        return;
+      }
+      if (e.data === '__ERROR__') {
+        setStatus('failed');
+        setBusy(false);
+        dtEndEditorBusy();
+        source.close();
+        if (_attachSource === source) _attachSource = null;
+        return;
+      }
+      if (e.data === 'idle') {
+        setStatus('idle');
+        setBusy(false);
+        dtEndEditorBusy();
+        source.close();
+        if (_attachSource === source) _attachSource = null;
+        return;
+      }
+      appendOutput(e.data);
+    };
+    source.onerror = function () {
+      if (_attachSource !== source) return;
+      source.close();
+      _attachSource = null;
+      dtScheduleStateReload();
+    };
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', dtInit);
+  } else {
+    dtInit();
+  }
+
+  function setStatus(state) {
+    if (!dtIsActive()) return;
+    _status = state;
+    var badge = document.getElementById('dtStatusBadge');
+    var text  = document.getElementById('dtStatusText');
+    var spin  = document.getElementById('dtSpinner');
+    badge.className = 'dt-status-badge dt-status-' + state;
+    var i18nKey = 'docker_test.status_' + state;
+    text.setAttribute('data-i18n', i18nKey);
+    text.textContent = t(i18nKey);
+    spin.style.display = (state === 'running') ? 'block' : 'none';
+    dtSaveSession();
+  }
+
+  function appendOutput(line) {
+    if (!dtIsActive()) return;
+    _outputLines.push(line);
+    var box = document.getElementById('dtOutput');
+    if (!box) return;
+    box.appendChild(document.createTextNode(line + '\n'));
+    if (_autoScroll) { box.scrollTop = box.scrollHeight; }
+    if (!_saveThrottle) {
+      _saveThrottle = setTimeout(function() { _saveThrottle = null; dtSaveSession(); }, 2000);
+    }
+  }
+
+  function clearOutput() {
+    if (!dtIsActive()) return;
+    _autoScroll = true;
+    _outputLines = [];
+    if (_saveThrottle) { clearTimeout(_saveThrottle); _saveThrottle = null; }
+    var dtOut = document.getElementById('dtOutput');
+    if (dtOut) { dtOut.textContent = ''; }
+    dtSaveSession();
+  }
+
+  function setBusy(busy) {
+    if (!dtIsActive()) return;
+    _running = busy;
+    var startBtn = document.getElementById('dtStartBtn');
+    var resetBtn = document.getElementById('dtResetBtn');
+    if (startBtn) startBtn.disabled = busy;
+    if (resetBtn) resetBtn.disabled = busy;
+  }
+
+  function dtOpenOperationStream(url, onTerminal) {
+    _stateRequestSeq += 1;
+    dtCancelStateRetry();
+    if (_eventSource) { _eventSource.close(); _eventSource = null; }
+    if (_attachSource) { _attachSource.close(); _attachSource = null; }
+    var source = new EventSource(url);
+    var terminal = false;
+    _eventSource = source;
+    source.onmessage = function(e) {
+      if (!dtIsActive() || _eventSource !== source) return;
+      if (e.data === '__DONE__' || e.data === '__ERROR__') {
+        terminal = true;
+        source.close();
+        if (_eventSource === source) _eventSource = null;
+        var phase = e.data === '__DONE__' ? 'done' : 'failed';
+        setBusy(false);
+        setStatus(phase);
+        if (typeof onTerminal === 'function') onTerminal(phase);
+      } else {
+        appendOutput(e.data);
+      }
+    };
+    source.onerror = function() {
+      if (terminal || _eventSource !== source) return;
+      source.close();
+      _eventSource = null;
+      dtScheduleStateReload();
+    };
+  }
+
+  window.dtStart = function() {
+    if (_running || !dtIsActive()) return;
+    clearOutput();
+    setBusy(true);
+    setStatus('running');
+    dtOpenOperationStream('/api/docker-test/start');
+  };
+
+  window.dtConfirmReset = function() {
+    if (_running) return;
+    showConfirm(
+      t('docker_test.confirm_reset_message'),
+      t('docker_test.confirm_reset_title'),
+      function() { window.dtDoReset(); },
+      t('docker_test.confirm_reset_ok'),
+      'bi-trash3-fill',
+      '#b91c1c'
+    );
+  };
+
+  window.dtDoReset = function() {
+    if (!dtIsActive()) return;
+    clearOutput();
+    setBusy(true);
+    setStatus('running');
+    dtOpenOperationStream('/api/docker-test/reset');
+  };
+
+  window.dtSaveAndRebuild = function() {
+    if (_running || _editorBusy || !_selectedFilePath) return;
+    showConfirm(
+      t('docker_test.confirm_rebuild_message'),
+      t('docker_test.confirm_rebuild_title'),
+      function() {
+        var textarea = document.getElementById('dtEditorTextarea');
+        var content = textarea ? textarea.value : '';
+        fetch('/api/docker-test/data-file', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ path: _selectedFilePath, content: content })
+        })
+          .then(function(r) { return r.json(); })
+          .then(function(d) {
+            if (d.error) { showAlert(t('docker_test.editor_save_error')); return; }
+            dtSaveSession();
+            dtEditorRebuild();
+          })
+          .catch(function() { showAlert(t('docker_test.editor_save_error')); });
+      },
+      t('docker_test.confirm_rebuild_ok'),
+      'bi-arrow-repeat',
+      '#7c5cbf'
+    );
+  };
+
+  function dtEndEditorBusy() {
+    if (!_editorBusy) return;
+    _editorBusy = false;
+    var overlay = document.getElementById('dtEditorOverlay');
+    if (overlay) overlay.style.display = 'none';
+    dtLoadDataFiles();
+  }
+
+  function dtEditorRebuild() {
+    var overlay = document.getElementById('dtEditorOverlay');
+    if (overlay) overlay.style.display = '';
+    _editorBusy = true;
+    clearOutput();
+    setBusy(true);
+    setStatus('running');
+    dtOpenOperationStream('/api/docker-test/start', function() {
+      dtEndEditorBusy();
+    });
+  }
+
+  document.addEventListener('app:navigate', function onDtNavigate(e) {
+    if (e.detail && e.detail.url && e.detail.url.indexOf('docker-test') !== -1) return;
+    document.removeEventListener('app:navigate', onDtNavigate);
+    if (window.__dtInstanceToken === _instanceToken) window.__dtInstanceToken = null;
+    _stateRequestSeq += 1;
+    dtCancelStateRetry();
+    if (_eventSource) { _eventSource.close(); _eventSource = null; }
+    if (_attachSource) { _attachSource.close(); _attachSource = null; }
+  });
+
+  (function() {
+    var MIN_WIDTH = 80, MAX_WIDTH = 600;
+    var STORAGE_KEY = 'dt_file_list_width';
+    var handle = document.getElementById('dtResizeHandle');
+    var wrap   = document.getElementById('dtFileListWrap');
+    if (!handle || !wrap) return;
+
+    function applyWidth(w) {
+      w = Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, w));
+      document.documentElement.style.setProperty('--dt-file-list-width', w + 'px');
+    }
+
+    try {
+      var saved = parseInt(sessionStorage.getItem(STORAGE_KEY), 10);
+      if (saved > 0) applyWidth(saved);
+    } catch(e) {}
+
+    var _dragging = false, _startX = 0, _startW = 0;
+
+    handle.addEventListener('mousedown', function(e) {
+      e.preventDefault();
+      _dragging = true;
+      _startX = e.clientX;
+      _startW = wrap.getBoundingClientRect().width;
+      handle.classList.add('dragging');
+      document.body.style.cursor = 'col-resize';
+      document.body.style.userSelect = 'none';
+    });
+
+    document.addEventListener('mousemove', function(e) {
+      if (!_dragging) return;
+      applyWidth(_startW + (e.clientX - _startX));
+    });
+
+    document.addEventListener('mouseup', function() {
+      if (!_dragging) return;
+      _dragging = false;
+      handle.classList.remove('dragging');
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+      try {
+        sessionStorage.setItem(STORAGE_KEY, wrap.getBoundingClientRect().width);
+      } catch(e) {}
+    });
+  }());
+})();
+</script>
+</div>
+</body>
+</html>

@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" lang="de">
+<body>
+<th:block th:fragment="scripts-repo-list">
+<th:block th:replace="~{fragments/shared/scripts-local-repo :: scripts-local-repo}"></th:block>
+<script>
+
+  if (window._caCardClickHandler) document.removeEventListener('click', window._caCardClickHandler);
+  window._caCardClickHandler = function (event) {
+    var btn  = event.target.closest('[data-action]');
+    if (btn) {
+      event.stopPropagation();
+      var card   = btn.closest('.ca-repo-card');
+      if (!card) return;
+      var action = btn.getAttribute('data-action');
+      if (action === 'gh-play' || action === 'gh-cancel') {
+        event.stopPropagation();
+        var ghId   = parseInt(card.getAttribute('data-github-repo-id'), 10);
+        var ghName = card.getAttribute('data-github-repo-name') || '';
+        if (action === 'gh-play') {
+          caSelectGithub(ghId, ghName);
+          caStartAnalysis();
+        } else {
+          cancelCodeAnalysis();
+        }
+        return;
+      }
+      if (action === 'gl-play' || action === 'gl-cancel') {
+        var glCfg  = parseInt(card.getAttribute('data-gl-config'), 10);
+        var glProj = parseInt(card.getAttribute('data-gl-project'), 10);
+        var glPath = card.getAttribute('data-gl-path') || '';
+        var glName = card.getAttribute('data-gl-name') || glPath.split('/').pop();
+        if (action === 'gl-play') {
+          selectGitlabProject(glCfg, glProj, glPath, glName);
+          caStartAnalysis();
+        } else {
+          if (caGitlabConfigId === glCfg && caGitlabProjectId === glProj) {
+            cancelCodeAnalysis();
+          }
+        }
+        return;
+      }
+      var id     = parseInt(card.getAttribute('data-repo-id'), 10);
+      var name   = card.getAttribute('data-repo-name') || '';
+      var path   = card.getAttribute('data-repo-path') || '';
+      var active = card.getAttribute('data-repo-active') === 'true';
+      if (action === 'edit')   editRepo(id);
+      if (action === 'delete') deleteRepo(id);
+      if (action === 'play')   { selectRepo(id, name, path, true); caStartAnalysis(); }
+      if (action === 'cancel') {
+        if (caCurrentRepoId === id) {
+          cancelCodeAnalysis();
+        } else {
+          fetch('/api/code-analysis/cancel-latest-for-repo/' + id, { method: 'POST' })
+            .then(function() { if (typeof caLoadHistory === 'function') caLoadHistory(); });
+        }
+      }
+      return;
+    }
+    var card = event.target.closest('.ca-repo-card[data-repo-id]');
+    if (card) {
+      selectRepo(
+        parseInt(card.getAttribute('data-repo-id'), 10),
+        card.getAttribute('data-repo-name') || '',
+        card.getAttribute('data-repo-path') || ''
+      );
+    }
+  };
+  document.addEventListener('click', window._caCardClickHandler);
+
+  window.localRepoConfig = {
+    scope: 'CODE_ANALYSIS',
+    listContainerId: 'repoList',
+    cardIdPrefix: 'repoCard-',
+    cardClass: 'ca-repo-card',
+    refreshCard: function (repo) { if (typeof caRefreshRepoCard === 'function') caRefreshRepoCard(repo); },
+    onDeleted: function (id) { if (id === caCurrentRepoId) { if (typeof caResetPanel === 'function') caResetPanel(); } }
+  };
+
+  function caRefreshRepoCard(repo) {
+    var existing = document.getElementById('repoCard-' + repo.id);
+    if (existing) {
+      existing.querySelector('.ca-repo-name').textContent = repo.name;
+      existing.querySelector('.ca-repo-path').textContent = repo.path;
+      existing.setAttribute('data-repo-name', repo.name);
+      existing.setAttribute('data-repo-path', repo.path);
+      existing.setAttribute('data-repo-active', repo.active);
+      existing.classList.toggle('ca-repo-inactive', !repo.active);
+    } else {
+      var card = document.createElement('div');
+      card.className = 'ca-repo-card' + (repo.active ? '' : ' ca-repo-inactive');
+      card.id = 'repoCard-' + repo.id;
+      card.setAttribute('data-repo-id',     repo.id);
+      card.setAttribute('data-repo-name',   repo.name);
+      card.setAttribute('data-repo-path',   repo.path);
+      card.setAttribute('data-repo-active', repo.active);
+      card.innerHTML =
+        '<div class="ca-repo-row1"><div class="ca-repo-name">' + caEsc(repo.name) + '</div></div>' +
+        '<div class="ca-repo-path">' + caEsc(repo.path) + '</div>' +
+        '<div class="ca-card-status"></div>' +
+        '<div class="ca-btn-row">' +
+          '<button class="ca-btn-xs ca-btn-xs-success" data-action="play"><i class="bi bi-play-fill"></i> ' + (window.i18n ? window.i18n.t('code_analysis.btn_start') : 'Starten') + '</button>' +
+          '<button class="ca-btn-xs ca-btn-xs-cancel"  data-action="cancel"><i class="bi bi-x-circle"></i></button>' +
+          '<button class="ca-btn-xs ca-btn-xs-outline" data-action="edit"><i class="bi bi-pencil"></i></button>' +
+          '<button class="ca-btn-xs ca-btn-xs-outline" data-action="delete"><i class="bi bi-trash"></i></button>' +
+        '</div>';
+      var _rl = document.getElementById('repoList');
+      _rl.appendChild(card);
+      var _cards = Array.prototype.slice.call(_rl.querySelectorAll('.ca-repo-card'));
+      _cards.sort(function(a, b) { return (a.getAttribute('data-repo-name') || '').localeCompare(b.getAttribute('data-repo-name') || ''); });
+      _cards.forEach(function(c) { _rl.appendChild(c); });
+    }
+  }
+</script>
+</th:block>
+</body>
+</html>

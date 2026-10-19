@@ -1,0 +1,30 @@
+/*
+ * JavaFX CSS – hides the native scroll bars that WebView renders as scene-graph
+ * ScrollBar nodes.  These are NOT HTML elements, so HTML/CSS rules cannot reach them.
+ * Applied to the Scene via stage.scene.stylesheets so it takes effect globally.
+ */
+
+.web-view .scroll-bar:vertical {
+    -fx-min-width:  0;
+    -fx-pref-width: 0;
+    -fx-max-width:  0;
+    -fx-opacity:    0;
+}
+
+.web-view .scroll-bar:horizontal {
+    -fx-min-height:  0;
+    -fx-pref-height: 0;
+    -fx-max-height:  0;
+    -fx-opacity:     0;
+}
+
+/* Also hide the corner square that appears when both bars are visible */
+.web-view .corner {
+    -fx-min-width:   0;
+    -fx-pref-width:  0;
+    -fx-max-width:   0;
+    -fx-min-height:  0;
+    -fx-pref-height: 0;
+    -fx-max-height:  0;
+    -fx-opacity:     0;
+}

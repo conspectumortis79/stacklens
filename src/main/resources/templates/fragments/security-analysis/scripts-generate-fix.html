@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" lang="de">
+<body>
+<th:block th:fragment="scripts-generate-fix">
+<script>
+  function _baFixStartEntry(findingId, label) {
+    var entry = _baFixEntry(findingId);
+    if (!entry) {
+      entry = { findingId: findingId };
+      _baFixPrDetails.push(entry);
+    }
+    entry.label = label;
+    entry.step = _baI18n('bug_analysis.fix_running_step', 'KI-Fix läuft · 4–10 Minuten üblich\u2026');
+    entry.prUrl = null;
+    entry.error = null;
+    entry.localDone = null;
+    entry.cancelled = false;
+    entry.interrupted = null;
+    entry.inFlight = true;
+    entry.ownerRepoKey = _baRepoKey();
+    entry.startedAt = Date.now();
+    entry.finishedAt = null;
+    entry.explanation = null;
+    entry.branchName = null;
+    entry.filesChanged = [];
+    entry.localChanges = null;
+    return entry;
+  }
+
+  function _baFixFinish(entry) {
+    entry.step = null;
+    entry.finishedAt = Date.now();
+    entry.controller = null;
+    entry.inFlight = false;
+    entry.interrupted = null;
+    _baFixRecomputeRunning();
+    _baFixUpdateRow(entry.findingId);
+    _baUpdateFixPrBadge();
+    try { if (window._baFixPrHook) window._baFixPrHook(entry); } catch (_) {}
+  }
+
+  function _baFixFail(entry, message) {
+    entry.error = message;
+    _baFixFinish(entry);
+  }
+
+  function baGenerateFix(analysisId, findingId, btn) {
+    var findingBody = btn.closest('.ba-finding-body');
+    var findingHeader = findingBody ? findingBody.previousElementSibling : null;
+    var findingLabel = findingHeader
+      ? ((findingHeader.querySelector('.ba-finding-file')?.textContent?.trim() || '') +
+         ' ' + (findingHeader.querySelector('.ba-type')?.textContent?.trim() || findingId)).trim()
+      : String(findingId);
+
+    if (btn.classList.contains('ba-btn-fix')) btn.style.display = 'none';
+    var entry = _baFixStartEntry(findingId, findingLabel);
+    _baFixRecomputeRunning();
+    _baFixUpdateRow(findingId);
+    _baUpdateFixPrBadge();
+
+    var ctrl = (typeof AbortController !== 'undefined') ? new AbortController() : null;
+    entry.controller = ctrl;
+    var timeoutId = ctrl ? setTimeout(function() { ctrl.abort(); }, 11 * 60 * 1000) : null;
+
+    fetch('/api/bug-analysis/analysis/' + analysisId + '/finding/' + encodeURIComponent(findingId) + '/generate-fix', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      signal: ctrl ? ctrl.signal : undefined
+    })
+    .then(function(r) {
+      return r.json().catch(function() { return { error: 'HTTP ' + r.status }; })
+        .then(function(j) {
+          if (!r.ok && !j.error) j.error = 'HTTP ' + r.status;
+          return j;
+        });
+    })
+    .then(function(data) {
+      if (timeoutId) clearTimeout(timeoutId);
+      if (entry.cancelled) return;
+      if (data.error) { _baFixFail(entry, data.error); return; }
+      if (data.prUrl) {
+        entry.prUrl = data.prUrl;
+        entry.explanation = data.explanation || null;
+        entry.branchName = data.branchName || null;
+        entry.filesChanged = data.filesChanged || [];
+        entry.localChanges = data.localChanges || null;
+        _baFixFinish(entry);
+        return;
+      }
+      if (data.isLocalRepo && data.localChanges && data.localChanges.length > 0) {
+        entry.localDone = true;
+        entry.localChanges = data.localChanges;
+        entry.explanation = data.explanation || null;
+        _baFixFinish(entry);
+        return;
+      }
+      _baFixFail(entry, _baI18n('bug_analysis.fix_error', 'Kein Fix generiert.'));
+    })
+    .catch(function(e) {
+      if (timeoutId) clearTimeout(timeoutId);
+      if (entry.cancelled) return;
+      var msg;
+      if (e && e.name === 'AbortError') {
+        msg = _baI18n('bug_analysis.fix_timeout', 'Die Fix-Erstellung hat das Zeitlimit überschritten. Bitte erneut starten.');
+      } else {
+        msg = e.message || 'Fehler';
+      }
+      _baFixFail(entry, msg);
+    });
+  }
+</script>
+</th:block>
+</body>
+</html>

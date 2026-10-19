@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" lang="de">
+<body>
+<th:block th:fragment="modals">
+
+<div id="apWriteModal" style="display:none;position:fixed;inset:0;z-index:1060;">
+  <div style="position:absolute;inset:0;background:rgba(0,0,0,.45);" onclick="apCloseWriteModal()"></div>
+  <div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:min(540px,95vw);background:var(--ta-paper);border:1px solid var(--ta-line);border-radius:16px;overflow:hidden;box-shadow:0 8px 32px rgba(0,0,0,.18);">
+    <div style="background:var(--ta-bg);border-bottom:1px solid var(--ta-line);padding:11px 16px;display:flex;align-items:center;gap:8px;">
+      <i class="bi bi-folder-symlink-fill" style="color:#1e7a3a;font-size:14px;"></i>
+      <span style="font-size:13px;font-weight:800;flex:1;" data-i18n="ticket_implementation.ap_write_modal_title">Dateien in Repository schreiben</span>
+      <button onclick="apCloseWriteModal()" style="background:none;border:none;font-size:18px;cursor:pointer;color:var(--ta-muted);line-height:1;" title="Schließen">&times;</button>
+    </div>
+    <div style="padding:16px;">
+      <p style="font-size:13px;margin:0 0 8px;" id="apWriteModalHint" data-i18n="ticket_implementation.ap_write_modal_hint">Die folgenden Dateien werden im verknüpften Repository erstellt oder überschrieben:</p>
+      <div id="apWriteModalRepoPath" style="font-size:11px;color:var(--ta-muted);margin-bottom:12px;font-family:monospace;"></div>
+      <div id="apWriteModalFileList" style="max-height:300px;overflow-y:auto;border:1.5px solid var(--ta-line);border-radius:10px;background:var(--ta-paper);padding:8px 12px;color:var(--ta-ink);"></div>
+      <div id="apWriteModalError" style="display:none;margin-top:10px;color:#b91c1c;font-size:12px;"></div>
+    </div>
+    <div style="background:var(--ta-bg);border-top:1px solid var(--ta-line);padding:10px 16px;display:flex;justify-content:flex-end;gap:8px;">
+      <button onclick="apCloseWriteModal()" style="border-radius:999px;font-size:12px;font-weight:600;border:1.5px solid var(--ta-line);background:var(--ta-paper);color:var(--ta-ink);padding:4px 14px;cursor:pointer;"><span data-i18n="common.cancel">Abbrechen</span></button>
+      <button id="apBtnWriteConfirm" onclick="apConfirmWriteFiles()" style="background:#1e7a3a;color:#fff;border:none;border-radius:999px;font-size:12px;font-weight:700;padding:5px 16px;cursor:pointer;">
+        <i class="bi bi-check-lg me-1"></i><span data-i18n="ticket_implementation.ap_write_confirm">Jetzt schreiben</span>
+      </button>
+    </div>
+  </div>
+</div>
+
+</th:block>
+</body>
+</html>

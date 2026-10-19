@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" lang="de">
+<body>
+<th:block th:fragment="scripts-history">
+<script>
+  var LG_HISTORY_KEY = 'stacklens.logging.history';
+  var LG_HISTORY_MAX_ENTRIES = 50;
+  var LG_HISTORY_PREVIEW_LEN = 90;
+
+  var _lgHistory = null;
+
+  function lgReadHistory() {
+    try {
+      var raw = window.localStorage.getItem(LG_HISTORY_KEY);
+      if (!raw) return [];
+      var parsed = JSON.parse(raw);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch (_) {
+      return [];
+    }
+  }
+
+  function lgWriteHistory(list) {
+    try {
+      window.localStorage.setItem(LG_HISTORY_KEY, JSON.stringify(list));
+    } catch (_) {}
+  }
+
+  function lgTrimPreview(text) {
+    if (!text) return '';
+    var s = String(text).replace(/\s+/g, ' ').trim();
+    return s.length > LG_HISTORY_PREVIEW_LEN ? s.substring(0, LG_HISTORY_PREVIEW_LEN) + '…' : s;
+  }
+
+  function lgSaveToHistory(input, result) {
+    if (!input || !result) return;
+    var text = String(input);
+    if (!text.trim()) return;
+    var entry = {
+      id: 'lg-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 8),
+      createdAt: new Date().toISOString(),
+      input: text,
+      totalLines: result.totalLines,
+      issueLines: result.issueLines,
+      bySeverity: result.bySeverity,
+      byCategory: result.byCategory
+    };
+    var list = lgReadHistory();
+    list.unshift(entry);
+    if (list.length > LG_HISTORY_MAX_ENTRIES) list = list.slice(0, LG_HISTORY_MAX_ENTRIES);
+    lgWriteHistory(list);
+    lgRenderHistory();
+  }
+
+  function lgHistory() {
+    if (_lgHistory) return _lgHistory;
+    _lgHistory = window.slHistory.mount({
+      root: 'hxCard-logging',
+      page: 'logging',
+      titleKey: 'logging.history_title',
+      emptyKey: 'logging.history_none_entries',
+      columns: {
+        title: { key: 'logging.col_preview', fallback: 'Vorschau' },
+        metric: { key: 'logging.col_issues', fallback: 'Probleme' }
+      },
+      map: {
+        id: function(e) { return e.id; },
+        status: function() { return 'COMPLETED'; },
+        createdAt: function(e) { return e.createdAt; },
+        typeIcon: function() { return 'bi-journal-text'; },
+        title: function(e) { return lgTrimPreview(String(e.input || '').split('\n')[0] || e.input || ''); },
+        subtitle: function(e) {
+          var t = window.i18n ? window.i18n.t.bind(window.i18n) : function(k) { return k; };
+          return (e.totalLines || 0) + ' ' + t('logging.col_lines');
+        },
+        metric: function(e) { return String(e.issueLines || 0); },
+        tags: function(e) {
+          if (!e.bySeverity || !e.bySeverity.critical) return [];
+          return [{ label: e.bySeverity.critical + ' CRITICAL' }];
+        }
+      },
+      actions: {
+        open: function(e) { lgRestoreFromHistory(e.id); },
+        remove: function(e) { lgDeleteHistoryItem(e.id); },
+        deleteAll: function() { lgDeleteAllHistory(); }
+      }
+    });
+    return _lgHistory;
+  }
+
+  function lgRenderHistory() {
+    lgHistory().setData(lgReadHistory());
+  }
+
+  function lgRestoreFromHistory(id) {
+    var list = lgReadHistory();
+    var entry = null;
+    for (var i = 0; i < list.length; i++) {
+      if (list[i].id === id) { entry = list[i]; break; }
+    }
+    if (!entry) { lgRenderHistory(); return; }
+    var input = document.getElementById('lgInput');
+    if (input) input.value = entry.input;
+    lgAnalyze({ save: false });
+    var ta = document.getElementById('lgResult');
+    if (ta) ta.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    var t = window.i18n ? window.i18n.t.bind(window.i18n) : function(k) { return k; };
+    var toast = document.getElementById('lgRestoreToast');
+    if (toast) {
+      toast.textContent = t('logging.history_restore_done');
+      toast.classList.add('visible');
+      setTimeout(function() { toast.classList.remove('visible'); }, 1800);
+    }
+  }
+
+  function lgDeleteHistoryItem(id) {
+    var list = lgReadHistory().filter(function(e) { return e.id !== id; });
+    lgWriteHistory(list);
+    lgRenderHistory();
+  }
+
+  function lgDeleteAllHistory() {
+    lgWriteHistory([]);
+    lgRenderHistory();
+  }
+
+  window.lgReadHistory = lgReadHistory;
+  window.lgWriteHistory = lgWriteHistory;
+  window.lgSaveToHistory = lgSaveToHistory;
+  window.lgRenderHistory = lgRenderHistory;
+  window.lgRestoreFromHistory = lgRestoreFromHistory;
+  window.lgDeleteHistoryItem = lgDeleteHistoryItem;
+  window.lgDeleteAllHistory = lgDeleteAllHistory;
+</script>
+</th:block>
+</body>
+</html>

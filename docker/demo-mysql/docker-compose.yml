@@ -1,0 +1,21 @@
+services:
+  mysql-demo:
+    image: mysql:8.0
+    container_name: stacklens-demo-mysql
+    ports:
+      - "3306:3306"
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpassword
+      MYSQL_USER: stacklens
+      MYSQL_PASSWORD: stacklens
+    volumes:
+      - ./initdb:/docker-entrypoint-initdb.d:ro
+      - mysql-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysql", "-h", "127.0.0.1", "-u", "stacklens", "-pstacklens", "-e", "SELECT 1", "auth_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  mysql-data:

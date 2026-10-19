@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org"
+      xmlns:layout="http://www.ultraq.net.nz/thymeleaf/layout"
+      layout:decorate="~{layout}" lang="de">
+<head><title>Jira Demo · SPRINT-200</title>
+<meta name="mcp-sources" content="jira">
+</head>
+<body>
+
+<th:block layout:fragment="page-title">
+  <span data-i18n="demo_jira.page_title">SPRINT-200 — Jira-Demo</span>
+</th:block>
+
+<th:block layout:fragment="page-subtitle">
+  <p class="page-subtitle" data-i18n="demo_jira.page_subtitle">
+    Diese Seite simuliert die Jira-v3-Ticketansicht, in der die ADF-Tabelle
+    aus der Sprint-Vorbereitung an die Beschreibung angehängt wurde. Sie wird
+    aufgerufen, sobald eine Sprint-Vorbereitungs-Verarbeitung erfolgreich
+    abgeschlossen wurde.
+  </p>
+</th:block>
+
+<th:block layout:fragment="page-actions">
+  <div style="display:flex;gap:8px;align-items:center;">
+    <a class="btn btn-sm btn-outline-secondary" href="/sprint-review">
+      <i class="bi bi-arrow-left me-1"></i>
+      <span data-i18n="demo_jira.btn_back">Zurück zur Sprint-Vorbereitung</span>
+    </a>
+  </div>
+</th:block>
+
+<div layout:fragment="content">
+  <th:block th:replace="~{fragments/demo-jira/styles :: styles}"></th:block>
+
+  <div class="djira-page">
+    <div class="djira-header">
+      <div class="djira-header-left">
+        <div class="djira-issue-key">SPRINT-200</div>
+        <h1 class="djira-issue-title" id="djiraIssueTitle">Sprint Demo Review — Sammelübersicht</h1>
+        <div class="djira-issue-meta">
+          <span class="djira-pill djira-pill--type">Task</span>
+          <span class="djira-pill djira-pill--status" id="djiraStatus">To Do</span>
+          <span class="djira-meta-item"><i class="bi bi-person"></i> Sophie Wagner</span>
+          <span class="djira-meta-item"><i class="bi bi-flag"></i> Medium</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="djira-toolbar">
+      <span class="djira-toolbar-label" data-i18n="demo_jira.toolbar_label">Ansicht:</span>
+      <div class="djira-toolbar-tabs">
+        <button class="djira-tab djira-tab--active" data-djira-tab="description">
+          <i class="bi bi-file-text me-1"></i><span data-i18n="demo_jira.tab_description">Beschreibung</span>
+        </button>
+        <button class="djira-tab" data-djira-tab="raw">
+          <i class="bi bi-code-slash me-1"></i><span data-i18n="demo_jira.tab_raw">ADF-JSON</span>
+        </button>
+      </div>
+      <div class="djira-toolbar-spacer"></div>
+      <span class="djira-toolbar-badge">
+        <i class="bi bi-check2-circle me-1"></i>
+        <span data-i18n="demo_jira.badge_appended">Sprint-Vorbereitungs-Tabelle angehängt</span>
+      </span>
+    </div>
+
+    <div class="djira-description" id="djiraDescriptionView">
+      <h2 data-i18n="demo_jira.original_heading">Beschreibung</h2>
+      <pre id="djiraOriginalDescription" class="djira-original-desc"></pre>
+
+      <hr class="djira-rule">
+
+      <h2 id="djiraReviewHeading" class="djira-review-heading">Sprint review — Sprint Demo Review</h2>
+
+      <p class="djira-legend">
+        <em data-i18n="demo_jira.legend">✓ Bearbeitet  ·  ? Offene Frage  ·  ✎ Refinement nötig</em>
+      </p>
+
+      <div id="djiraRenderedTable"></div>
+
+      <hr class="djira-rule">
+    </div>
+
+    <div class="djira-description" id="djiraRawView" style="display:none;">
+      <h2 data-i18n="demo_jira.raw_heading">ADF-JSON (Atlassian Document Format)</h2>
+      <pre id="djiraRawJson" class="djira-raw-json"></pre>
+    </div>
+
+    <div id="djiraEmptyState" class="djira-empty-state" style="display:none;">
+      <i class="bi bi-info-circle me-1"></i>
+      <span data-i18n="demo_jira.empty_state">
+        Keine ADF-Tabelle gefunden. Bitte zuerst eine Sprint-Vorbereitung starten.
+      </span>
+    </div>
+  </div>
+
+  <th:block th:replace="~{fragments/demo-jira/scripts :: scripts}"></th:block>
+</div>
+
+</body>
+</html>

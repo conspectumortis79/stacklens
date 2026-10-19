@@ -1,0 +1,319 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" lang="de">
+<body>
+<th:block th:fragment="scripts-prompt-editor">
+<script th:inline="none">
+var __promptEditorApiBase = '/api/prompts';
+var __promptEditorUseLang = true;
+
+function __startPromptReadyPoller() {
+  var btn = document.querySelector('[data-prompt-prefix]');
+  if (!btn) return;
+
+  var prefix = btn.getAttribute('data-prompt-prefix');
+  var myGen  = ++__promptReadyGeneration;
+
+  function _run() {
+    if (myGen !== __promptReadyGeneration) return;
+
+    var lang = (window.i18n && window.i18n.getLang()) || 'en';
+
+    if (window.__promptCacheLang != null && window.__promptCacheLang !== lang) {
+      window.__promptContentCache = {};
+    }
+    window.__promptCacheLang = lang;
+
+    delete __promptGroupsCache[prefix];
+
+    function _enableButton(groups) {
+      if (myGen !== __promptReadyGeneration) return;
+      __promptGroupsCache[prefix] = groups;
+      var b = document.querySelector('[data-prompt-prefix="' + prefix + '"]');
+      if (b) b.disabled = false;
+    }
+
+    function _fetchMissingContent(groups) {
+      if (myGen !== __promptReadyGeneration) return;
+      var pending = groups.filter(function(g) { return !__promptContentCache[g.mainKey]; });
+      if (pending.length === 0) { _enableButton(groups); return; }
+
+      var done = 0; var anyFailed = false;
+      pending.forEach(function(g) {
+        fetch('/api/prompts/' + encodeURIComponent(g.mainKey) + '?lang=' + encodeURIComponent(lang))
+          .then(function(r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+          .then(function(data) {
+            if (myGen !== __promptReadyGeneration) return;
+            __promptContentCache[g.mainKey] = {
+              content:        data.content || '',
+              isCustom:       !!data.isCustom,
+              defaultContent: data.isCustom ? (data.defaultContent || '') : (data.content || '')
+            };
+            done++;
+            if (!anyFailed && done === pending.length) _enableButton(groups);
+          })
+          .catch(function() {
+            if (myGen !== __promptReadyGeneration) return;
+            anyFailed = true;
+          });
+      });
+    }
+
+    fetch('/api/prompts/groups?prefix=' + encodeURIComponent(prefix) + '&lang=' + encodeURIComponent(lang))
+      .then(function(r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+      .then(function(groups) {
+        if (myGen !== __promptReadyGeneration) return;
+        if (!Array.isArray(groups) || groups.length === 0) return;
+        __promptGroupsCache[prefix] = groups;
+        _fetchMissingContent(groups);
+      })
+      .catch(function() {  });
+  }
+
+  if (window.i18n) {
+    window.i18n.onReady(_run);
+  } else {
+    _run();
+  }
+}
+
+var __promptEditorKey = null;
+var __promptEditorLang = 'en';
+var __promptEditorModal = null;
+var __promptEditorSaveAndRunCallback = null;
+var __promptEditorTabs = [];
+var __promptEditorTabIdx = -1;
+var __promptEditorTabHScroll = null;
+
+function __promptEditorSLScrollX(box, track, thumb) {
+  if (!box || !track || !thumb) return { update: function() {} };
+
+  var thumbW = 32;
+
+  function update() {
+    var trackW = track.clientWidth;
+    var ratio = box.scrollWidth > 0 ? box.clientWidth / box.scrollWidth : 1;
+    thumbW = Math.max(32, ratio * trackW);
+    var maxSc = box.scrollWidth - box.clientWidth;
+    var scRatio = maxSc > 0 ? box.scrollLeft / maxSc : 0;
+    thumb.style.width = thumbW + 'px';
+    thumb.style.transform = 'translateX(' + (scRatio * (trackW - thumbW)) + 'px)';
+    var needsScroll = box.scrollWidth > box.clientWidth;
+    if (track.dataset.alwaysVisible) {
+      thumb.style.visibility = needsScroll ? '' : 'hidden';
+    } else {
+      track.style.visibility = needsScroll ? '' : 'hidden';
+    }
+  }
+
+  box.addEventListener('scroll', update);
+  track.addEventListener('click', function(e) {
+    if (e.target === thumb) return;
+    var rect = track.getBoundingClientRect();
+    var ratio = (e.clientX - rect.left) / track.clientWidth;
+    box.scrollLeft = ratio * (box.scrollWidth - box.clientWidth);
+  });
+
+  var dragStartX = 0;
+  var dragStartSL = 0;
+  function onDrag(e) {
+    var dx = e.clientX - dragStartX;
+    var scrollRange = box.scrollWidth - box.clientWidth;
+    var trackUsable = track.clientWidth - thumbW;
+    box.scrollLeft = trackUsable > 0
+      ? dragStartSL + (dx / trackUsable) * scrollRange
+      : dragStartSL;
+  }
+  function onDragEnd() {
+    thumb.classList.remove('dragging');
+    document.removeEventListener('mousemove', onDrag);
+    document.removeEventListener('mouseup', onDragEnd);
+  }
+  thumb.addEventListener('mousedown', function(e) {
+    e.preventDefault();
+    thumb.classList.add('dragging');
+    dragStartX = e.clientX;
+    dragStartSL = box.scrollLeft;
+    document.addEventListener('mousemove', onDrag);
+    document.addEventListener('mouseup', onDragEnd);
+  });
+
+  new MutationObserver(update).observe(box, { childList: true, subtree: true, characterData: true });
+  window.addEventListener('resize', update);
+  update();
+
+  return { update: update };
+}
+
+function __promptEditorEnsureTabHScroll() {
+  var box = document.getElementById('promptEditorTabBar');
+  var track = document.getElementById('promptEditorTabScrollTrack');
+  var thumb = document.getElementById('promptEditorTabScrollThumb');
+  var wrap = document.getElementById('promptEditorTabWrap');
+  if (!box || !track || !thumb || !wrap) return;
+  if (!__promptEditorTabHScroll) {
+    __promptEditorTabHScroll = __promptEditorSLScrollX(box, track, thumb);
+  }
+  if (wrap.style.display !== 'none') {
+    __promptEditorTabHScroll.update();
+  }
+}
+
+function __promptEditorSetupCommon(title, lang, onSaveAndRun, apiBase, useLang) {
+  __promptEditorApiBase = apiBase || '/api/prompts';
+  __promptEditorUseLang = (useLang !== false);
+  __promptEditorLang = (window.i18n && window.i18n.getLang()) || lang || document.documentElement.lang || 'en';
+  __promptEditorSaveAndRunCallback = onSaveAndRun || null;
+  document.getElementById('promptEditorTitle').textContent = title || 'KI-Prompt';
+  var subtitleEl = document.getElementById('promptEditorSubtitleText');
+  if (subtitleEl) {
+    subtitleEl.textContent = onSaveAndRun
+      ? (window.i18n ? window.i18n.t('common.ai_prompt_subtitle_rerun') : 'Prompt bearbeiten, speichern und die KI damit erneut ausführen, um die Analyse neu zu starten.')
+      : (window.i18n ? window.i18n.t('common.ai_prompt_subtitle_save') : 'Prompt bearbeiten und speichern.');
+  }
+  document.getElementById('promptEditorTextarea').value = '';
+  document.getElementById('promptEditorCustomBadge').style.display = 'none';
+  document.getElementById('promptEditorDefaultSection').classList.add('d-none');
+  var runBtn = document.getElementById('promptEditorSaveRunBtn');
+  if (runBtn) runBtn.style.display = onSaveAndRun ? 'inline-flex' : 'none';
+  if (!__promptEditorModal) {
+    __promptEditorModal = new bootstrap.Modal(document.getElementById('promptEditorModal'));
+  }
+}
+
+
+function __promptEditorApplyTabData(tab) {
+  document.getElementById('promptEditorTextarea').value = tab.content || '';
+  if (tab.isCustom) {
+    document.getElementById('promptEditorCustomBadge').style.display = 'inline-flex';
+    document.getElementById('promptEditorDefaultSection').classList.remove('d-none');
+    document.getElementById('promptEditorDefaultText').textContent = tab.defaultContent || '';
+  } else {
+    document.getElementById('promptEditorCustomBadge').style.display = 'none';
+    document.getElementById('promptEditorDefaultSection').classList.add('d-none');
+  }
+  var ta = document.getElementById('promptEditorTextarea');
+  if (ta && ta.__slScroll) { ta.__slScroll.update(); }
+}
+
+function __promptEditorRenderTabs() {
+  var bar = document.getElementById('promptEditorTabBar');
+  var wrap = document.getElementById('promptEditorTabWrap');
+  if (!__promptEditorTabs.length) {
+    if (wrap) wrap.style.display = 'none';
+    bar.style.display = 'none';
+    return;
+  }
+  if (wrap) wrap.style.display = 'block';
+  bar.style.display = 'block';
+  bar.innerHTML = __promptEditorTabs.map(function(t, i) {
+    var isActive = i === __promptEditorTabIdx;
+    var dot = t.dirty
+      ? '<span style="color:#e67e22;margin-left:4px;font-size:10px">&#x25CF;</span>'
+      : (t.isCustom && t.loaded ? '<span style="color:#7c5cbf;margin-left:4px;font-size:10px">&#x2605;</span>' : '');
+    var cls = isActive ? 'pe-tab is-active' : 'pe-tab';
+    return '<button type="button" onclick="__promptEditorSwitchTab(' + i + ')" class="' + cls + '">'
+      + escHtml(t.label) + dot + '</button>';
+  }).join('');
+  __promptEditorEnsureTabHScroll();
+}
+
+function __promptEditorSwitchTab(index) {
+  if (index === __promptEditorTabIdx) return;
+  if (__promptEditorTabIdx >= 0 && __promptEditorTabs[__promptEditorTabIdx]) {
+    var cur = __promptEditorTabs[__promptEditorTabIdx];
+    var currentVal = document.getElementById('promptEditorTextarea').value;
+    if (cur.loaded && currentVal !== cur.content) {
+      cur.content = currentVal;
+      cur.dirty = true;
+    }
+  }
+  __promptEditorTabIdx = index;
+  var tab = __promptEditorTabs[index];
+  __promptEditorKey = tab.key;
+  __promptEditorRenderTabs();
+  if (tab.loaded) {
+    __promptEditorApplyTabData(tab);
+    __promptEditorEnsureTabHScroll();
+  } else {
+    document.getElementById('promptEditorTextarea').value = '';
+    document.getElementById('promptEditorCustomBadge').style.display = 'none';
+    document.getElementById('promptEditorDefaultSection').classList.add('d-none');
+    var _tabUrl = __promptEditorApiBase + '/' + encodeURIComponent(tab.key) + (__promptEditorUseLang ? '?lang=' + __promptEditorLang : '');
+    var _tabAttempt = function(attemptsLeft) {
+      fetch(_tabUrl)
+        .then(function(r) {
+          if (!r.ok) throw new Error('HTTP ' + r.status);
+          return r.json();
+        })
+        .then(function(data) {
+          tab.content = data.content || '';
+          tab.isCustom = data.isCustom;
+          tab.defaultContent = data.isCustom ? (data.defaultContent || '') : (data.content || '');
+          tab.loaded = true;
+          if (__promptEditorTabIdx === index) {
+            __promptEditorApplyTabData(tab);
+            __promptEditorRenderTabs();
+            __promptEditorEnsureTabHScroll();
+          }
+        })
+        .catch(function() {
+          if (attemptsLeft > 0) {
+            setTimeout(function() { _tabAttempt(attemptsLeft - 1); }, 600);
+          }
+        });
+    };
+    _tabAttempt(2);
+  }
+}
+
+function openPromptEditorForPrefix(prefix, title, lang, defaultKey, onSaveAndRun) {
+  var groups = __promptGroupsCache[prefix];
+  if (!groups || groups.length === 0) return;
+
+  __promptEditorTabs = groups.map(function(g) {
+    var c = __promptContentCache[g.mainKey] || {};
+    return {
+      key:            g.mainKey,
+      label:          g.label,
+      content:        c.content        != null ? c.content        : '',
+      isCustom:       !!c.isCustom,
+      defaultContent: c.defaultContent != null ? c.defaultContent : '',
+      loaded:         true,
+      dirty:          false
+    };
+  });
+
+  var startIdx = groups.findIndex(function(g) { return g.mainKey === defaultKey; });
+  if (startIdx < 0) startIdx = 0;
+
+  __promptEditorTabIdx = -1;
+  __promptEditorSetupCommon(title, lang, onSaveAndRun, '/api/prompts', true);
+  __promptEditorRenderTabs();
+  __promptEditorSwitchTab(startIdx);
+  __promptEditorEnsureTabHScroll();
+  __promptEditorModal.show();
+}
+
+setTimeout(function() { __startPromptReadyPoller(); }, 0);
+
+(function() {
+  var el = document.getElementById('promptEditorModal');
+  if (!el) return;
+  var ta    = document.getElementById('promptEditorTextarea');
+  var track = document.getElementById('promptEditorScrollTrack');
+  var thumb = document.getElementById('promptEditorScrollThumb');
+  if (!ta || !track || !thumb || !window.SLScroll) return;
+  ta.__slScroll = window.SLScroll(ta, track, thumb);
+  el.addEventListener('shown.bs.modal', function() {
+    if (ta.__slScroll) { ta.__slScroll.update(); }
+    __promptEditorEnsureTabHScroll();
+  });
+})();
+
+
+</script>
+<th:block th:replace="~{fragments/layout/scripts-agent-editor :: scripts-agent-editor}"></th:block>
+<th:block th:replace="~{fragments/layout/scripts-prompt-file-browsers :: scripts-prompt-file-browsers}"></th:block>
+</th:block>
+</body>
+</html>

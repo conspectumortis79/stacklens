@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" lang="de">
+<body>
+<th:block th:fragment="scripts">
+<script th:inline="none">
+/*<![CDATA[*/
+(function(){
+  function $(id){ return document.getElementById(id); }
+
+  var statusEl  = $('djiraStatus');
+  var titleEl   = $('djiraIssueTitle');
+  var rawEl     = $('djiraRawJson');
+  var tableHost = $('djiraRenderedTable');
+  var emptyState = $('djiraEmptyState');
+  var descriptionView = $('djiraDescriptionView');
+  var rawView = $('djiraRawView');
+
+  function setStatus(status){
+    if (statusEl && status) statusEl.textContent = status;
+  }
+  function setTitle(title){
+    if (titleEl && title) titleEl.textContent = title;
+  }
+
+  function renderAdfDocument(adf){
+    if (!adf || !Array.isArray(adf.content)) return '';
+    var html = '';
+    for (var i = 0; i < adf.content.length; i++) {
+      html += renderNode(adf.content[i]);
+    }
+    return html;
+  }
+
+  function renderNode(node){
+    if (!node || !node.type) return '';
+    switch (node.type) {
+      case 'heading': return renderHeading(node);
+      case 'paragraph': return renderParagraph(node);
+      case 'rule': return '<hr class="djira-rule">';
+      case 'table': return renderTable(node);
+      case 'bulletList': return renderBulletList(node);
+      case 'listItem': return renderListItem(node);
+      default: return renderChildren(node);
+    }
+  }
+
+  function renderChildren(node){
+    if (!Array.isArray(node.content)) return '';
+    var html = '';
+    for (var i = 0; i < node.content.length; i++) {
+      html += renderNode(node.content[i]);
+    }
+    return html;
+  }
+
+  function renderHeading(node){
+    var level = (node.attrs && node.attrs.level) || 2;
+    var inner = renderChildren(node);
+    return '<h' + level + '>' + inner + '</h' + level + '>';
+  }
+
+  function renderParagraph(node){
+    var inner = renderInline(node);
+    return '<p>' + inner + '</p>';
+  }
+
+  function renderInline(node){
+    if (!Array.isArray(node.content)) return '';
+    var html = '';
+    for (var i = 0; i < node.content.length; i++) {
+      var n = node.content[i];
+      if (!n) continue;
+      if (n.type === 'text') {
+        var txt = escapeHtml(n.text || '');
+        if (Array.isArray(n.marks)) {
+          for (var m = 0; m < n.marks.length; m++) {
+            var mark = n.marks[m];
+            if (mark.type === 'strong') txt = '<strong>' + txt + '</strong>';
+            else if (mark.type === 'em') txt = '<em>' + txt + '</em>';
+            else if (mark.type === 'code') txt = '<code>' + txt + '</code>';
+            else if (mark.type === 'link') {
+              var href = (mark.attrs && mark.attrs.href) || '#';
+              txt = '<a href="' + escapeHtml(href) + '" target="_blank" rel="noopener">' + txt + '</a>';
+            }
+          }
+        }
+        html += txt;
+      } else if (n.type === 'hardBreak') {
+        html += '<br>';
+      } else {
+        html += renderNode(n);
+      }
+    }
+    return html;
+  }
+
+  function renderTable(node){
+    var rows = Array.isArray(node.content) ? node.content : [];
+    var html = '<div class="djira-table-wrap"><table class="djira-table">';
+    for (var i = 0; i < rows.length; i++) {
+      html += renderTableRow(rows[i], i === 0);
+    }
+    html += '</table></div>';
+    return html;
+  }
+
+  function renderTableRow(row, isHeader){
+    var cells = Array.isArray(row.content) ? row.content : [];
+    var tag = isHeader ? 'th' : 'td';
+    var html = '<tr>';
+    for (var i = 0; i < cells.length; i++) {
+      html += '<' + tag + '>' + renderChildren(cells[i]) + '</' + tag + '>';
+    }
+    html += '</tr>';
+    return html;
+  }
+
+  function renderBulletList(node){
+    var items = Array.isArray(node.content) ? node.content : [];
+    var html = '<ul>';
+    for (var i = 0; i < items.length; i++) {
+      html += renderListItem(items[i]);
+    }
+    html += '</ul>';
+    return html;
+  }
+
+  function renderListItem(node){
+    var children = Array.isArray(node.content) ? node.content : [];
+    if (children.length === 1 && children[0].type === 'paragraph') {
+      return '<li>' + renderInline(children[0]) + '</li>';
+    }
+    var inner = '';
+    for (var i = 0; i < children.length; i++) inner += renderNode(children[i]);
+    return '<li>' + inner + '</li>';
+  }
+
+  Array.prototype.forEach.call(document.querySelectorAll('[data-djira-tab]'), function(btn){
+    btn.addEventListener('click', function(){
+      var tab = btn.getAttribute('data-djira-tab');
+      Array.prototype.forEach.call(document.querySelectorAll('[data-djira-tab]'), function(b){
+        if (b === btn) b.classList.add('djira-tab--active');
+        else b.classList.remove('djira-tab--active');
+      });
+      if (tab === 'description') {
+        descriptionView.style.display = '';
+        rawView.style.display = 'none';
+      } else {
+        descriptionView.style.display = 'none';
+        rawView.style.display = '';
+      }
+    });
+  });
+
+  fetch('/api/sprint-review', { credentials: 'same-origin' })
+    .then(function(r){ return r.ok ? r.json() : []; })
+    .then(function(list){
+      var latest = null;
+      for (var i = 0; i < list.length; i++) {
+        var e = list[i];
+        if (e.status === 'COMPLETED' || e.status === 'FAILED') latest = e;
+      }
+      if (!latest) {
+        emptyState.style.display = '';
+        return;
+      }
+      return fetch('/api/sprint-review/' + latest.id, { credentials: 'same-origin' })
+        .then(function(r){ return r.ok ? r.json() : null; });
+    })
+    .then(function(d){
+      if (!d) { emptyState.style.display = ''; return; }
+      setStatus(d.status || '');
+      setTitle(d.targetTicketKey + ' — Sprint Demo Review (Jira-Demo)');
+      if (d.tableAdfJson) {
+        try {
+          var adf = JSON.parse(d.tableAdfJson);
+          rawEl.textContent = JSON.stringify(adf, null, 2);
+          tableHost.innerHTML = renderAdfDocument(adf);
+        } catch (e) {
+          rawEl.textContent = d.tableAdfJson;
+          tableHost.innerHTML = '';
+        }
+      } else {
+        emptyState.style.display = '';
+      }
+      fetch('/api/sprint-review/' + (d.id) + '/status', { credentials: 'same-origin' })
+        .then(function(){}).catch(function(){});
+    })
+    .catch(function(){
+      emptyState.style.display = '';
+    });
+})();
+/*]]>*/
+</script>
+</th:block>
+</body>
+</html>

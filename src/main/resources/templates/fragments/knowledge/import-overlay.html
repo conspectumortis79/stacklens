@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.ultraq.net.nz/thymeleaf/layout" lang="de">
+<body>
+<th:block th:fragment="import-overlay">
+<style>
+    .kb-imp-overlay {
+        position: fixed; inset: 0; z-index: 2000;
+        background: rgba(0,0,0,.55);
+        display: none;
+        align-items: center; justify-content: center;
+        padding: 16px; overflow-y: auto;
+    }
+    .kb-imp-win {
+        background: var(--app-cream);
+        border-radius: 16px;
+        width: 100%;
+        max-width: 600px;
+        box-shadow: 0 12px 48px rgba(0,0,0,.3);
+        padding: 24px;
+        animation: kbImpWinIn .2s ease;
+    }
+    @keyframes kbImpWinIn { from { opacity: 0; transform: translateY(-20px); } to { opacity: 1; transform: none; } }
+
+    .kb-imp-file {
+        display: flex; align-items: center; gap: 8px;
+        padding: 12px;
+        background: var(--app-cream-2, #faf8f3);
+        border: 1.5px solid var(--app-border);
+        border-radius: 10px;
+    }
+    .kb-imp-file-name {
+        font-size: 13px; font-weight: 500; word-break: break-all;
+    }
+    .kb-imp-label {
+        font-size: 13px; font-weight: 700; display: block; margin-bottom: 6px;
+    }
+    .kb-imp-mode {
+        display: flex; flex-wrap: wrap; gap: 14px;
+    }
+    .kb-imp-mode label {
+        font-size: 13px; display: flex; align-items: center; gap: 4px; cursor: pointer;
+    }
+
+    .kb-imp-btn {
+        border: none; border-radius: 999px;
+        padding: 7px 16px; font-size: 13px; font-weight: 700;
+        cursor: pointer; white-space: nowrap;
+        display: inline-flex; align-items: center; gap: 6px;
+    }
+    .kb-imp-btn-primary {
+        background: var(--app-accent-purple); color: #fff;
+        border: 1.5px solid transparent;
+    }
+    .kb-imp-btn-primary:hover { opacity: .88; }
+    .kb-imp-btn-primary:disabled { opacity: .5; cursor: not-allowed; }
+    .kb-imp-btn-outline {
+        background: transparent; color: var(--app-accent-purple);
+        border: 1.5px solid var(--app-accent-purple);
+    }
+    .kb-imp-btn-outline:hover { background: rgba(124, 92, 191, .08); }
+
+    .kb-imp-input {
+        border: 1.5px solid var(--app-border);
+        border-radius: 10px; padding: 9px 14px;
+        font-size: 13px; width: 100%;
+        background: #fff; color: var(--app-text);
+    }
+    .kb-imp-input:focus {
+        outline: none; border-color: var(--app-accent-purple);
+        box-shadow: 0 0 0 3px rgba(124, 92, 191, .12);
+    }
+
+    .kb-imp-alert {
+        font-size: 13px; border-radius: 8px;
+        display: none;
+    }
+</style>
+
+<div id="kbImportOverlay" class="kb-imp-overlay" onclick="if(event.target===this) kbCloseImportOverlay()">
+    <div class="kb-imp-win">
+        <div class="d-flex justify-content-between align-items-center mb-0">
+            <h4 style="margin:0;font-size:1.1rem;font-weight:700" id="kbImportTitle">
+                <i class="bi bi-upload me-2" style="color:var(--app-accent-purple)"></i>
+                <span data-i18n="knowledge.import.label">Importieren</span>
+            </h4>
+            <button onclick="kbCloseImportOverlay()" class="btn-close" title="Schließen" data-i18n-title="common.close"></button>
+        </div>
+
+        <div class="kb-imp-file mt-3">
+            <i class="bi bi-file-earmark-zip" style="font-size:1.5rem;color:var(--app-accent-purple);flex-shrink:0;"></i>
+            <span id="kbImportSelectedFileName" class="kb-imp-file-name"></span>
+        </div>
+
+        <div class="mt-3 mb-2">
+            <span class="kb-imp-label" data-i18n="knowledge.import.mode_label">Import-Modus</span>
+            <div class="kb-imp-mode">
+                <label>
+                    <input type="radio" name="kbImportMode" value="NEW_COPY" checked/>
+                    <span data-i18n="knowledge.import.mode_new_copy">Neue Kopie</span>
+                </label>
+                <label>
+                    <input type="radio" name="kbImportMode" value="MERGE"/>
+                    <span data-i18n="knowledge.import.mode_merge">Zusammenführen</span>
+                </label>
+                <label>
+                    <input type="radio" name="kbImportMode" value="REPLACE"/>
+                    <span data-i18n="knowledge.import.mode_replace">Ersetzen</span>
+                </label>
+                <label>
+                    <input type="radio" name="kbImportMode" value="SKIP_EXISTING"/>
+                    <span data-i18n="knowledge.import.mode_skip">Nur fehlende</span>
+                </label>
+            </div>
+        </div>
+
+        <div class="mt-2">
+            <label class="kb-imp-label" for="kbImportPassword" data-i18n="knowledge.import.password_label">Passwort der verschlüsselten Datei</label>
+            <input type="password" id="kbImportPassword" class="kb-imp-input" autocomplete="off" placeholder="Passwort"/>
+        </div>
+
+        <div id="kbImportAlert" class="alert alert-danger py-2 mb-0 mt-3 kb-imp-alert"></div>
+
+        <div class="d-flex gap-2 justify-content-end mt-4">
+            <button class="kb-imp-btn kb-imp-btn-outline" onclick="kbCloseImportOverlay()">
+                <i class="bi bi-x-lg me-1"></i><span data-i18n="common.cancel">Abbrechen</span>
+            </button>
+            <button id="kbImportConfirmBtn" class="kb-imp-btn kb-imp-btn-primary" onclick="kbConfirmImport()">
+                <i class="bi bi-upload me-2"></i><span data-i18n="knowledge.import.confirm">Importieren</span>
+            </button>
+        </div>
+    </div>
+</div>
+</th:block>
+</body>
+</html>

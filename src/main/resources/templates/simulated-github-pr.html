@@ -1,0 +1,766 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" lang="de">
+<head>
+    <meta charset="UTF-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1"/>
+    <title>Pull Request · StackLens</title>
+    <link rel="stylesheet" th:href="@{/vendor/css/bootstrap-icons.min.css}"/>
+    <style>
+        :root {
+            --gh-header:   #24292f;
+            --gh-white:    #ffffff;
+            --gh-bg:       #f6f8fa;
+            --gh-border:   #d0d7de;
+            --gh-text:     #1f2328;
+            --gh-muted:    #656d76;
+            --gh-green:    #1a7f37;
+            --gh-green-bg: #dafbe1;
+            --gh-blue:     #0969da;
+            --gh-purple:   #8250df;
+            --gh-red:      #cf222e;
+            --gh-diff-add:    #e6ffec;
+            --gh-diff-add-ln: #ccffd8;
+            --gh-diff-hdr:    #eaeef2;
+        }
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+            font-size: 14px;
+            color: var(--gh-text);
+            background: var(--gh-white);
+            min-height: 100vh;
+        }
+
+        .gh-nav {
+            background: var(--gh-header);
+            height: 48px;
+            display: flex;
+            align-items: center;
+            padding: 0 16px;
+            gap: 12px;
+            position: sticky;
+            top: 0;
+            z-index: 200;
+        }
+        .gh-nav-logo {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            color: #fff;
+            font-weight: 600;
+            font-size: 15px;
+            text-decoration: none;
+            flex-shrink: 0;
+        }
+        .gh-nav-divider { width: 1px; height: 22px; background: #3d444d; flex-shrink: 0; }
+        .gh-breadcrumb {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            color: #7d8590;
+            font-size: 13px;
+            flex: 1;
+            min-width: 0;
+            overflow: hidden;
+            white-space: nowrap;
+        }
+        .gh-breadcrumb a { color: #cdd9e5; text-decoration: none; }
+        .gh-breadcrumb a:hover { color: #fff; text-decoration: underline; }
+        .gh-breadcrumb-sep { color: #4f5864; }
+        .gh-sim-badge {
+            background: #9a6700;
+            color: #fff;
+            padding: 3px 10px;
+            border-radius: 10px;
+            font-size: 11px;
+            font-weight: 600;
+            flex-shrink: 0;
+            letter-spacing: 0.02em;
+        }
+
+        .gh-main {
+            max-width: 1280px;
+            margin: 0 auto;
+            padding: 24px 16px 100px;
+        }
+
+        .gh-pr-header {
+            border-bottom: 1px solid var(--gh-border);
+            padding-bottom: 16px;
+            margin-bottom: 16px;
+        }
+        .gh-pr-title-row {
+            display: flex;
+            align-items: baseline;
+            gap: 8px;
+            flex-wrap: wrap;
+            margin-bottom: 8px;
+        }
+        .gh-pr-title {
+            font-size: 24px;
+            font-weight: 400;
+            color: var(--gh-text);
+            line-height: 1.3;
+        }
+        .gh-pr-number {
+            font-size: 24px;
+            font-weight: 300;
+            color: var(--gh-muted);
+        }
+        .gh-pr-meta {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 13px;
+            color: var(--gh-muted);
+            flex-wrap: wrap;
+        }
+        .gh-status-open {
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+            background: var(--gh-green);
+            color: #fff;
+            border-radius: 20px;
+            padding: 4px 12px;
+            font-size: 13px;
+            font-weight: 500;
+        }
+        .gh-branch-tag {
+            display: inline-block;
+            background: var(--gh-bg);
+            border: 1px solid var(--gh-border);
+            border-radius: 6px;
+            padding: 2px 8px;
+            font-family: 'Fira Code', ui-monospace, monospace;
+            font-size: 12px;
+            color: var(--gh-blue);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            max-width: 280px;
+        }
+
+        .gh-tabs {
+            border-bottom: 1px solid var(--gh-border);
+            display: flex;
+            gap: 0;
+            margin-bottom: 0;
+            overflow-x: auto;
+        }
+        .gh-tab {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding: 10px 16px;
+            font-size: 14px;
+            cursor: pointer;
+            color: var(--gh-muted);
+            border-bottom: 2px solid transparent;
+            white-space: nowrap;
+            transition: color .12s;
+        }
+        .gh-tab:hover { color: var(--gh-text); }
+        .gh-tab.active {
+            color: var(--gh-text);
+            font-weight: 600;
+            border-bottom-color: #fd8c73;
+        }
+        .gh-tab-cnt {
+            background: var(--gh-bg);
+            border: 1px solid var(--gh-border);
+            border-radius: 10px;
+            padding: 1px 6px;
+            font-size: 12px;
+            font-weight: 500;
+            color: var(--gh-text);
+        }
+        .gh-panel { display: none; padding-top: 16px; }
+        .gh-panel.active { display: block; }
+
+        .gh-ov-grid {
+            display: grid;
+            grid-template-columns: 1fr 256px;
+            gap: 24px;
+        }
+        @media(max-width: 900px) {
+            .gh-ov-grid { grid-template-columns: 1fr; }
+            .gh-sidebar { order: -1; }
+        }
+        .gh-timeline-item {
+            background: var(--gh-white);
+            border: 1px solid var(--gh-border);
+            border-radius: 6px;
+            margin-bottom: 16px;
+            overflow: hidden;
+        }
+        .gh-timeline-hdr {
+            background: var(--gh-bg);
+            border-bottom: 1px solid var(--gh-border);
+            padding: 10px 16px;
+            font-size: 13px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .gh-timeline-body {
+            padding: 16px;
+            font-size: 14px;
+            line-height: 1.6;
+        }
+        .gh-timeline-body pre {
+            background: var(--gh-bg);
+            border: 1px solid var(--gh-border);
+            border-radius: 6px;
+            padding: 12px;
+            font-size: 12px;
+            overflow-x: auto;
+            font-family: 'Fira Code', ui-monospace, monospace;
+            white-space: pre-wrap;
+            margin-top: 8px;
+        }
+        .gh-timeline-body h6 {
+            font-size: 14px;
+            font-weight: 600;
+            margin: 12px 0 4px;
+        }
+
+        .gh-merge-box {
+            border: 1px solid var(--gh-border);
+            border-radius: 6px;
+            margin-bottom: 16px;
+            overflow: hidden;
+        }
+        .gh-merge-box-hdr {
+            background: var(--gh-green-bg);
+            border-bottom: 1px solid var(--gh-border);
+            padding: 12px 16px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-size: 14px;
+            font-weight: 600;
+            color: var(--gh-text);
+        }
+        .gh-merge-box-body {
+            padding: 12px 16px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .gh-btn-merge {
+            background: var(--gh-green);
+            color: #fff;
+            border: none;
+            border-radius: 6px;
+            padding: 8px 16px;
+            font-size: 14px;
+            font-weight: 500;
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .gh-btn-merge:hover { background: #1c8139; }
+        .gh-btn-outline {
+            background: var(--gh-white);
+            color: var(--gh-text);
+            border: 1px solid var(--gh-border);
+            border-radius: 6px;
+            padding: 6px 14px;
+            font-size: 14px;
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .gh-sidebar {
+            font-size: 13px;
+        }
+        .gh-sb-section {
+            border-bottom: 1px solid var(--gh-border);
+            padding: 16px 0;
+        }
+        .gh-sb-section:first-child { padding-top: 0; }
+        .gh-sb-section:last-child { border-bottom: none; }
+        .gh-sb-label {
+            font-size: 12px;
+            font-weight: 600;
+            color: var(--gh-text);
+            margin-bottom: 6px;
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+        .gh-sb-value { color: var(--gh-muted); }
+        .gh-lbl {
+            display: inline-block;
+            border-radius: 20px;
+            padding: 2px 8px;
+            font-size: 12px;
+            font-weight: 500;
+            margin: 2px 3px 2px 0;
+        }
+        .gh-avatar {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 20px;
+            height: 20px;
+            background: var(--gh-purple);
+            color: #fff;
+            border-radius: 50%;
+            font-size: 10px;
+            font-weight: 700;
+        }
+
+        .gh-commits-wrap {
+            border: 1px solid var(--gh-border);
+            border-radius: 6px;
+            overflow: hidden;
+        }
+        .gh-commit-row {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 10px 16px;
+            border-bottom: 1px solid var(--gh-border);
+        }
+        .gh-commit-row:last-child { border-bottom: none; }
+        .gh-commit-sha {
+            font-family: 'Fira Code', ui-monospace, monospace;
+            font-size: 12px;
+            background: var(--gh-bg);
+            border: 1px solid var(--gh-border);
+            border-radius: 6px;
+            padding: 2px 6px;
+            color: var(--gh-blue);
+            white-space: nowrap;
+        }
+
+        .gh-changes-wrap { }
+        .gh-changes-stat-bar {
+            background: var(--gh-bg);
+            border: 1px solid var(--gh-border);
+            border-radius: 6px;
+            padding: 10px 16px;
+            font-size: 13px;
+            margin-bottom: 12px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .gh-add-stat { color: var(--gh-green); font-weight: 600; }
+        .gh-del-stat { color: var(--gh-red); font-weight: 600; }
+
+        .gh-diff-file {
+            border: 1px solid var(--gh-border);
+            border-radius: 6px;
+            overflow: hidden;
+            margin-bottom: 12px;
+        }
+        .gh-diff-file-hdr {
+            background: var(--gh-bg);
+            border-bottom: 1px solid var(--gh-border);
+            padding: 8px 16px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 13px;
+            font-family: 'Fira Code', ui-monospace, monospace;
+        }
+        .gh-diff-path {
+            flex: 1;
+            min-width: 0;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            font-weight: 600;
+            color: var(--gh-text);
+        }
+        .gh-diff-lang {
+            background: var(--gh-bg);
+            border: 1px solid var(--gh-border);
+            border-radius: 4px;
+            padding: 1px 6px;
+            font-size: 11px;
+            color: var(--gh-muted);
+            font-family: inherit;
+        }
+        .gh-diff-type { border-radius: 4px; padding: 1px 6px; font-size: 11px; font-family: inherit; }
+        .gh-diff-type.new { background: var(--gh-green-bg); color: var(--gh-green); }
+        .gh-diff-type.modified { background: #ddf4ff; color: var(--gh-blue); }
+        .gh-diff-scroll { overflow-x: auto; }
+        .gh-diff-table { width: 100%; border-collapse: collapse; font-family: 'Fira Code', ui-monospace, monospace; font-size: 12px; }
+        .gh-diff-table tr { line-height: 1.5; }
+        .gh-diff-add { background: var(--gh-diff-add); }
+        .gh-diff-add td:first-child, .gh-diff-add td:nth-child(2) { background: var(--gh-diff-add-ln); }
+        .gh-diff-hdr-row { background: var(--gh-diff-hdr); color: var(--gh-muted); }
+        .gh-diff-hdr-row td { padding: 2px 8px; }
+        .gh-diff-ln { width: 46px; text-align: right; color: var(--gh-muted); padding: 0 8px; user-select: none; border-right: 1px solid var(--gh-border); white-space: nowrap; }
+        .gh-diff-sym { width: 22px; text-align: center; user-select: none; color: var(--gh-green); font-weight: 700; }
+        .gh-diff-table td:last-child { padding-left: 8px; white-space: pre; }
+
+        #gh-loading {
+            text-align: center;
+            padding: 80px 20px;
+            color: var(--gh-muted);
+            font-size: 16px;
+        }
+        #gh-content { display: none; }
+    </style>
+</head>
+<body>
+
+<div class="gh-nav">
+    <a class="gh-nav-logo" href="#">
+        <svg height="22" viewBox="0 0 16 16" width="22" fill="#fff" aria-hidden="true">
+            <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/>
+        </svg>
+        GitHub
+    </a>
+    <div class="gh-nav-divider"></div>
+    <div class="gh-breadcrumb" id="gh-breadcrumb">
+        <span>Pull Request</span>
+    </div>
+    <span class="gh-sim-badge"><i class="bi bi-cpu me-1"></i>KI-Simuliert</span>
+</div>
+
+<div class="gh-main">
+    <div id="gh-loading">
+        <i class="bi bi-arrow-repeat" style="font-size:32px;"></i><br><br>
+        Pull Request wird geladen…
+    </div>
+    <div id="gh-content"></div>
+</div>
+
+<script th:src="@{/js/simulated-helpers.js}"></script>
+<script th:inline="javascript">
+/*<![CDATA[*/
+'use strict';
+
+const ANALYSIS_ID = /*[[${analysisId}]]*/ 0;
+
+document.addEventListener('DOMContentLoaded', function () {
+    loadPr(ANALYSIS_ID);
+});
+
+async function loadPr(id) {
+    try {
+        const resp = await fetch('/api/ticket-implementation/' + id);
+        if (!resp.ok) throw new Error('HTTP ' + resp.status);
+        render(await resp.json());
+    } catch (e) {
+        document.getElementById('gh-loading').innerHTML =
+            '<i class="bi bi-exclamation-triangle" style="font-size:40px;color:#cf222e"></i>' +
+            '<br><br>Fehler beim Laden des Pull Requests:<br>' + esc(e.message);
+    }
+}
+
+function render(data) {
+    const ci     = data.codeImplementation || {};
+    const ticket = data.ticket || {};
+    const mono   = data.monorepoAnalysis || {};
+    const key    = data.ticketKey || 'TICKET';
+
+    const summary   = txt(ticket.summary || ticket.fields?.summary) || key;
+    const desc      = txt(ticket.description || ticket.fields?.description);
+    const criteria  = txt(ticket.acceptanceCriteria || ticket.fields?.acceptanceCriteria);
+    const prNumber  = data.id || 1;
+    const branch    = key;
+    const baseBranch = 'main';
+    const repoName  = (ci.identifiedRepositories || [])[0] || 'project';
+    const now       = fmtDate(data.completedAt);
+
+    const allFiles   = [].concat(ci.files || [], ci.testFiles || [], ci.systemTestFiles || []);
+    const totalLines = allFiles.reduce((a, f) => a + (f.code || '').split('\n').length, 0);
+
+    document.getElementById('gh-breadcrumb').innerHTML =
+        '<a href="#">' + esc(repoName) + '</a>' +
+        '<span class="gh-breadcrumb-sep">/</span>' +
+        '<a href="#">Pull requests</a>' +
+        '<span class="gh-breadcrumb-sep">/</span>' +
+        '<span>#' + prNumber + '</span>';
+
+    document.title = 'feat(' + key.toLowerCase() + '): ' + summary + ' · Pull Request #' + prNumber;
+
+    const html =
+        buildPrHeader(summary, prNumber, branch, baseBranch, now, allFiles.length, totalLines) +
+        buildTabs(allFiles.length) +
+        '<div class="gh-panel active" id="tab-conversation">' +
+            buildConversation(desc, criteria, ci, mono, key, repoName) +
+        '</div>' +
+        '<div class="gh-panel" id="tab-commits">' +
+            buildCommits(key, summary, now, allFiles) +
+        '</div>' +
+        '<div class="gh-panel" id="tab-files">' +
+            buildChanges(allFiles, totalLines) +
+        '</div>';
+
+    document.getElementById('gh-loading').style.display = 'none';
+    const el = document.getElementById('gh-content');
+    el.innerHTML = html;
+    el.style.display = 'block';
+}
+
+function buildPrHeader(title, number, branch, base, date, fileCount, lines) {
+    return `
+    <div class="gh-pr-header">
+        <div class="gh-pr-title-row">
+            <span class="gh-pr-title">${esc(title)}</span>
+            <span class="gh-pr-number">#${number}</span>
+        </div>
+        <div class="gh-pr-meta">
+            <span class="gh-status-open">
+                <svg height="16" viewBox="0 0 16 16" width="16" fill="currentColor"><path d="M1.5 3.25a2.25 2.25 0 1 1 3 2.122v5.256a2.251 2.251 0 1 1-1.5 0V5.372A2.25 2.25 0 0 1 1.5 3.25Zm5.677-.177L9.573.677A.25.25 0 0 1 10 .854V2.5h1A2.5 2.5 0 0 1 13.5 5v5.628a2.251 2.251 0 1 1-1.5 0V5a1 1 0 0 0-1-1h-1v1.646a.25.25 0 0 1-.427.177L7.177 3.427a.25.25 0 0 1 0-.354Z"/></svg>
+                Open
+            </span>
+            <span>StackLens AI möchte
+                <span class="gh-branch-tag">${esc(branch)}</span>
+                mit
+                <span class="gh-branch-tag">${esc(base)}</span>
+                mergen
+            </span>
+            <span style="color:var(--gh-muted)">·</span>
+            <span>${esc(date)}</span>
+            <span style="color:var(--gh-muted)">·</span>
+            <span style="color:var(--gh-green)">+${lines} Zeilen</span>
+            <span>in ${fileCount} Datei${fileCount !== 1 ? 'en' : ''}</span>
+        </div>
+    </div>`;
+}
+
+function buildTabs(fileCount) {
+    return `
+    <div class="gh-tabs">
+        <div class="gh-tab active" onclick="switchTab('conversation')">
+            <i class="bi bi-chat-left-text"></i> Conversation
+        </div>
+        <div class="gh-tab" onclick="switchTab('commits')">
+            <i class="bi bi-clock-history"></i> Commits
+            <span class="gh-tab-cnt">1</span>
+        </div>
+        <div class="gh-tab" onclick="switchTab('files')">
+            <i class="bi bi-file-diff"></i> Files changed
+            <span class="gh-tab-cnt">${fileCount}</span>
+        </div>
+    </div>`;
+}
+
+function switchTab(name) {
+    const names = ['conversation', 'commits', 'files'];
+    document.querySelectorAll('.gh-tab').forEach((t, i) =>
+        t.classList.toggle('active', names[i] === name));
+    document.querySelectorAll('.gh-panel').forEach(p =>
+        p.classList.toggle('active', p.id === 'tab-' + name));
+}
+
+function buildConversation(desc, criteria, ci, mono, key, repo) {
+    let descHtml = '';
+    if (desc) descHtml += '<p>' + esc(desc) + '</p>';
+    if (criteria) {
+        descHtml += '<h6>Acceptance Criteria</h6><pre>' + esc(criteria) + '</pre>';
+    }
+    if (ci.implementationNotes) {
+        descHtml += '<h6>Implementation Notes</h6><p style="color:var(--gh-muted);">' + esc(ci.implementationNotes) + '</p>';
+    }
+    if (!descHtml) descHtml = '<p style="color:var(--gh-muted);font-style:italic;">No description provided.</p>';
+
+    let dbHtml = '';
+    if ((ci.databaseChanges || []).length > 0) {
+        dbHtml += '<h6>Database Changes</h6>';
+        for (const db of ci.databaseChanges) {
+            dbHtml += '<p><strong>' + esc(db.database) + ':</strong> ' + esc(db.description) + '</p>';
+            if (db.sql) dbHtml += '<pre>' + esc(db.sql) + '</pre>';
+        }
+    }
+
+    const projPurpose = mono.projectPurpose || '';
+    const repos       = (ci.identifiedRepositories || []).join(', ');
+    const dbs         = (ci.identifiedDatabases   || []).join(', ');
+    const milestone   = (key.split('-')[0] || 'Sprint') + ' Sprint';
+
+    const sidebar = `
+        <div class="gh-sidebar">
+            <div class="gh-sb-section">
+                <div class="gh-sb-label"><i class="bi bi-person-fill"></i> Assignees</div>
+                <div class="gh-sb-value">
+                    <span class="gh-avatar">AI</span> StackLens AI
+                </div>
+            </div>
+            <div class="gh-sb-section">
+                <div class="gh-sb-label"><i class="bi bi-person-check"></i> Reviewers</div>
+                <div class="gh-sb-value"><span style="font-size:12px;">No reviews</span></div>
+            </div>
+            <div class="gh-sb-section">
+                <div class="gh-sb-label"><i class="bi bi-tag"></i> Labels</div>
+                <div class="gh-sb-value">
+                    <span class="gh-lbl" style="background:#e8f5e9;color:#1a7f37;border:1px solid #a0d8a0;">enhancement</span>
+                    <span class="gh-lbl" style="background:#fff3cd;color:#9a6700;border:1px solid #f0c040;">AI-generated</span>
+                </div>
+            </div>
+            <div class="gh-sb-section">
+                <div class="gh-sb-label"><i class="bi bi-signpost-split"></i> Milestone</div>
+                <div class="gh-sb-value">${esc(milestone)}</div>
+            </div>
+            ${repos ? `<div class="gh-sb-section">
+                <div class="gh-sb-label"><i class="bi bi-folder2"></i> Repository</div>
+                <div class="gh-sb-value" style="font-family:'Fira Code',monospace;font-size:12px;">${esc(repos)}</div>
+            </div>` : ''}
+            ${dbs ? `<div class="gh-sb-section">
+                <div class="gh-sb-label"><i class="bi bi-database"></i> Databases</div>
+                <div class="gh-sb-value" style="font-size:12px;">${esc(dbs)}</div>
+            </div>` : ''}
+            ${projPurpose ? `<div class="gh-sb-section">
+                <div class="gh-sb-label"><i class="bi bi-info-circle"></i> Project Purpose</div>
+                <div class="gh-sb-value" style="font-size:12px;color:var(--gh-muted);display:block;line-height:1.5;">
+                    ${esc(projPurpose.substring(0, 160))}${projPurpose.length > 160 ? '…' : ''}
+                </div>
+            </div>` : ''}
+        </div>`;
+
+    const mergeBox = `
+        <div class="gh-merge-box">
+            <div class="gh-merge-box-hdr">
+                <svg height="16" viewBox="0 0 16 16" width="16" fill="var(--gh-green)"><path d="M1.5 3.25a2.25 2.25 0 1 1 3 2.122v5.256a2.251 2.251 0 1 1-1.5 0V5.372A2.25 2.25 0 0 1 1.5 3.25Zm5.677-.177L9.573.677A.25.25 0 0 1 10 .854V2.5h1A2.5 2.5 0 0 1 13.5 5v5.628a2.251 2.251 0 1 1-1.5 0V5a1 1 0 0 0-1-1h-1v1.646a.25.25 0 0 1-.427.177L7.177 3.427a.25.25 0 0 1 0-.354Z"/></svg>
+                This branch has no conflicts with the base branch
+            </div>
+            <div class="gh-merge-box-body">
+                <button class="gh-btn-merge" onclick="alert('Dies ist ein simulierter Pull Request – der Merge-Button ist deaktiviert.')">
+                    <i class="bi bi-check-lg"></i> Merge pull request
+                </button>
+                <button class="gh-btn-outline" onclick="alert('Dies ist ein simulierter Pull Request.')">
+                    <i class="bi bi-x-lg"></i> Close pull request
+                </button>
+            </div>
+        </div>`;
+
+    const descItem = `
+        <div class="gh-timeline-item">
+            <div class="gh-timeline-hdr">
+                <span class="gh-avatar">AI</span>
+                <strong>StackLens AI</strong>
+                <span style="color:var(--gh-muted);">kommentierte</span>
+            </div>
+            <div class="gh-timeline-body">${descHtml}${dbHtml}</div>
+        </div>`;
+
+    return `
+    <div class="gh-ov-grid">
+        <div>
+            ${descItem}
+            ${mergeBox}
+        </div>
+        ${sidebar}
+    </div>`;
+}
+
+function buildCommits(key, summary, date, allFiles) {
+    const sha = shortSha();
+
+    let fileListHtml = '';
+    if (allFiles && allFiles.length > 0) {
+        const rows = allFiles.map(f => {
+            const changeType = (f.changeType || 'NEW').toUpperCase();
+            const isNew = changeType === 'NEW' || changeType === 'CREATED' || changeType === 'ADD';
+            const icon = isNew
+                ? '<i class="bi bi-file-plus" style="color:var(--gh-green);flex-shrink:0;"></i>'
+                : '<i class="bi bi-file-diff" style="color:var(--gh-blue);flex-shrink:0;"></i>';
+            const lineCount = (f.code || '').split('\n').length;
+            return `
+            <div style="display:flex;align-items:center;gap:8px;padding:6px 16px;border-top:1px solid var(--gh-border);font-size:12px;">
+                ${icon}
+                <span style="font-family:'Fira Code',ui-monospace,monospace;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${esc(f.path)}">${esc(f.path)}</span>
+                ${f.language ? `<span style="background:var(--gh-bg);border:1px solid var(--gh-border);border-radius:4px;padding:1px 6px;color:var(--gh-muted);">${esc(f.language.toUpperCase())}</span>` : ''}
+                <span style="color:var(--gh-green);white-space:nowrap;">+${lineCount}</span>
+            </div>`;
+        }).join('');
+        fileListHtml = `
+        <div style="border:1px solid var(--gh-border);border-radius:6px;overflow:hidden;margin-top:12px;">
+            <div style="background:var(--gh-bg);padding:8px 16px;font-size:12px;font-weight:600;color:var(--gh-muted);">
+                ${allFiles.length} Datei${allFiles.length !== 1 ? 'en' : ''} geändert
+            </div>
+            ${rows}
+        </div>`;
+    } else {
+        fileListHtml = '<div style="padding:12px 0;color:var(--gh-muted);font-size:13px;">Keine Dateien in diesem Commit.</div>';
+    }
+
+    return `
+    <div class="gh-commits-wrap">
+        <div class="gh-commit-row">
+            <svg height="16" viewBox="0 0 16 16" width="16" fill="var(--gh-muted)" style="flex-shrink:0;"><path d="M11.93 8.5a4.002 4.002 0 0 1-7.86 0H.75a.75.75 0 0 1 0-1.5h3.32a4.002 4.002 0 0 1 7.86 0h3.32a.75.75 0 0 1 0 1.5Zm-1.43-.75a2.5 2.5 0 1 0-5 0 2.5 2.5 0 0 0 5 0Z"/></svg>
+            <div style="flex:1;min-width:0;">
+                <div style="font-weight:500;font-size:13px;margin-bottom:2px;">
+                    feat(${esc(key.toLowerCase())}): ${esc(summary)}
+                </div>
+                <div style="color:var(--gh-muted);font-size:12px;">StackLens AI committed on ${esc(date)}</div>
+            </div>
+            <code class="gh-commit-sha">${sha}</code>
+        </div>
+    </div>
+    ${fileListHtml}`;
+}
+
+function buildChanges(allFiles, totalLines) {
+    if (allFiles.length === 0) {
+        return '<div style="text-align:center;padding:40px;color:var(--gh-muted);">No file changes</div>';
+    }
+
+    const statBar = `
+    <div class="gh-changes-stat-bar">
+        Showing <strong>${allFiles.length}</strong> changed file${allFiles.length !== 1 ? 's' : ''}
+        with <span class="gh-add-stat">${totalLines} additions</span>
+        and <span class="gh-del-stat">0 deletions</span>
+    </div>`;
+
+    let diffHtml = '';
+    for (const f of allFiles) {
+        diffHtml += buildDiffFile(f);
+    }
+
+    return '<div class="gh-changes-wrap">' + statBar + diffHtml + '</div>';
+}
+
+function buildDiffFile(file) {
+    const lines      = (file.code || '').split('\n');
+    const lang       = (file.language || '').toUpperCase();
+    const changeType = (file.changeType || 'NEW').toUpperCase();
+    const isNew      = changeType === 'NEW' || changeType === 'CREATED' || changeType === 'ADD';
+    const typeLbl    = isNew ? 'added' : 'modified';
+    const typeCls    = isNew ? 'new' : 'modified';
+
+    let rows = `<tr class="gh-diff-hdr-row">
+        <td class="gh-diff-ln"></td>
+        <td class="gh-diff-ln"></td>
+        <td class="gh-diff-sym"></td>
+        <td>@@ -0,0 +1,${lines.length} @@</td>
+    </tr>`;
+
+    lines.forEach((line, i) => {
+        rows += `<tr class="gh-diff-add">
+            <td class="gh-diff-ln"></td>
+            <td class="gh-diff-ln">${i + 1}</td>
+            <td class="gh-diff-sym">+</td>
+            <td>${esc(line)}</td>
+        </tr>`;
+    });
+
+    return `
+    <div class="gh-diff-file">
+        <div class="gh-diff-file-hdr">
+            <i class="bi bi-file-code" style="color:var(--gh-muted);flex-shrink:0;"></i>
+            <div class="gh-diff-path" title="${esc(file.path)}">${esc(file.path)}</div>
+            ${lang ? `<span class="gh-diff-lang">${esc(lang)}</span>` : ''}
+            <span class="gh-diff-type ${typeCls}">${typeLbl}</span>
+        </div>
+        <div class="gh-diff-scroll">
+            <table class="gh-diff-table"><tbody>${rows}</tbody></table>
+        </div>
+    </div>`;
+}
+/*]]>*/
+</script>
+</body>
+</html>

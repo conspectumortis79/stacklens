@@ -1,0 +1,650 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" lang="de">
+<body>
+<th:block th:fragment="scripts-k6-run">
+<script>
+function ltIsDark() { var t = document.documentElement.getAttribute('data-theme') || 'modern'; return t === 'dark' || t === 'midnight' || t === 'noir' || t === 'popos'; }
+function ltRunK6() {
+  if (!ltCurrentAnalysisId) return;
+  if (_ltK6PollTimer) { clearInterval(_ltK6PollTimer); _ltK6PollTimer = null; }
+  var btn = document.getElementById('ltK6RunBtn');
+  var stopBtn = document.getElementById('ltK6StopBtn');
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>' + (window.i18n ? window.i18n.t('load_test.running') : 'Läuft…');
+    btn.className = 'btn btn-sm btn-secondary';
+    btn.style.borderRadius = '999px'; btn.style.fontSize = '12px';
+  }
+  if (stopBtn) stopBtn.style.display = '';
+  _ltK6RunningConfigId = ltCurrentConfigId;
+  _ltK6RunningProjectId = ltCurrentProjectId;
+  _ltK6RunningCard = ltCurrentRepoType === 'github' ? document.getElementById('ltGhCard-' + ltCurrentGithubRepoId) :
+                     ltCurrentRepoType === 'local'  ? document.getElementById('ltRepoCard-' + ltCurrentLocalRepoId) : null;
+  _ltSetCardBusy(_ltK6RunningCard, true);
+  ltSetRunBadge(ltCurrentConfigId, ltCurrentProjectId, 'k6', true);
+  _ltSaveRunLS('k6', ltCurrentConfigId, ltCurrentProjectId, ltCurrentAnalysisId);
+  var prog = document.getElementById('ltK6Progress');
+  var fill = document.getElementById('ltK6PbarFill');
+  var metricsGrid = document.getElementById('ltK6MetricsGrid');
+  if (prog) prog.style.display = '';
+  if (fill) fill.style.width = '0%';
+  if (metricsGrid) metricsGrid.style.display = 'none';
+  var errorBannerEl = document.getElementById('ltK6ErrorBanner');
+  if (errorBannerEl) errorBannerEl.style.display = 'none';
+  var k6EpTableStart = document.getElementById('ltK6EndpointTable');
+  if (k6EpTableStart) k6EpTableStart.style.display = 'none';
+  var k6ChartDiv = document.getElementById('ltK6ResultChart');
+  if (k6ChartDiv) k6ChartDiv.style.display = 'none';
+  _ltClearResultLS('k6', ltCurrentAnalysisId);
+  _ltK6ResultShown = false;
+  var _ltK6FilteredScript = ltFilterK6Script(_ltK6Script);
+  fetch('/api/loadtest-analysis/analysis/' + ltCurrentAnalysisId + '/run-k6', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ bearerToken: ltGetBearerToken('k6') || null, environmentName: _ltSelectedEnvName || null, customScript: _ltK6FilteredScript || null }),
+  })
+    .then(function(r) {
+      if (!r.ok) return r.text().then(function(t) { throw new Error('HTTP ' + r.status + ': ' + t.slice(0, 300)); });
+      return r.json();
+    })
+    .then(function(data) {
+      if (!data.running && (data.error || data.exitCode !== null)) {
+        ltShowK6Result(data);
+        return;
+      }
+      if (data.running) {
+        _ltK6StartTime = Date.now();
+        _ltK6PollTimer = setInterval(ltPollK6Status, 2000);
+      } else {
+        ltShowK6Result(data);
+      }
+    })
+    .catch(function(e) {
+      console.error('k6 start error:', e);
+      ltResetK6Btn();
+    });
+}
+function ltPollK6Status() {
+  if (!ltCurrentAnalysisId) return;
+  if (_ltK6StartTime) {
+    var elapsed = Math.floor((Date.now() - _ltK6StartTime) / 1000);
+    var mm = Math.floor(elapsed / 60);
+    var ss = String(elapsed % 60).padStart(2, '0');
+    var stopBtn = document.getElementById('ltK6StopBtn');
+    if (stopBtn) stopBtn.innerHTML = '<i class="bi bi-stop-fill me-1"></i>Stopp (' + mm + ':' + ss + ')';
+  }
+  fetch('/api/loadtest-analysis/analysis/' + ltCurrentAnalysisId + '/k6-status')
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      ltRenderK6Running(data.output, data.error);
+      if (!data.running) {
+        clearInterval(_ltK6PollTimer);
+        _ltK6PollTimer = null;
+        if (data.exitCode !== null || data.output || data.error) {
+          ltShowK6Result(data);
+        } else {
+          ltResetK6Btn();
+        }
+        return;
+      }
+      if (!_ltK6ResultShown && ltK6SummaryReady(data.output || '')) {
+        _ltK6ResultShown = true;
+        ltShowK6Result({
+          exitCode: null,
+          output: data.output || '',
+          error: data.error || '',
+          summaryJson: data.summaryJson || null,
+        });
+      }
+    })
+    .catch(function() {
+      clearInterval(_ltK6PollTimer);
+      _ltK6PollTimer = null;
+      ltResetK6Btn();
+    });
+}
+function ltRenderK6Running(out, err) {
+  var text = (err || '') + '\n' + (out || '');
+  var lines = text.split(/\r|\n/);
+  var pct = null, vus = null, elapsed = null, total = null;
+  for (var i = lines.length - 1; i >= 0; i--) {
+    var m = lines[i].match(/\[\s*(\d+)%\s*\]\s*(\d+)(?:\/\d+)?\s*VUs?\s+([\d.smhµ]+)\/([\d.smhµ]+)/);
+    if (m) { pct = parseInt(m[1]); vus = m[2]; elapsed = m[3]; total = m[4]; break; }
+  }
+  if (vus === null) {
+    for (var r2 = lines.length - 1; r2 >= 0; r2--) {
+      var rv = lines[r2].match(/running \([^)]+\),\s*(\d+)(?:\/\d+)?\s*VUs?/);
+      if (rv) { vus = rv[1]; break; }
+    }
+  }
+
+  if (pct === null && _ltK6Stages && _ltK6Stages.length) {
+    var stageTotalFb = _ltK6Stages.reduce(function(s, st) { return s + st.duration; }, 0);
+    if (stageTotalFb > 0) {
+      for (var j = lines.length - 1; j >= 0; j--) {
+        var rm = lines[j].match(/running \(([\d.smhµ]+)\)/);
+        if (rm) {
+          var el2 = ltParseDuration(rm[1]);
+          pct = Math.min(99, Math.round(el2 / stageTotalFb * 100));
+          if (!elapsed) elapsed = rm[1];
+          if (!total) total = ltFormatDuration(stageTotalFb);
+          break;
+        }
+      }
+    }
+  }
+  var fill = document.getElementById('ltK6PbarFill');
+  var label = document.getElementById('ltK6ProgLabel');
+  var meta = document.getElementById('ltK6ProgMeta');
+  var vusEl = document.getElementById('ltK6ProgVUs');
+  var stageEl = document.getElementById('ltK6ProgStage');
+  if (pct !== null) {
+    if (fill) fill.style.width = pct + '%';
+    var pctEl = document.getElementById('ltK6PbarPct');
+    if (pctEl) pctEl.textContent = pct + '%';
+    if (label) label.textContent = window.i18n ? window.i18n.t('load_test.k6_running') : 'k6 läuft…';
+    if (meta && elapsed && total) {
+      var totalSec = ltParseDuration(total);
+      var elapsedSec = ltParseDuration(elapsed);
+      var remSec = totalSec - elapsedSec;
+      meta.textContent = elapsed + ' / ' + total + (remSec > 1 ? ' • noch ~' + ltFormatDuration(remSec) : '');
+    }
+    if (vusEl && vus) vusEl.innerHTML = '<i class="bi bi-people me-1"></i>' + vus + ' VUs';
+    if (stageEl) stageEl.innerHTML = '<i class="bi bi-activity me-1"></i>' + ltGetStageName(pct);
+    var stagesBarEl = document.getElementById('ltK6StagesBar');
+    if (stagesBarEl && _ltK6Stages && _ltK6Stages.length > 1) {
+      var totalDurStg = _ltK6Stages.reduce(function(s, st) { return s + st.duration; }, 0);
+      var elapsedSecStg = totalDurStg * pct / 100;
+      function fmtDurS(sec) { return sec >= 3600 ? Math.round(sec/3600)+'h' : sec >= 60 ? Math.round(sec/60)+'m' : sec+'s'; }
+      var cum2 = 0;
+      var stgBars = _ltK6Stages.map(function(st, i) {
+        var stageStart = cum2;
+        var stageEnd   = cum2 + st.duration;
+        cum2 = stageEnd;
+        var fillPct2 = elapsedSecStg >= stageEnd   ? 100 :
+                       elapsedSecStg > stageStart  ? (elapsedSecStg - stageStart) / st.duration * 100 : 0;
+        var isActive = elapsedSecStg >= stageStart && elapsedSecStg < stageEnd;
+        var isDone   = elapsedSecStg >= stageEnd;
+        var prevTgt  = i > 0 ? _ltK6Stages[i-1].target : 0;
+        var stLabel  = st.target > prevTgt ? '\u2191 Ramp-up' : st.target < prevTgt ? '\u2193 Ramp-down' : '\u2192 Last';
+        var widthPct2 = (st.duration / totalDurStg * 100).toFixed(1);
+        var fillClr   = isDone ? '#22c55e' : isActive ? '#b91c1c' : '#ddd7cb';
+        var borderClr = isDone ? '#22c55e44' : isActive ? '#b91c1c60' : (ltIsDark() ? '#3a3550' : 'var(--lt-line)');
+        var bgClr     = isDone ? (ltIsDark() ? 'rgba(34,197,94,.12)' : '#f0faf7') : isActive ? (ltIsDark() ? 'rgba(185,28,28,.15)' : '#fff8f5') : (ltIsDark() ? '#252235' : '#fafaf5');
+        var lblClr    = isDone ? '#a07ef5'  : isActive ? (ltIsDark() ? '#f87171' : '#b91c1c')  : 'var(--lt-muted)';
+        return '<div style="width:' + widthPct2 + '%;min-width:0;flex-shrink:0;padding:0 2px;">' +
+          '<div style="background:' + bgClr + ';border:1px solid ' + borderClr + ';border-radius:7px;padding:5px 7px;">' +
+            '<div style="background:' + (ltIsDark() ? '#3a3550' : '#ddd7cb') + ';border-radius:3px;height:3px;margin-bottom:5px;overflow:hidden;">' +
+              '<div style="width:' + fillPct2.toFixed(1) + '%;height:100%;background:' + fillClr + ';border-radius:3px;transition:width .9s ease;will-change:width;"></div>' +
+            '</div>' +
+            '<div style="font-size:11px;font-weight:700;color:' + lblClr + ';white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="' + st.target + ' VUs">' + st.target + ' VUs</div>' +
+            '<div style="font-size:10px;color:var(--lt-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + fmtDurS(st.duration) + ' \u00b7 ' + stLabel + '</div>' +
+          '</div>' +
+        '</div>';
+      });
+      stagesBarEl.innerHTML = '<div style="display:flex;gap:4px;">' + stgBars.join('') + '</div>';
+    }
+  }
+}
+function ltStopK6() {
+  if (_ltK6PollTimer) { clearInterval(_ltK6PollTimer); _ltK6PollTimer = null; }
+  _ltK6StartTime = null;
+  fetch('/api/loadtest-analysis/analysis/' + ltCurrentAnalysisId + '/stop-k6', { method: 'POST' }).catch(function(){});
+  ltSetRunBadge(_ltK6RunningConfigId, _ltK6RunningProjectId, 'k6', false);
+  _ltSaveRunLS('k6', null, null, null);
+  _ltK6RunningConfigId = null; _ltK6RunningProjectId = null;
+  ltResetK6Btn();
+}
+function ltShowK6Result(data) {
+  var text = (data.error || '') + '\n' + (data.output || '');
+  var success = data.exitCode === 0;
+  var prog = document.getElementById('ltK6Progress');
+  if (prog) prog.style.display = 'none';
+  var isPreRunFailure = data.exitCode === -1 && !!data.error && !data.output;
+  var errorBannerEl = document.getElementById('ltK6ErrorBanner');
+  if (errorBannerEl) {
+    if (isPreRunFailure) {
+      errorBannerEl.innerHTML = '<i class="bi bi-exclamation-triangle-fill me-2"></i>' + escHtml(data.error);
+      errorBannerEl.style.display = '';
+    } else {
+      errorBannerEl.style.display = 'none';
+    }
+  }
+  var mm = {};
+  text.split('\n').forEach(function(line) {
+    var m = line.match(/^\s+([\w_]+)[.]+:\s+(.+)/);
+    if (m) mm[m[1].trim()] = m[2].trim();
+  });
+  function parseChecks(v) {
+    var m = v && v.match(/([\d.]+)%.*?(\d+).*?(\d+)/);
+    return m ? {pct: parseFloat(m[1]), ok: parseInt(m[2]), fail: parseInt(m[3])} : null;
+  }
+  function parseAvgP95(v) {
+    var a   = v && v.match(/avg=([\w.µ]+)/);
+    var p95 = v && v.match(/p\(95\)=([\w.µ]+)/);
+    var p99 = v && v.match(/p\(99\)=([\w.µ]+)/);
+    var mn  = v && v.match(/min=([\w.µ]+)/);
+    var md  = v && v.match(/med=([\w.µ]+)/);
+    var mx  = v && v.match(/max=([\w.µ]+)/);
+    var p90 = v && v.match(/p\(90\)=([\w.µ]+)/);
+    var sd  = v && v.match(/stddev=([\w.µ]+)/);
+    return {avg: a?a[1]:null, p95: p95?p95[1]:null, p99: p99?p99[1]:null,
+            min: mn?mn[1]:null, med: md?md[1]:null, max: mx?mx[1]:null, p90: p90?p90[1]:null,
+            stddev: sd?sd[1]:null};
+  }
+  function parseFailRate(v) { var m = v && v.match(/([\d.]+)%/); return m ? parseFloat(m[1]) : null; }
+  function parseCount(v) { var m = v && v.match(/^(\d+)\s+([\d.]+\/s)?/); return m ? {count: m[1], rate: m[2]||''} : null; }
+  var runningTime = null;
+  text.split('\n').forEach(function(l) { var m = l.match(/running \(([^)]+)\)/); if (m) runningTime = m[1]; });
+  var checks = parseChecks(mm['checks']);
+  var dur = parseAvgP95(mm['http_req_duration']);
+  var failRate = parseFailRate(mm['http_req_failed']);
+  var reqs = parseCount(mm['http_reqs']);
+  var vusMaxM  = mm['vus'] && mm['vus'].match(/max=(\d+)/);
+  var vusMaxVal = vusMaxM ? vusMaxM[1] : null;
+  var dataRecRaw = mm['data_received'] ? mm['data_received'].trim() : null;
+  var dataRec = dataRecRaw ? dataRecRaw.split(/\s{2,}/)[0] || dataRecRaw.split(/\s+/).slice(0,2).join(' ') : null;
+  var ttfb         = parseAvgP95(mm['http_req_waiting']        || '');
+  var blocked      = parseAvgP95(mm['http_req_blocked']         || '');
+  var iters        = parseCount(mm['iterations']);
+  var dataSentRaw  = mm['data_sent'] ? mm['data_sent'].trim() : null;
+  var dataSent     = dataSentRaw ? dataSentRaw.split(/\s{2,}/)[0] || dataSentRaw.split(/\s+/).slice(0,2).join(' ') : null;
+  var droppedRaw   = mm['dropped_iterations'] ? parseInt((mm['dropped_iterations'].match(/^(\d+)/) || [])[1] || '0', 10) : 0;
+  var connecting   = parseAvgP95(mm['http_req_connecting']      || '');
+  var tlsHandshake = parseAvgP95(mm['http_req_tls_handshaking'] || '');
+
+  var hasMetrics = failRate !== null || dur.avg !== null || checks !== null;
+  var ampelEl = document.getElementById('ltK6Ampel');
+  if (ampelEl) {
+    if (!hasMetrics) {
+      ampelEl.style.display = 'none';
+    } else {
+    var avgMs0 = ltParseMs(dur.avg);
+    var ampelItems = [
+      { icon: 'bi bi-x-circle me-1', label: 'Fehlerrate',
+        value: failRate !== null ? failRate.toFixed(2) + '%' : '–',
+        sub: failRate === 0 ? 'Keine Fehler' : (failRate !== null ? failRate + '% der Anfragen fehlgeschlagen' : ''),
+        color: failRate === null || failRate === 0 ? 'green' : failRate < 5 ? 'yellow' : 'red' },
+      { icon: 'bi bi-clock me-1', label: 'Antwortzeit \u00d8',
+        value: dur.avg || '–',
+        sub: dur.p95 ? 'p95: ' + dur.p95 : '',
+        color: avgMs0 === null ? 'green' : avgMs0 < 500 ? 'green' : avgMs0 < 1500 ? 'yellow' : 'red' },
+      { icon: 'bi bi-check-square me-1', label: 'Checks',
+        value: checks ? checks.pct.toFixed(1) + '%' : '–',
+        sub: checks ? '\u2713 ' + checks.ok + '  \u2717 ' + checks.fail : 'Keine Checks definiert',
+        color: !checks ? 'green' : checks.pct >= 100 ? 'green' : checks.pct >= 90 ? 'yellow' : 'red' }
+    ];
+    ampelEl.innerHTML = ltRenderAmpel(ampelItems);
+    ampelEl.style.display = '';
+    }
+  }
+
+  var grid = document.getElementById('ltK6MetricsGrid');
+  if (grid) {
+    var cards = [];
+    cards.push(success
+      ? '<div class="lt-k6-metric ok"><div class="lt-k6-metric-label"><span><i class="bi bi-check2-circle me-1"></i>Ergebnis</span>' + ltInfoBtn('load_test.k6_tile_result_info', 'Zeigt ob der k6-Test erfolgreich war. Grün = Exit 0. Rot = k6 mit Fehlercode beendet.') + '</div><div class="lt-k6-metric-value">OK</div><div class="lt-k6-metric-sub">Exit 0</div></div>'
+      : '<div class="lt-k6-metric fail"><div class="lt-k6-metric-label"><span><i class="bi bi-x-circle me-1"></i>Ergebnis</span>' + ltInfoBtn('load_test.k6_tile_result_info', 'Zeigt ob der k6-Test erfolgreich war. Grün = Exit 0. Rot = k6 mit Fehlercode beendet.') + '</div><div class="lt-k6-metric-value">FAILED</div><div class="lt-k6-metric-sub">Exit ' + (data.exitCode !== null ? data.exitCode : '–') + '</div></div>');
+    if (checks) {
+      var cc = checks.fail === 0 ? 'ok' : 'fail';
+      cards.push('<div class="lt-k6-metric ' + cc + '"><div class="lt-k6-metric-label"><i class="bi bi-check-square me-1"></i>Checks</div><div class="lt-k6-metric-value">' + checks.pct.toFixed(1) + '%</div><div class="lt-k6-metric-sub">\u2713 ' + checks.ok + ' \u00a0 \u2717 ' + checks.fail + '</div></div>');
+    }
+    if (dur.avg || dur.p95) {
+      var durMain = dur.p95 || dur.avg;
+      var durSub = 'Avg: ' + (dur.avg || '–') + (dur.p99 ? ' · p99: ' + dur.p99 : '');
+      cards.push('<div class="lt-k6-metric"><div class="lt-k6-metric-label"><span><i class="bi bi-clock me-1"></i>HTTP p95</span>' + ltInfoBtn('load_test.k6_tile_p95_info', '95. Perzentile der HTTP-Antwortzeit: 95 % aller Anfragen waren schneller als dieser Wert. Ein guter Indikator für die gefühlte Performance unter Last.') + '</div><div class="lt-k6-metric-value">' + durMain + '</div><div class="lt-k6-metric-sub">' + durSub + '</div></div>');
+    }
+    if (failRate !== null) {
+      var fc = failRate === 0 ? 'ok' : 'fail';
+      cards.push('<div class="lt-k6-metric ' + fc + '"><div class="lt-k6-metric-label"><span><i class="bi bi-x-circle me-1"></i>Fehlerrate</span>' + ltInfoBtn('load_test.k6_tile_failrate_info', 'Anteil der HTTP-Anfragen, die mit einem Fehler beendet wurden (http_req_failed). Grün = 0 %, Gelb = unter 5 %, Rot = 5 % oder mehr.') + '</div><div class="lt-k6-metric-value">' + failRate.toFixed(2) + '%</div><div class="lt-k6-metric-sub">&nbsp;</div></div>');
+    }
+    if (reqs) {
+      cards.push('<div class="lt-k6-metric"><div class="lt-k6-metric-label"><span><i class="bi bi-arrow-repeat me-1"></i>Anfragen</span>' + ltInfoBtn('load_test.k6_tile_requests_info', 'Gesamtanzahl aller gesendeten HTTP-Anfragen (http_reqs). Der Wert darunter zeigt den Durchsatz in Anfragen pro Sekunde.') + '</div><div class="lt-k6-metric-value">' + reqs.count + '</div><div class="lt-k6-metric-sub">' + reqs.rate + '</div></div>');
+    }
+    if (runningTime) {
+      cards.push('<div class="lt-k6-metric"><div class="lt-k6-metric-label"><span><i class="bi bi-stopwatch me-1"></i>Laufzeit</span>' + ltInfoBtn('load_test.k6_tile_duration_info', 'Gesamtlaufzeit des k6-Tests inklusive Ramp-up und Ramp-down.') + '</div><div class="lt-k6-metric-value">' + runningTime + '</div><div class="lt-k6-metric-sub">&nbsp;</div></div>');
+    }
+    if (dur.med) {
+      cards.push('<div class="lt-k6-metric"><div class="lt-k6-metric-label"><span><i class="bi bi-bar-chart me-1"></i>Median</span>' + ltInfoBtn('load_test.k6_tile_median_info', 'Median (p50) der HTTP-Antwortzeit: die Hälfte aller Anfragen war schneller als dieser Wert. Weniger anfällig für Ausreißer als der Durchschnitt.') + '</div><div class="lt-k6-metric-value">' + dur.med + '</div><div class="lt-k6-metric-sub">p50</div></div>');
+    }
+    if (dur.p90) {
+      cards.push('<div class="lt-k6-metric"><div class="lt-k6-metric-label"><span><i class="bi bi-clock-history me-1"></i>p90</span>' + ltInfoBtn('load_test.k6_tile_p90_info', '90. Perzentile der HTTP-Antwortzeit: 90 % aller Anfragen wurden in weniger als diesem Wert abgeschlossen.') + '</div><div class="lt-k6-metric-value">' + dur.p90 + '</div><div class="lt-k6-metric-sub">90 % unter diesem Wert</div></div>');
+    }
+    if (vusMaxVal) {
+      cards.push('<div class="lt-k6-metric"><div class="lt-k6-metric-label"><span><i class="bi bi-people me-1"></i>Max VUs</span>' + ltInfoBtn('load_test.k6_tile_vus_info', 'Maximale Anzahl gleichzeitig aktiver virtueller Nutzer (Virtual Users) während des Tests.') + '</div><div class="lt-k6-metric-value">' + vusMaxVal + '</div><div class="lt-k6-metric-sub">gleichzeitig</div></div>');
+    }
+    if (dataRec) {
+      cards.push('<div class="lt-k6-metric"><div class="lt-k6-metric-label"><span><i class="bi bi-download me-1"></i>Daten empfangen</span>' + ltInfoBtn('load_test.k6_tile_data_info', 'Gesamtmenge der vom Server empfangenen Daten während des Tests (data_received).') + '</div><div class="lt-k6-metric-value">' + escHtml(dataRec) + '</div><div class="lt-k6-metric-sub">&nbsp;</div></div>');
+    }
+    if (ttfb.avg) {
+      cards.push('<div class="lt-k6-metric"><div class="lt-k6-metric-label"><span><i class="bi bi-hourglass-split me-1"></i>TTFB \u00d8</span>' + ltInfoBtn('load_test.k6_tile_ttfb_info', 'Time To First Byte (http_req_waiting): reine Server-Verarbeitungszeit ohne Netzwerklatenz. Hohe Werte deuten auf langsame Backend-Logik oder DB-Abfragen hin.') + '</div><div class="lt-k6-metric-value">' + escHtml(ttfb.avg) + '</div><div class="lt-k6-metric-sub">' + (ttfb.p95 ? 'p95: ' + escHtml(ttfb.p95) : '&nbsp;') + '</div></div>');
+    }
+    if (blocked.avg) {
+      cards.push('<div class="lt-k6-metric"><div class="lt-k6-metric-label"><span><i class="bi bi-pause-circle me-1"></i>Blocked \u00d8</span>' + ltInfoBtn('load_test.k6_tile_blocked_info', 'Wartezeit auf einen freien TCP-Slot (http_req_blocked). Hohe Werte beim TCP-Connect zeigen Connection-Pool-Erschöpfung oder zu viele gleichzeitige VUs.') + '</div><div class="lt-k6-metric-value">' + escHtml(blocked.avg) + '</div><div class="lt-k6-metric-sub">' + (blocked.p95 ? 'p95: ' + escHtml(blocked.p95) : '&nbsp;') + '</div></div>');
+    }
+    if (iters) {
+      cards.push('<div class="lt-k6-metric"><div class="lt-k6-metric-label"><span><i class="bi bi-lightning me-1"></i>Iterationen</span>' + ltInfoBtn('load_test.k6_tile_iters_info', 'Gesamtanzahl abgeschlossener VU-Iterationen (iterations). Der Wert darunter zeigt den Durchsatz in Iterationen pro Sekunde.') + '</div><div class="lt-k6-metric-value">' + escHtml(iters.count) + '</div><div class="lt-k6-metric-sub">' + escHtml(iters.rate) + '</div></div>');
+    }
+    if (dataSent) {
+      cards.push('<div class="lt-k6-metric"><div class="lt-k6-metric-label"><span><i class="bi bi-upload me-1"></i>Daten gesendet</span>' + ltInfoBtn('load_test.k6_tile_datasent_info', 'Gesamtmenge der an den Server gesendeten Daten (data_sent). Relevant bei POST- oder Upload-Szenarien.') + '</div><div class="lt-k6-metric-value">' + escHtml(dataSent) + '</div><div class="lt-k6-metric-sub">&nbsp;</div></div>');
+    }
+    if (droppedRaw > 0) {
+      cards.push('<div class="lt-k6-metric fail"><div class="lt-k6-metric-label"><span><i class="bi bi-exclamation-triangle me-1"></i>Dropped Iterations</span>' + ltInfoBtn('load_test.k6_tile_dropped_info', 'Anzahl der VU-Iterationen, die k6 nicht starten konnte (dropped_iterations). Tritt auf, wenn VUs nicht rechtzeitig bereit sind — deutet auf Ressourcenerschöpfung oder eine zu aggressive Laststufe hin.') + '</div><div class="lt-k6-metric-value">' + droppedRaw + '</div><div class="lt-k6-metric-sub">VUs konnten nicht starten</div></div>');
+    }
+    if (connecting.avg && ltParseMs(connecting.avg) > 0) {
+      cards.push('<div class="lt-k6-metric"><div class="lt-k6-metric-label"><span><i class="bi bi-ethernet me-1"></i>TCP-Connect Ø</span>' + ltInfoBtn('load_test.k6_tile_connecting_info', 'Durchschnittliche Zeit für den TCP-Verbindungsaufbau (http_req_connecting). Hohe Werte zeigen Netzwerklatenz oder fehlende Keep-Alive-Verbindungen.') + '</div><div class="lt-k6-metric-value">' + escHtml(connecting.avg) + '</div><div class="lt-k6-metric-sub">' + (connecting.p95 ? 'p95: ' + escHtml(connecting.p95) : '&nbsp;') + '</div></div>');
+    }
+    if (tlsHandshake.avg && ltParseMs(tlsHandshake.avg) > 0) {
+      cards.push('<div class="lt-k6-metric"><div class="lt-k6-metric-label"><span><i class="bi bi-shield-lock me-1"></i>TLS-Handshake Ø</span>' + ltInfoBtn('load_test.k6_tile_tls_info', 'Durchschnittliche TLS-Handshake-Zeit (http_req_tls_handshaking). Erscheint nur bei HTTPS-Endpunkten. Hohe Werte deuten auf aufwändige Zertifikatsprüfung oder fehlende Session-Wiederverwendung hin.') + '</div><div class="lt-k6-metric-value">' + escHtml(tlsHandshake.avg) + '</div><div class="lt-k6-metric-sub">' + (tlsHandshake.p95 ? 'p95: ' + escHtml(tlsHandshake.p95) : '&nbsp;') + '</div></div>');
+    }
+    if (dur.stddev) {
+      cards.push('<div class="lt-k6-metric"><div class="lt-k6-metric-label"><span><i class="bi bi-reception-4 me-1"></i>Stddev</span>' + ltInfoBtn('load_test.k6_tile_stddev_info', 'Standardabweichung der HTTP-Antwortzeit (http_req_duration stddev). Hohe Werte bedeuten inkonsistente Antwortzeiten — der Server verhält sich ungleichmäßig unter Last.') + '</div><div class="lt-k6-metric-value">' + escHtml(dur.stddev) + '</div><div class="lt-k6-metric-sub">http_req_duration</div></div>');
+    }
+    grid.innerHTML = cards.join('');
+    grid.style.display = '';
+    var k6EpStats = {};
+    var _curMetric = null;
+    text.split('\n').forEach(function(line) {
+      var parentM = line.match(/^    ([a-z_]+)[. ]+:\s+/);
+      if (parentM) { _curMetric = parentM[1]; }
+      var subM = line.match(/^\s{4,}\{\s*name:([^}]+)\}[. ]*:\s+(.+)/);
+      if (subM && _curMetric) {
+        var ep = subM[1].trim();
+        var v  = subM[2].trim();
+        if (!k6EpStats[ep]) k6EpStats[ep] = {};
+        if (_curMetric === 'http_req_duration') {
+          var nm = v.match(/min=([\w.µ]+)/);       if (nm)   k6EpStats[ep].min = nm[1];
+          var am = v.match(/avg=([\w.µ]+)/);       if (am)   k6EpStats[ep].avg = am[1];
+          var xm = v.match(/max=([\w.µ]+)/);       if (xm)   k6EpStats[ep].max = xm[1];
+          var p95m = v.match(/p\(95\)=([\w.µ]+)/); if (p95m) k6EpStats[ep].p95  = p95m[1];
+          var p99m = v.match(/p\(99\)=([\w.µ]+)/); if (p99m) k6EpStats[ep].p99  = p99m[1];
+        } else if (_curMetric === 'http_req_waiting') {
+          var wam = v.match(/avg=([\w.µ]+)/); if (wam) k6EpStats[ep].ttfb = wam[1];
+        } else if (_curMetric === 'http_req_failed') {
+          var fpM = v.match(/([\d.]+)%/);
+          if (fpM) k6EpStats[ep].failPct = parseFloat(fpM[1]);
+          var ooM = v.match(/(\d+)\s+out of\s+(\d+)/);
+          if (ooM) {
+            k6EpStats[ep].failCount = parseInt(ooM[1]);
+            k6EpStats[ep].reqCount  = parseInt(ooM[2]);
+            k6EpStats[ep].okCount   = parseInt(ooM[2]) - parseInt(ooM[1]);
+          }
+        }
+      }
+      var ckM = line.match(/^\s+([✓✗])\s+(.+?)\s*\u2192\s*(2xx|3xx|4xx|5xx)\s*$/);
+      if (ckM) {
+        var ep4 = ckM[2].trim();
+        if (!k6EpStats[ep4]) k6EpStats[ep4] = {};
+        if (!k6EpStats[ep4].statusChecks) k6EpStats[ep4].statusChecks = {};
+        k6EpStats[ep4].statusChecks[ckM[3]] = (ckM[1] === '✓');
+      }
+    });
+    if (data.summaryJson) {
+      try {
+        var _sj = JSON.parse(data.summaryJson);
+        var _jm = (_sj && _sj.metrics) ? _sj.metrics : {};
+        var _fmtMs = function(ms) {
+          if (ms === null || ms === undefined || isNaN(ms)) return null;
+          if (ms < 0.1)  return (ms * 1000).toFixed(1) + '\u00b5s';
+          if (ms < 1)    return ms.toFixed(2) + 'ms';
+          if (ms < 10)   return ms.toFixed(1) + 'ms';
+          if (ms < 1000) return Math.round(ms) + 'ms';
+          return (ms / 1000).toFixed(2) + 's';
+        };
+        Object.keys(_jm).forEach(function(mkey) {
+          var mep = mkey.match(/\{name:([^}]+)\}/);
+          if (!mep) return;
+          var ep = mep[1];
+          if (!k6EpStats[ep]) k6EpStats[ep] = {};
+          var m = _jm[mkey];
+          if (mkey.indexOf('http_req_duration') === 0 || mkey.indexOf('http_req_duration{') === 0) {
+            if (m.avg !== undefined) k6EpStats[ep].avg = _fmtMs(m.avg);
+            if (m.min !== undefined) k6EpStats[ep].min = _fmtMs(m.min);
+            if (m.max !== undefined) k6EpStats[ep].max = _fmtMs(m.max);
+            if (m['p(95)'] !== undefined) k6EpStats[ep].p95 = _fmtMs(m['p(95)']);
+            if (m['p(99)'] !== undefined) k6EpStats[ep].p99 = _fmtMs(m['p(99)']);
+          } else if (mkey.indexOf('http_req_waiting') === 0) {
+            if (m.avg !== undefined) k6EpStats[ep].ttfb = _fmtMs(m.avg);
+          } else if (mkey.indexOf('http_req_failed') === 0) {
+            if (m.value  !== undefined) k6EpStats[ep].failPct   = m.value * 100;
+            if (m.passes !== undefined) k6EpStats[ep].failCount = m.passes;
+            if (m.fails  !== undefined) k6EpStats[ep].okCount   = m.fails;
+            if (m.passes !== undefined && m.fails !== undefined)
+              k6EpStats[ep].reqCount = m.passes + m.fails;
+          }
+        });
+      } catch (e) {  }
+    }
+    var k6EpKeys = Object.keys(k6EpStats);
+    var k6EpTable = document.getElementById('ltK6EndpointTable');
+    if (k6EpTable && k6EpKeys.length) {
+      var methodColors = { GET: ['#dbeafe','#1d4ed8'], POST: ['#dcfce7','#15803d'], PUT: ['#fef9c3','#92400e'], DELETE: ['#fee2e2','#b91c1c'], DEL: ['#fee2e2','#b91c1c'], PATCH: ['#f3e8ff','#6b21a8'] };
+      var k6EpRows = k6EpKeys.map(function(ep) {
+        var s = k6EpStats[ep];
+        var failCount = s.failCount !== undefined ? s.failCount : null;
+        var okCount   = s.okCount   !== undefined ? s.okCount   :
+                        (s.reqCount !== undefined && failCount !== null ? s.reqCount - failCount : null);
+        var total     = s.reqCount  !== undefined ? s.reqCount  :
+                        (okCount !== null && failCount !== null ? okCount + failCount : null);
+        var fpct      = s.failPct   !== undefined ? s.failPct   :
+                        (total && failCount !== null && total > 0 ? failCount / total * 100 : null);
+        var rateColor = fpct === null ? '#888' : fpct === 0 ? '#22c55e' : fpct < 5 ? '#f59e0b' : '#ef4444';
+        var statusHtml = '';
+        if (s.statusChecks && Object.keys(s.statusChecks).length) {
+          statusHtml = ['2xx', '4xx', '5xx'].map(function(code) {
+            if (s.statusChecks[code] === undefined) return '';
+            var ok = s.statusChecks[code];
+            var bg = code === '2xx' ? (ok ? '#dcfce7' : '#fee2e2') : (ok ? '#fee2e2' : '#fef9c3');
+            var cl = code === '2xx' ? (ok ? '#15803d' : '#b91c1c') : (ok ? '#b91c1c' : '#92400e');
+            return '<span style="display:inline-block;padding:1px 6px;border-radius:999px;font-size:10px;font-weight:700;background:' + bg + ';color:' + cl + ';">' + (ok ? '\u2713' : '\u2717') + '\u00a0' + code + '</span>';
+          }).filter(Boolean).join(' ');
+        } else if (fpct !== null) {
+          statusHtml = fpct === 0
+            ? '<span style="display:inline-block;padding:1px 6px;border-radius:999px;font-size:10px;font-weight:700;background:#dcfce7;color:#15803d;">\u2713\u00a02xx</span>'
+            : '<span style="display:inline-block;padding:1px 6px;border-radius:999px;font-size:10px;font-weight:700;background:#fee2e2;color:#b91c1c;">\u2717\u00a0err</span>';
+        }
+        var epParts = ep.match(/^(GET|POST|PUT|DELETE|PATCH|DEL)\s+(\/\S*)$/);
+        var epHtml = epParts
+          ? (function(c) { return '<span style="display:inline-block;padding:1px 5px;border-radius:4px;font-size:10px;font-weight:800;margin-right:5px;background:' + c[0] + ';color:' + c[1] + ';">' + escHtml(epParts[1]) + '</span>' + escHtml(epParts[2]); })(methodColors[epParts[1]] || ['#e2e8f0','#475569'])
+          : escHtml(ep);
+        return '<tr style="border-top:1px solid var(--lt-border);">' +
+          '<td style="padding:6px 10px;font-family:monospace;font-size:11px;white-space:nowrap;">' + epHtml + '</td>' +
+          '<td style="padding:6px 10px;text-align:right;font-size:12px;">' + (total !== null ? total : '–') + '</td>' +
+          '<td style="padding:6px 10px;text-align:right;font-size:12px;color:#15803d;">' + (okCount !== null ? '\u2713\u00a0' + okCount : '–') + '</td>' +
+          '<td style="padding:6px 10px;text-align:right;font-size:12px;color:' + (failCount ? '#b91c1c' : '#888') + ';">' + (failCount !== null ? '\u2717\u00a0' + failCount : '–') + '</td>' +
+          '<td style="padding:6px 10px;text-align:right;font-size:12px;font-weight:700;color:' + rateColor + ';">' + (fpct !== null ? fpct.toFixed(1) + '%' : '–') + '</td>' +
+          '<td style="padding:6px 10px;text-align:center;">' + statusHtml + '</td>' +
+          '<td style="padding:6px 10px;text-align:right;font-family:monospace;font-size:11px;">' + escHtml(s.min || '–') + '</td>' +
+          '<td style="padding:6px 10px;text-align:right;font-family:monospace;font-size:11px;">' + escHtml(s.avg || '–') + '</td>' +
+          '<td style="padding:6px 10px;text-align:right;font-family:monospace;font-size:11px;">' + escHtml(s.p95 || s.p90 || '–') + '</td>' +
+          '<td style="padding:6px 10px;text-align:right;font-family:monospace;font-size:11px;">' + escHtml(s.p99 || '–') + '</td>' +
+          '<td style="padding:6px 10px;text-align:right;font-family:monospace;font-size:11px;">' + escHtml(s.max || '–') + '</td>' +
+          '<td style="padding:6px 10px;text-align:right;font-family:monospace;font-size:11px;color:#b91c1c;">' + escHtml(s.ttfb || '–') + '</td>' +
+          '</tr>';
+      }).join('');
+      k6EpTable.innerHTML =
+        '<div style="font-size:11px;font-weight:700;color:var(--lt-muted);letter-spacing:.06em;margin-bottom:8px;text-transform:uppercase;">Anfragewerte je Endpunkt</div>' +
+        '<div style="overflow-x:auto;border-radius:10px;border:1px solid var(--lt-border);">' +
+        '<table style="width:100%;font-size:12px;border-collapse:collapse;">' +
+        '<thead><tr style="background:' + (ltIsDark() ? '#252235' : '#f4f0e8') + ';color:var(--lt-muted);font-size:11px;">' +
+        '<th style="text-align:left;padding:6px 10px;font-weight:600;white-space:nowrap;">Endpunkt</th>' +
+        '<th style="text-align:right;padding:6px 10px;font-weight:600;white-space:nowrap;">Gesamt</th>' +
+        '<th style="text-align:right;padding:6px 10px;font-weight:600;white-space:nowrap;color:#15803d;">OK</th>' +
+        '<th style="text-align:right;padding:6px 10px;font-weight:600;white-space:nowrap;color:#b91c1c;">Fehler</th>' +
+        '<th style="text-align:right;padding:6px 10px;font-weight:600;white-space:nowrap;">Rate</th>' +
+        '<th style="text-align:center;padding:6px 10px;font-weight:600;white-space:nowrap;">Status</th>' +
+        '<th style="text-align:right;padding:6px 10px;font-weight:600;white-space:nowrap;">Min</th>' +
+        '<th style="text-align:right;padding:6px 10px;font-weight:600;white-space:nowrap;">Avg</th>' +
+        '<th style="text-align:right;padding:6px 10px;font-weight:600;white-space:nowrap;">p95</th>' +
+        '<th style="text-align:right;padding:6px 10px;font-weight:600;white-space:nowrap;">p99</th>' +
+        '<th style="text-align:right;padding:6px 10px;font-weight:600;white-space:nowrap;">Max</th>' +
+        '<th style="text-align:right;padding:6px 10px;font-weight:600;white-space:nowrap;color:#b91c1c;">TTFB</th>' +
+        '</tr></thead>' +
+        '<tbody>' + k6EpRows + '</tbody>' +
+        '</table></div>';
+      k6EpTable.style.display = '';
+    } else if (k6EpTable) {
+      k6EpTable.style.display = 'none';
+    }
+    var chartDiv = document.getElementById('ltK6ResultChart');
+    if (chartDiv) {
+      var rtPts = [];
+      if (dur.min) { var _mn = ltParseMs(dur.min); if (_mn !== null) rtPts.push({ms:_mn, label:'min', color:'#22c55e'}); }
+      if (dur.med) { var _md = ltParseMs(dur.med); if (_md !== null) rtPts.push({ms:_md, label:'med', color:'#6366f1'}); }
+      if (dur.avg) { var _av = ltParseMs(dur.avg); var _mdv = dur.med ? ltParseMs(dur.med) : null; if (_av !== null && (_mdv === null || Math.abs(_av - _mdv) > 1)) rtPts.push({ms:_av, label:'avg', color:'#818cf8'}); }
+      if (dur.p90) { var _p9 = ltParseMs(dur.p90); if (_p9 !== null) rtPts.push({ms:_p9, label:'p90', color:'#f59e0b'}); }
+      if (dur.p95) { var _p5 = ltParseMs(dur.p95); if (_p5 !== null) rtPts.push({ms:_p5, label:'p95', color:'#f97316'}); }
+      if (dur.p99) { var _p9x = ltParseMs(dur.p99); if (_p9x !== null) rtPts.push({ms:_p9x, label:'p99', color:'#ef4444'}); }
+      if (dur.max) { var _mx = ltParseMs(dur.max); if (_mx !== null) rtPts.push({ms:_mx, label:'max', color:'#dc2626'}); }
+      rtPts.sort(function(a,b){return a.ms-b.ms;});
+      if (rtPts.length >= 2) {
+        chartDiv.innerHTML = '<div class="lt-rt-chart"><div class="lt-rt-chart-title"><i class="bi bi-activity me-1"></i>Response-Time-Verteilung</div>' + ltRenderRtRangeSvg(rtPts) + '</div>';
+        chartDiv.style.display = '';
+      } else { chartDiv.style.display = 'none'; }
+    }
+    var vuChartEl = document.getElementById('ltK6VuChart');
+    if (vuChartEl) {
+      var vuSvg = _ltK6Stages && _ltK6Stages.length ? ltRenderVuProfileSvg(_ltK6Stages) : '';
+      if (vuSvg) {
+        vuChartEl.innerHTML = '<div class="lt-vu-chart"><div class="lt-vu-chart-title"><i class="bi bi-people me-1"></i>Lastprofil (VU-Verlauf)</div>' + vuSvg + '</div>';
+        vuChartEl.style.display = '';
+      } else { vuChartEl.style.display = 'none'; }
+    }
+    var waterfallEl = document.getElementById('ltK6Waterfall');
+    if (waterfallEl) {
+      var wfDefs = [
+        { key: 'http_req_blocked',         label: 'Blocked (Warteschlange)', color: '#94a3b8' },
+        { key: 'http_req_connecting',      label: 'Connect (TCP)',           color: '#60a5fa' },
+        { key: 'http_req_tls_handshaking', label: 'TLS Handshake',          color: '#818cf8' },
+        { key: 'http_req_sending',         label: 'Sending',                color: '#34d399' },
+        { key: 'http_req_waiting',         label: 'Waiting / TTFB',         color: '#b91c1c' },
+        { key: 'http_req_receiving',       label: 'Receiving',              color: '#6366f1' }
+      ];
+      var wfPts = [];
+      wfDefs.forEach(function(wf) {
+        var raw = mm[wf.key];
+        if (!raw) return;
+        var am = raw.match(/avg=([\w.µ]+)/);
+        if (!am) return;
+        var wfMs = ltParseMs(am[1]);
+        if (wfMs === null || wfMs < 0.001) return;
+        wfPts.push({ label: wf.label, ms: wfMs, color: wf.color });
+      });
+      if (wfPts.length >= 2) {
+        var wfTotal = wfPts.reduce(function(s, p) { return s + p.ms; }, 0);
+        function fmtMs(v) { return v < 1 ? v.toFixed(3) + 'ms' : v < 10 ? v.toFixed(1) + 'ms' : Math.round(v) + 'ms'; }
+        var wfRows = wfPts.map(function(p) {
+          var wpct = (p.ms / wfTotal * 100).toFixed(1);
+          return '<div style="display:flex;align-items:center;gap:8px;margin-bottom:5px;">' +
+            '<div style="width:150px;font-size:11px;color:var(--lt-muted);text-align:right;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="' + escHtml(p.label) + '">' + escHtml(p.label) + '</div>' +
+            '<div style="flex:1;background:' + (ltIsDark() ? '#3a3550' : '#e8e4dd') + ';border-radius:3px;height:14px;overflow:hidden;">' +
+              '<div style="width:' + wpct + '%;height:100%;background:' + p.color + ';border-radius:3px;"></div>' +
+            '</div>' +
+            '<div style="width:95px;font-size:11px;color:var(--lt-muted);white-space:nowrap;">' + escHtml(fmtMs(p.ms)) + ' (' + wpct + '%)</div>' +
+          '</div>';
+        }).join('');
+        waterfallEl.innerHTML =
+          '<div class="lt-rt-chart">' +
+            '<div class="lt-rt-chart-title"><i class="bi bi-layers me-1"></i>Antwortzeit-Phasen (\u00d8 pro Anfrage)</div>' +
+            wfRows +
+            '<div style="display:flex;align-items:center;gap:8px;margin-top:4px;border-top:1px solid var(--lt-line);padding-top:5px;">' +
+              '<div style="width:150px;font-size:11px;font-weight:700;text-align:right;color:var(--lt-text);">Gesamt</div>' +
+              '<div style="flex:1;"></div>' +
+              '<div style="width:95px;font-size:11px;font-weight:700;color:var(--lt-text);">' + escHtml(fmtMs(wfTotal)) + '</div>' +
+            '</div>' +
+          '</div>';
+        waterfallEl.style.display = '';
+      } else { waterfallEl.style.display = 'none'; }
+    }
+    var checksEl = document.getElementById('ltK6Checks');
+    if (checksEl) {
+      var chkMap = {};
+      var chkOrder = [];
+      var lastChkEp = null;
+      text.split(/\r|\n/).forEach(function(line) {
+        var epM = line.match(/http_req_(?:duration|failed)\{name:([^}]*(?:\{[^}]*\}[^}]*)*)\}[.:]+/) ||
+                  line.match(/http_req_(?:duration|failed)\{name:([^}]+)\}/);
+        if (epM) { lastChkEp = epM[1].trim(); return; }
+        var trimmed = line.replace(/^\s+/, '');
+        var isOk   = trimmed.charAt(0) === '\u2713';
+        var isFail = trimmed.charAt(0) === '\u2717';
+        if (!isOk && !isFail) return;
+        var chkName = trimmed.slice(1).trim().split(/\s{3,}/)[0].trim();
+        chkName = chkName.replace(/\s+p\(\d+\)=[\w.µs]+$/i, '').trim();
+        if (!chkName || chkName.length < 2 || /^\d+$/.test(chkName) || chkName.indexOf('%') >= 0) return;
+        var chkKey = lastChkEp ? lastChkEp + '\x00' + chkName : chkName;
+        if (!chkMap[chkKey]) { chkMap[chkKey] = {ok: 0, fail: 0, ep: lastChkEp, check: chkName}; chkOrder.push(chkKey); }
+        if (isOk) chkMap[chkKey].ok++; else chkMap[chkKey].fail++;
+      });
+      if (chkOrder.length) {
+        var chkRows = chkOrder.map(function(key) {
+          var c = chkMap[key];
+          var total = c.ok + c.fail;
+          var pctStr = total ? (c.ok / total * 100).toFixed(1) + '%' : '\u2013';
+          var allOk2 = c.fail === 0;
+          var badge = allOk2
+            ? '<span style="color:#7c5cbf;font-weight:700;font-size:13px;">\u2713</span>'
+            : '<span style="color:#dc2626;font-weight:700;font-size:13px;">\u2717</span>';
+          return '<tr style="border-bottom:1px solid var(--lt-line);">' +
+            '<td style="padding:5px 8px;width:24px;vertical-align:top;">' + badge + '</td>' +
+            '<td style="padding:5px 8px;font-size:12px;">' + escHtml(c.check) + '</td>' +
+            '<td style="padding:5px 8px;font-size:12px;text-align:right;color:var(--lt-muted);vertical-align:top;">' + c.ok + ' / ' + total + '</td>' +
+            '<td style="padding:5px 8px;font-size:12px;text-align:right;font-weight:700;color:' + (allOk2 ? '#7c5cbf' : '#dc2626') + ';vertical-align:top;">' + pctStr + '</td>' +
+          '</tr>';
+        }).join('');
+        checksEl.innerHTML =
+          '<div class="lt-rt-chart">' +
+            '<div class="lt-rt-chart-title"><i class="bi bi-check-square me-1"></i>Check-Ergebnisse</div>' +
+            '<table style="width:100%;border-collapse:collapse;">' +
+              '<thead><tr>' +
+                '<th style="padding:4px 8px;width:24px;border-bottom:1px solid var(--lt-line);"></th>' +
+                '<th style="padding:4px 8px;font-size:11px;color:var(--lt-muted);text-align:left;font-weight:600;border-bottom:1px solid var(--lt-line);">Check</th>' +
+                '<th style="padding:4px 8px;font-size:11px;color:var(--lt-muted);text-align:right;font-weight:600;border-bottom:1px solid var(--lt-line);">Bestanden</th>' +
+                '<th style="padding:4px 8px;font-size:11px;color:var(--lt-muted);text-align:right;font-weight:600;border-bottom:1px solid var(--lt-line);">Quote</th>' +
+              '</tr></thead>' +
+              '<tbody>' + chkRows + '</tbody>' +
+            '</table>' +
+          '</div>';
+        checksEl.style.display = '';
+      } else { checksEl.style.display = 'none'; }
+    }
+  }
+  var btn = document.getElementById('ltK6RunBtn');
+  var stopBtn = document.getElementById('ltK6StopBtn');
+  if (btn) {
+    btn.disabled = false;
+    btn.innerHTML = success
+      ? '<i class="bi bi-check-circle me-1"></i>' + (window.i18n ? window.i18n.t('load_test.run_again') : 'Erneut ausführen')
+      : '<i class="bi bi-exclamation-circle me-1"></i>' + (window.i18n ? window.i18n.t('load_test.run_again') : 'Erneut ausführen');
+    btn.className = success ? 'btn btn-sm btn-success' : 'btn btn-sm btn-danger';
+    btn.style.borderRadius = '999px'; btn.style.fontSize = '12px';
+  }
+  ltSetRunBadge(_ltK6RunningConfigId, _ltK6RunningProjectId, 'k6', false);
+  _ltSaveRunLS('k6', null, null, null);
+  _ltK6RunningConfigId = null; _ltK6RunningProjectId = null;
+  if (stopBtn) stopBtn.style.display = 'none';
+  _ltSaveResultLS('k6', ltCurrentAnalysisId, data);
+  if (!_ltAnalysisRunningConfigId) { _ltSetCardBusy(_ltK6RunningCard, false); }
+  _ltK6RunningCard = null;
+}
+function ltResetK6Btn() {
+  _ltK6StartTime = null;
+  ltSetRunBadge(_ltK6RunningConfigId, _ltK6RunningProjectId, 'k6', false);
+  _ltSaveRunLS('k6', null, null, null);
+  _ltK6RunningConfigId = null; _ltK6RunningProjectId = null;
+  var btn = document.getElementById('ltK6RunBtn');
+  var stopBtn = document.getElementById('ltK6StopBtn');
+  if (btn) {
+    btn.disabled = false;
+    btn.innerHTML = '<i class="bi bi-play-fill me-1"></i>' + (window.i18n ? window.i18n.t('load_test.execute') : 'Ausführen');
+    btn.className = 'btn btn-sm btn-success';
+    btn.style.borderRadius = '999px'; btn.style.fontSize = '12px';
+  }
+  if (stopBtn) stopBtn.style.display = 'none';
+  if (!_ltAnalysisRunningConfigId) { _ltSetCardBusy(_ltK6RunningCard, false); }
+  _ltK6RunningCard = null;
+}
+</script>
+</th:block>
+</body>
+</html>

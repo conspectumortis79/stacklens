@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" lang="de">
+<body>
+<th:block th:fragment="scripts-helpers">
+<script>
+function ltApplyEnvironments(json) {
+  try {
+    _ltDetectedEnvironments = json ? JSON.parse(json) : [];
+  } catch (_) {
+    _ltDetectedEnvironments = [];
+  }
+  if (_ltDetectedEnvironments.length > 0) {
+    var stillValid = _ltDetectedEnvironments.some(function(e) { return e.name === _ltSelectedEnvName; });
+    if (!stillValid) _ltSelectedEnvName = _ltDetectedEnvironments[0].name;
+  } else {
+    _ltSelectedEnvName = null;
+  }
+}
+
+function ltEnvChipHtml(env) {
+  var active = env.name === _ltSelectedEnvName;
+  var handler = escHtml('ltSelectEnvironment(' + JSON.stringify(env.name) + ')');
+  var port = env.port && env.port !== '80' && env.port !== '443' ? ':' + env.port : '';
+  return '<button onclick="' + handler + '" ' +
+    'class="btn btn-sm ' + (active ? 'btn-success' : 'btn-outline-secondary') + '" ' +
+    'style="border-radius:999px;font-size:11px;margin-right:4px;">' +
+    '<i class="bi bi-hdd-network me-1"></i>' +
+    escHtml(env.name) +
+    '<span style="margin-left:5px;font-family:monospace;opacity:.75;">' +
+    escHtml(env.scheme + '://' + env.host + port) +
+    '</span></button>';
+}
+
+function ltEnvSelectorHtml() {
+  if (_ltDetectedEnvironments.length < 1) return '';
+  var btns = _ltDetectedEnvironments.map(ltEnvChipHtml).join('');
+  return '<div style="margin-bottom:12px;padding:10px 14px;background:#f4f0e8;border-radius:10px;border:1px solid var(--lt-border);display:flex;align-items:center;flex-wrap:wrap;gap:6px;">' +
+    '<span style="font-size:11px;font-weight:700;color:var(--lt-muted);text-transform:uppercase;letter-spacing:.5px;white-space:nowrap;margin-right:4px;">' +
+    escHtml(window.i18n ? window.i18n.t('load_test.environment') : 'Umgebung') +
+    '</span>' +
+    btns +
+    (_ltDetectedEnvironments.length === 1
+      ? '<span style="font-size:10px;color:var(--lt-muted);margin-left:auto;">' +
+        escHtml(window.i18n ? window.i18n.t('load_test.environment_singleton_hint') : 'Klicken zum Wechseln; die BASE_URL wird beim Ausführen automatisch auf die lokale Instanz gefallen, falls die KI einen Template-Default geliefert hat.') +
+        '</span>'
+      : '') +
+    '</div>';
+}
+
+function ltSelectEnvironment(name) {
+  _ltSelectedEnvName = name;
+  if (_ltK6Script) ltShowK6(_ltK6Script);
+}
+
+function ltSetHeaderBadge(type) {
+  var el = document.getElementById('ltStatusBadge');
+  if (!el) return;
+  if (type === 'running') {
+    if (!el.querySelector('.spinner-border')) {
+      el.innerHTML = '<span class="lt-card-status-pill lt-card-status--running"><span class="spinner-border spinner-border-sm"></span>' + (window.i18n ? window.i18n.t('load_test.running') : 'Läuft…') + '</span>';
+    }
+  } else {
+    el.innerHTML = '';
+  }
+}
+
+function ltShowEmpty() {
+  if (!document.getElementById('ltTabs')) return;
+  document.getElementById('ltTabs').classList.add('d-none');
+  document.getElementById('ltEmptyState').classList.remove('d-none');
+  document.getElementById('ltRunning').classList.add('d-none');
+  document.getElementById('ltAborted').classList.add('d-none');
+  document.getElementById('ltError').classList.add('d-none');
+  document.getElementById('ltSummaryContent').classList.add('d-none');
+  _ltK6Script = null;
+  _ltK6UserParams = null;
+  _ltK6SelectedUrls = null;
+  var _k6c = document.getElementById('ltK6Content');
+  if (_k6c) _k6c.innerHTML = '<div class="lt-empty"><i class="bi bi-code-square"></i>k6-Skript wird nach der Analyse generiert.</div>';
+  var _tabK6 = document.getElementById('tabBtnLtK6'); if (_tabK6) _tabK6.style.display = 'none';
+  var _fc = document.getElementById('ltFindingsContent');
+  if (_fc) _fc.innerHTML = '<div class="lt-empty"><i class="bi bi-search-heart"></i>Noch keine Befunde. Starte erst eine Analyse.</div>';
+  var _fb = document.getElementById('ltFindingsBadge'); if (_fb) { _fb.textContent = ''; _fb.style.display = 'none'; }
+}
+function ltShowRunning() {
+  if (!document.getElementById('ltTabs')) return;
+  document.getElementById('ltTabs').classList.remove('d-none');
+  document.getElementById('ltEmptyState').classList.add('d-none');
+  var runEl = document.getElementById('ltRunning');
+  var alreadyRunning = runEl && !runEl.classList.contains('d-none');
+  if (runEl) runEl.classList.remove('d-none');
+  ltSetHeaderBadge('running');
+  document.getElementById('ltAborted').classList.add('d-none');
+  document.getElementById('ltError').classList.add('d-none');
+  document.getElementById('ltSummaryContent').classList.add('d-none');
+  var _tabK6 = document.getElementById('tabBtnLtK6'); if (_tabK6) _tabK6.style.display = 'none';
+  if (!alreadyRunning) {
+    ltSwitch('tabLtSummary', document.querySelector('.lt-tab-btn'));
+    var _k6c = document.getElementById('ltK6Content');
+    if (_k6c) _k6c.innerHTML = '<div class="lt-empty"><i class="bi bi-code-square"></i>k6-Skript wird nach der Analyse generiert.</div>';
+    var _fc = document.getElementById('ltFindingsContent');
+    if (_fc) _fc.innerHTML = '<div class="lt-empty"><i class="bi bi-search-heart"></i>Noch keine Befunde. Starte erst eine Analyse.</div>';
+    var _fb = document.getElementById('ltFindingsBadge'); if (_fb) { _fb.textContent = ''; _fb.style.display = 'none'; }
+  }
+}
+function ltShowAborted() {
+  if (!document.getElementById('ltEmptyState')) return;
+  ltSetHeaderBadge(null);
+  document.getElementById('ltEmptyState').classList.add('d-none');
+  document.getElementById('ltRunning').classList.add('d-none');
+  document.getElementById('ltAborted').classList.remove('d-none');
+  document.getElementById('ltError').classList.add('d-none');
+  document.getElementById('ltSummaryContent').classList.add('d-none');
+}
+function ltShowError(msg) {
+  if (!document.getElementById('ltTabs')) return;
+  ltSetHeaderBadge(null);
+  document.getElementById('ltTabs').classList.remove('d-none');
+  document.getElementById('ltEmptyState').classList.add('d-none');
+  document.getElementById('ltRunning').classList.add('d-none');
+  document.getElementById('ltAborted').classList.add('d-none');
+  var el = document.getElementById('ltError');
+  el.classList.remove('d-none');
+  el.textContent = msg;
+  document.getElementById('ltSummaryContent').classList.add('d-none');
+}
+function ltShowSummary(text) {
+  ltSetHeaderBadge(null);
+  document.getElementById('ltEmptyState').classList.add('d-none');
+  document.getElementById('ltRunning').classList.add('d-none');
+  document.getElementById('ltAborted').classList.add('d-none');
+  document.getElementById('ltError').classList.add('d-none');
+  var el = document.getElementById('ltSummaryContent');
+  if (text) {
+    el.innerHTML = renderMarkdown(text);
+    el.classList.remove('d-none');
+  }
+}
+function ltShowFindings(findingsJson) {
+  var container = document.getElementById('ltFindingsContent');
+  var badge = document.getElementById('ltFindingsBadge');
+  if (!findingsJson) {
+  container.innerHTML = '<div class="lt-empty"><i class="bi bi-search-heart"></i>' + (window.i18n ? window.i18n.t('load_test.no_bottlenecks') : 'Keine Engpässe gefunden.') + '</div>';
+    badge.style.display = 'none';
+    return;
+  }
+  var findings;
+  try { findings = JSON.parse(findingsJson); } catch(e) {
+    container.innerHTML = '<div class="lt-empty text-danger"><i class="bi bi-exclamation-circle"></i>' + (window.i18n ? window.i18n.t('common.error_parse') : 'Fehler beim Parsen') + '.</div>';
+    return;
+  }
+  badge.textContent = findings.length;
+  badge.style.display = '';
+
+  var severityOrder = {'HIGH':0,'MEDIUM':1,'LOW':2};
+  findings.sort(function(a,b) { return (severityOrder[a.severity]||9) - (severityOrder[b.severity]||9); });
+
+  var TYPE_LABELS = {
+    'SLOW_QUERY': (window.i18n ? window.i18n.t('load_test.type_slow_query') : 'Langsame DB-Query'),
+    'MISSING_CACHE': (window.i18n ? window.i18n.t('load_test.type_missing_cache') : 'Fehlender Cache'),
+    'SYNC_CHAIN': (window.i18n ? window.i18n.t('load_test.type_sync_chain') : 'Synchrone Kette'),
+    'PHP_FPM': (window.i18n ? window.i18n.t('load_test.type_php_fpm') : 'PHP-FPM Engpass'),
+    'RESOURCE_LOCK': (window.i18n ? window.i18n.t('load_test.type_resource_lock') : 'Ressourcen-Lock'),
+    'MISSING_ASYNC': (window.i18n ? window.i18n.t('load_test.type_missing_async') : 'Fehlende Asynchronität'),
+    'N_PLUS_ONE': (window.i18n ? window.i18n.t('load_test.type_n_plus_one') : 'N+1-Query')
+  };
+
+  container.innerHTML = findings.map(function(f) {
+    return '<div class="lt-finding">' +
+      '<div class="lt-finding-header">' +
+        '<span class="lt-finding-title">' + escHtml(f.id || '') + '</span>' +
+        '<span class="lt-badge ' + escHtml(f.severity||'LOW') + '">' + escHtml(f.severity||'?') + '</span>' +
+        '<span class="lt-badge type">' + escHtml(TYPE_LABELS[f.type] || f.type || '') + '</span>' +
+      '</div>' +
+      (f.file ? '<div class="lt-finding-file"><i class="bi bi-file-code me-1"></i>' + escHtml(f.file) + '</div>' : '') +
+      (f.endpoint ? '<div class="lt-finding-endpoint"><i class="bi bi-arrow-right me-1"></i>' + escHtml(f.endpoint) + '</div>' : '') +
+      '<div class="lt-finding-desc">' + escHtml(f.description||'') + '</div>' +
+      (f.recommendation ? '<div class="lt-finding-rec"><strong>Empfehlung:</strong> ' + escHtml(f.recommendation) + '</div>' : '') +
+      (f.k6Hint ? '<div class="lt-finding-hint"><i class="bi bi-play-circle me-1"></i>' + escHtml(f.k6Hint) + '</div>' : '') +
+    '</div>';
+  }).join('');
+}
+
+</script>
+</th:block>
+</body>
+</html>

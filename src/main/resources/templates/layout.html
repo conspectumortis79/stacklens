@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org"
+      xmlns:layout="http://www.ultraq.net.nz/thymeleaf/layout"
+      lang="en">
+<head>
+    <meta charset="UTF-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1"/>
+    <title layout:title-pattern="$CONTENT_TITLE - StackLens">StackLens</title>
+    <script>
+      (function () {
+        try {
+          var t = localStorage.getItem('stacklens-theme') || 'modern';
+          document.documentElement.setAttribute('data-theme', t);
+        } catch (e) {}
+      })();
+</script>
+    <link rel="icon" type="image/x-icon" th:href="@{/favicon.ico}"/>
+    <link rel="icon" type="image/svg+xml" th:href="@{/favicon.svg}"/>
+    <link rel="stylesheet" th:href="@{/vendor/css/bootstrap.min.css}"/>
+    <link rel="stylesheet" th:href="@{/vendor/css/bootstrap-icons.min.css}"/>
+    <link rel="stylesheet" th:href="@{/vendor/css/dataTables.bootstrap5.min.css}"/>
+    <link rel="stylesheet" th:href="@{/vendor/css/buttons.bootstrap5.min.css}"/>
+    <link rel="stylesheet" th:href="@{/css/custom.css}"/>
+    <link rel="stylesheet" th:href="@{/css/themes.css}"/>
+    <link rel="stylesheet" th:href="@{/css/history.css}"/>
+    <style>
+      @keyframes sidebar-search-pulse {
+        0%   { box-shadow: 0 0 0 0 rgba(74,222,128,.7); }
+        70%  { box-shadow: 0 0 0 6px rgba(74,222,128,0); }
+        100% { box-shadow: 0 0 0 0 rgba(74,222,128,0); }
+      }
+      .sidebar-search-dot {
+        display: none; width: 8px; height: 8px; border-radius: 50%;
+        background: #4ade80; flex-shrink: 0; margin-left: auto;
+        animation: sidebar-search-pulse 1.4s infinite;
+      }
+      .sidebar-search-dot.active { display: inline-block; }
+      * { user-select: none; -webkit-user-select: none; }
+      input, textarea { user-select: text; -webkit-user-select: text; }
+      [data-prompt-prefix] { transition: opacity 0.35s ease; }
+      body.hide-prompt-buttons [data-prompt-prefix] { display: none !important; }
+    </style>
+    <th:block layout:fragment="head-extra"></th:block>
+</head>
+<body class="bg-light">
+<script>
+  if (typeof window.escapeHtml !== 'function') {
+    window.escapeHtml = function escapeHtml(s) {
+      return String(s == null ? '' : s)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+    };
+  }
+</script>
+<script>
+  (function() {
+    try {
+      var v = localStorage.getItem('dev_show_prompt_buttons');
+      if (v !== 'true') { document.body.classList.add('hide-prompt-buttons'); }
+
+    } catch(e) {}
+    function cfApplyDockerSidebarFromLocalStorage() {
+      try {
+        var lsVal = localStorage.getItem('dev_docker_test_env');
+        var lsEntry = document.getElementById('sidebarDockerTestEntry');
+        if (lsEntry && lsVal != null) {
+          lsEntry.style.display = (lsVal === 'true' || lsVal === true) ? '' : 'none';
+        }
+      } catch(e) {}
+    }
+
+    function cfApplyDockerTestEnvVisibility() {
+      var enabled = false;
+      try { enabled = localStorage.getItem('dev_docker_test_env') === 'true'; } catch(e) {}
+      var isDemo = function(name) { return name && String(name).trim().indexOf('Demo ') === 0; };
+
+      document.querySelectorAll('.cf-tab-pane tbody').forEach(function(tbody) {
+        var rows = tbody.querySelectorAll('tr[data-conn-kind]');
+        if (rows.length === 0) return;
+        var anyVisible = false;
+        rows.forEach(function(row) {
+          var nameCell = row.querySelector('td');
+          var name = nameCell ? nameCell.textContent.trim() : '';
+          var visible = enabled || !isDemo(name);
+          row.style.display = visible ? '' : 'none';
+          if (visible) anyVisible = true;
+        });
+        tbody.querySelectorAll('tr:not([data-conn-kind])').forEach(function(emptyRow) {
+          emptyRow.style.display = anyVisible ? 'none' : '';
+        });
+      });
+
+      document.querySelectorAll('select option').forEach(function(opt) {
+        var text = opt.textContent ? opt.textContent.trim() : '';
+        var visible = enabled || !isDemo(text);
+        opt.hidden = !visible;
+        opt.disabled = !visible;
+      });
+
+      ['ca', 'pa', 'ba'].forEach(function(p) {
+        document.querySelectorAll('.' + p + '-repo-card[data-github-repo-id]').forEach(function(card) {
+          var nameEl = card.querySelector('.' + p + '-repo-name');
+          var name = nameEl ? nameEl.textContent.trim() : '';
+          var visible = enabled || !isDemo(name);
+          card.style.display = visible ? '' : 'none';
+        });
+      });
+
+      ['gitlabConfigList', 'paGitlabConfigList', 'baGitlabConfigList'].forEach(function(id) {
+        document.querySelectorAll('#' + id + ' > div.mb-2').forEach(function(w) {
+          var span = w.querySelector('span.fw-bold');
+          var name = span ? span.textContent.trim() : '';
+          var visible = enabled || !isDemo(name);
+          w.style.display = visible ? '' : 'none';
+        });
+      });
+
+      ['suGitlabChips', 'suDbChips', 'suJiraChips', 'suConfluenceChips', 'suGithubChips'].forEach(function(id) {
+        document.querySelectorAll('#' + id + ' .su-chip').forEach(function(chip) {
+          var name = chip.textContent ? chip.textContent.trim() : '';
+          var visible = enabled || !isDemo(name);
+          chip.style.display = visible ? '' : 'none';
+        });
+      });
+    }
+
+    function cfInitDockerTestEnvVisibility() {
+      cfApplyDockerTestEnvVisibility();
+      ['gitlabConfigList', 'paGitlabConfigList', 'baGitlabConfigList',
+       'suGitlabChips', 'suDbChips', 'suJiraChips', 'suConfluenceChips', 'suGithubChips'
+      ].forEach(function(id) {
+        var el = document.getElementById(id);
+        if (!el || el._cfDockerTestObs) return;
+        el._cfDockerTestObs = new MutationObserver(function() { cfApplyDockerTestEnvVisibility(); });
+        el._cfDockerTestObs.observe(el, { childList: true, subtree: true });
+      });
+    }
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', cfInitDockerTestEnvVisibility);
+    } else {
+      cfInitDockerTestEnvVisibility();
+    }
+
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', cfApplyDockerSidebarFromLocalStorage);
+    } else {
+      cfApplyDockerSidebarFromLocalStorage();
+    }
+
+    fetch('/api/ui-prefs')
+      .then(function(r) { return r.json(); })
+      .then(function(d) {
+        if (!d) return;
+        if (d.theme) {
+          var existing = null;
+          try { existing = localStorage.getItem('stacklens-theme'); } catch(e) {}
+          if (!existing) {
+            try { localStorage.setItem('stacklens-theme', d.theme); } catch(e) {}
+            document.documentElement.setAttribute('data-theme', d.theme);
+          }
+        }
+        var keys = ['dev_show_prompt_buttons', 'dev_show_token_usage', 'dev_docker_test_env', 'dev_docker_auto_start'];
+        keys.forEach(function(key) {
+          if (d[key] != null) {
+            try { localStorage.setItem(key, String(d[key])); } catch(e) {}
+          }
+        });
+        if (d.text_filter_enabled != null) {
+          try { localStorage.setItem('dev_text_filter_enabled', String(d.text_filter_enabled)); } catch(e) {}
+        }
+        if (d.dev_show_prompt_buttons != null) {
+          var prompt = d.dev_show_prompt_buttons === 'true' || d.dev_show_prompt_buttons === true;
+          if (prompt) document.body.classList.remove('hide-prompt-buttons');
+          else document.body.classList.add('hide-prompt-buttons');
+        } else {
+          try {
+            var lsPrompt = localStorage.getItem('dev_show_prompt_buttons');
+            if (lsPrompt != null) {
+              var lsPromptOn = (lsPrompt === 'true' || lsPrompt === true);
+              if (lsPromptOn) document.body.classList.remove('hide-prompt-buttons');
+              else document.body.classList.add('hide-prompt-buttons');
+            }
+          } catch(e) {}
+        }
+        var entry = document.getElementById('sidebarDockerTestEntry');
+        if (entry) {
+          if (d.dev_docker_test_env != null) {
+            entry.style.display = (d.dev_docker_test_env === 'true' || d.dev_docker_test_env === true) ? '' : 'none';
+          } else {
+            try {
+              var lsFallback = localStorage.getItem('dev_docker_test_env');
+              if (lsFallback != null) {
+                entry.style.display = (lsFallback === 'true' || lsFallback === true) ? '' : 'none';
+              }
+            } catch(e) {}
+          }
+        }
+      }).catch(function() {
+        cfApplyDockerSidebarFromLocalStorage();
+      });
+
+    window.cfApplyDockerSidebarFromLocalStorage = cfApplyDockerSidebarFromLocalStorage;
+    window.cfApplyDockerTestEnvVisibility      = cfApplyDockerTestEnvVisibility;
+    window.cfInitDockerTestEnvVisibility       = cfInitDockerTestEnvVisibility;
+  })();
+</script>
+
+<div class="d-flex" style="height:100vh;overflow:hidden;">
+
+    <th:block th:replace="~{fragments/layout/sidebar :: sidebar}"></th:block>
+
+    <div class="sl-scroll-wrap">
+      <main id="mainScrollContent" class="p-4 sl-scroll-content">
+        <div class="mb-4 sl-page-header" style="border-radius:18px;padding:18px 28px;box-shadow:0 4px 16px rgba(0,0,0,.05);min-height:88px;">
+            <div class="d-flex align-items-start justify-content-between">
+                <div style="flex:1;min-width:0;">
+                    <h1 class="h3 mb-0 fw-semibold" layout:fragment="page-title">Seite</h1>
+                    <th:block layout:fragment="page-subtitle"></th:block>
+                </div>
+                <th:block layout:fragment="page-actions"></th:block>
+            </div>
+        </div>
+
+        <div id="alertArea"></div>
+
+        <div id="mcpFallbackBanner" class="sl-mcp-fallback-banner d-none" role="status" aria-live="polite">
+            <i class="bi bi-exclamation-triangle-fill"></i>
+            <span id="mcpFallbackBannerText"></span>
+            <button type="button" class="btn-close btn-close-white ms-2" aria-label="Dismiss" onclick="this.parentElement.classList.add('d-none')"></button>
+        </div>
+
+        <div layout:fragment="content"></div>
+      </main>
+      <div class="sl-scroll-track" id="mainScrollTrack"><div class="sl-scroll-thumb" id="mainScrollThumb"></div></div>
+    </div>
+</div>
+
+<th:block th:replace="~{fragments/layout/ki-chat-drawer :: ki-chat-drawer}"></th:block>
+<th:block th:replace="~{fragments/layout/modals :: modals}"></th:block>
+
+<script th:src="@{/vendor/js/bootstrap.bundle.min.js}"></script>
+<script th:src="@{/vendor/js/jquery.min.js}"></script>
+<script th:src="@{/vendor/js/dataTables.min.js}"></script>
+<script th:src="@{/vendor/js/dataTables.bootstrap5.min.js}"></script>
+<script th:src="@{/vendor/js/dataTables.buttons.min.js}"></script>
+<script th:src="@{/vendor/js/buttons.bootstrap5.min.js}"></script>
+<script th:src="@{/vendor/js/jszip.min.js}"></script>
+<script th:src="@{/vendor/js/buttons.html5.min.js}"></script>
+<script th:src="@{/js/i18n.js}"></script>
+<script th:src="@{/js/shared-helpers.js}"></script>
+<script th:src="@{/js/page-storage.js}"></script>
+<script th:src="@{/js/iframe-document.js}"></script>
+<script th:src="@{/js/history-list.js}"></script>
+<script th:src="@{/js/spa-page-scripts.js}"></script>
+<script th:src="@{/js/app.js}"></script>
+<script th:src="@{/js/mcp-status-badge.js}"></script>
+<script th:src="@{/js/mcp-fallback-banner.js}"></script>
+<script th:src="@{/js/connection-health-actions.js}"></script>
+<script th:src="@{/js/marked.min.js}"></script>
+<th:block layout:fragment="scripts"></th:block>
+<th:block th:replace="~{fragments/layout/scripts-sidebar :: scripts-sidebar}"></th:block>
+<th:block th:replace="~{fragments/layout/scripts-prompt-editor :: scripts-prompt-editor}"></th:block>
+<th:block th:replace="~{fragments/layout/scripts-ki-chat :: scripts-ki-chat}"></th:block>
+
+</body>
+</html>

@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" lang="de">
+<body>
+<th:block th:fragment="scripts">
+
+<script th:inline="none">
+var gitlabConfigs    = {};
+var dbConfigs        = {};
+var confluenceConfigs = {};
+var grafanaConfigs   = {};
+var jiraConfigs      = {};
+var githubRepoConfigs = {};
+</script>
+<script th:inline="javascript">
+/*<![CDATA[*/
+var _gitlabList     = /*[[${gitlabConfigs}]]*/ [];
+var _dbList         = /*[[${dbConfigs}]]*/ [];
+var _confluenceList = /*[[${confluenceConfigs}]]*/ [];
+var _grafanaList    = /*[[${grafanaConfigs}]]*/ [];
+var _jiraList       = /*[[${jiraConfigs}]]*/ [];
+var _githubRepoList = /*[[${githubRepoConfigs}]]*/ [];
+_gitlabList.forEach(c => gitlabConfigs[c.id]    = c);
+_dbList.forEach(c => dbConfigs[c.id]             = c);
+_confluenceList.forEach(c => confluenceConfigs[c.id] = c);
+_grafanaList.forEach(c => grafanaConfigs[c.id]   = c);
+_jiraList.forEach(c => jiraConfigs[c.id]         = c);
+_githubRepoList.forEach(c => githubRepoConfigs[c.id] = c);
+/*]]>*/
+</script>
+<script th:inline="none">
+var defaultPorts = { POSTGRESQL: 5432, MYSQL: 3306, MSSQL: 1433 };
+function updateDefaultPort() { document.getElementById('dbPort').value = defaultPorts[document.getElementById('dbType').value] || 5432; }
+
+var _cfEscHandler = null;
+
+function showModalById(modalId) {
+  var modalEl = document.getElementById(modalId);
+  if (!modalEl) return;
+  modalEl.classList.add('show');
+  modalEl.style.setProperty('display', 'block', 'important');
+  modalEl.removeAttribute('aria-hidden');
+  modalEl.setAttribute('aria-modal', 'true');
+  document.body.classList.add('modal-open');
+  if (!document.querySelector('.modal-backdrop')) {
+    var backdrop = document.createElement('div');
+    backdrop.className = 'modal-backdrop fade show';
+    backdrop.style.setProperty('display', 'block', 'important');
+    document.body.appendChild(backdrop);
+  }
+  if (_cfEscHandler) window.removeEventListener('keydown', _cfEscHandler, true);
+  _cfEscHandler = function(e) {
+    if (e.key === 'Escape' || e.key === 'Esc') {
+      e.preventDefault();
+      hideModalById(modalId);
+    }
+  };
+  window.addEventListener('keydown', _cfEscHandler, true);
+  requestAnimationFrame(function() {
+    modalEl.dispatchEvent(new Event('shown.bs.modal', { bubbles: false }));
+  });
+}
+
+function hideModalById(modalId) {
+  var modalEl = document.getElementById(modalId);
+  if (!modalEl) return;
+  modalEl.classList.remove('show');
+  modalEl.style.setProperty('display', 'none', 'important');
+  modalEl.setAttribute('aria-hidden', 'true');
+  modalEl.removeAttribute('aria-modal');
+  var backdrop = document.querySelector('.modal-backdrop');
+  if (backdrop) backdrop.remove();
+  if (!document.querySelector('.modal.show')) {
+    document.body.classList.remove('modal-open');
+  }
+  if (_cfEscHandler) {
+    window.removeEventListener('keydown', _cfEscHandler, true);
+    _cfEscHandler = null;
+  }
+}
+
+document.addEventListener('click', function(event) {
+  var dismissTrigger = event.target.closest('[data-bs-dismiss="modal"]');
+  if (!dismissTrigger) return;
+  event.preventDefault();
+  event.stopPropagation();
+  var modalEl = dismissTrigger.closest('.modal');
+  if (modalEl) hideModalById(modalEl.id);
+});
+
+</script>
+<th:block th:replace="~{fragments/config/scripts-gitlab :: scripts-gitlab}"></th:block>
+<th:block th:replace="~{fragments/config/scripts-confluence :: scripts-confluence}"></th:block>
+<th:block th:replace="~{fragments/config/scripts-grafana-jira :: scripts-grafana-jira}"></th:block>
+<th:block th:replace="~{fragments/config/scripts-github-ai :: scripts-github-ai}"></th:block>
+<th:block th:replace="~{fragments/config/scripts-io-browser :: scripts-io-browser}"></th:block>
+<th:block th:replace="~{fragments/config/scripts-keepass-browser :: scripts-keepass-browser}"></th:block>
+<th:block th:replace="~{fragments/config/scripts-mcp :: scripts-mcp}"></th:block>
+</th:block>
+</body>
+</html>

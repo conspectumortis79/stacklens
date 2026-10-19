@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" lang="de">
+<body>
+<th:block th:fragment="scripts-history">
+<script>
+async function raDeleteAllHistory() {
+  try {
+    await fetch('/api/review-analyse/history', { method: 'DELETE' });
+    loadHistory();
+  } catch (_) {}
+}
+
+var _raHistory = null;
+
+function raHistory() {
+  if (_raHistory) return _raHistory;
+  _raHistory = window.slHistory.mount({
+    root: 'hxCard-review-analysis',
+    page: 'review-analysis',
+    titleKey: 'review_analysis.history_title',
+    emptyKey: 'review_analysis.empty_history',
+    columns: {
+      title: { key: 'review_analysis.col_sprint_url', fallback: 'Sprint-URL' },
+      metric: { key: 'review_analysis.col_slides', fallback: 'Folien' }
+    },
+    map: {
+      id: function(a) { return a.id; },
+      status: function(a) { return _raCancelledIds.has(a.id) ? 'CANCELLED' : a.status; },
+      createdAt: function(a) { return a.createdAt; },
+      typeIcon: function() { return 'bi-clipboard-data'; },
+      title: function(a) { return a.jiraSprintUrl || ''; },
+      subtitle: function(a) { return a.pptxFileName || ''; },
+      metric: function(a) { return a.pptxSlideCount ? String(a.pptxSlideCount) : ''; },
+      note: function(a) { return a.errorMessage || ''; },
+      progress: function(a) { return window.slHistory.isLive(a.status) ? { pct: null, stage: a.currentStep || '' } : null; },
+      isCurrent: function(a) { return window._ra.analysisId === a.id; }
+    },
+    actions: {
+      open: function(a) { loadHistoryItem(a.id); },
+      rerun: function(a) { rerunItem(a.id); },
+      remove: function(a) { deleteItem(a.id); },
+      deleteAll: function() { raDeleteAllHistory(); }
+    }
+  });
+  return _raHistory;
+}
+
+async function loadHistory() {
+  try {
+    var resp = await fetch('/api/review-analyse');
+    if (!resp.ok) return;
+    var list = await resp.json();
+    raHistory().setData(list || []);
+  } catch (_) {}
+}
+
+async function loadHistoryItem(id) {
+  stopPolling();
+  _raAnalysisId = id;
+  window._ra.analysisId = _raAnalysisId;
+  if (typeof raInitTokenUsageBar === 'function') raInitTokenUsageBar();
+  try {
+    var resp = await fetch('/api/review-analyse/' + id);
+    if (!resp.ok) return;
+    var d = await resp.json();
+    if (d.status === 'COMPLETED') {
+      showResults(d.resultMarkdown || '', d.sprintName, d.completedAt);
+    } else if (d.status === 'FAILED') {
+      showError(d.errorMessage || window.i18n.t('review_analysis.failed'));
+    } else {
+      window._ra.runningId = id;
+      raUpdateButtonState(true);
+      showProgress();
+      startPolling();
+    }
+    if (_raHistory) _raHistory.refresh();
+  } catch (_) {}
+}
+
+async function deleteItem(id) {
+  try {
+    await fetch('/api/review-analyse/' + id, { method: 'DELETE' });
+    if (_raAnalysisId === id) resetView();
+  if (typeof raInitTokenUsageBar === 'function') raInitTokenUsageBar();
+    loadHistory();
+  } catch (_) {}
+}
+
+async function rerunItem(id) {
+  try {
+    var resp = await fetch('/api/review-analyse/' + id);
+    if (!resp.ok) return;
+    var item = await resp.json();
+    var urlEl = document.getElementById('inputSprintUrl');
+    var cfgEl = document.getElementById('selectJiraConfig');
+    if (urlEl) urlEl.value = item.jiraSprintUrl || '';
+    if (cfgEl && item.jiraConfigId != null) cfgEl.value = item.jiraConfigId;
+    startReviewAnalysis();
+  } catch (_) {}
+}
+
+
+function cleanAiOutput(raw) {
+  if (!raw) return '';
+  var text = raw.trim();
+  var fenceM = text.match(/^```[^\n]*\n([\s\S]+)\n```\s*$/);
+  if (fenceM) return fenceM[1].trim();
+  var headIdx = text.search(/(?:^|\n)(?:#{1,6} |---\n)/);
+  if (headIdx > 0) {
+    var preamble   = text.slice(0, headIdx);
+    var fenceStart = preamble.indexOf('```');
+    if (fenceStart >= 0) {
+      var afterFence = text.slice(fenceStart);
+      var m2 = afterFence.match(/^```[^\n]*\n([\s\S]+)\n```\s*$/);
+      if (m2) return m2[1].trim();
+    }
+    var slice = text.slice(headIdx);
+    return (slice.charAt(0) === '\n' ? slice.slice(1) : slice).trim();
+  }
+  return text;
+}
+
+document.getElementById('inputSprintUrl').addEventListener('input',          function() { raUpdateButtonState(false); });
+document.getElementById('inputAnalysisInstructions').addEventListener('input', function() { raUpdateButtonState(false); });
+document.getElementById('selectJiraConfig').addEventListener('change', function() {
+  raUpdateButtonState(false);
+  var sel = document.getElementById('selectJiraConfig');
+  var opt = sel.options[sel.selectedIndex];
+  var baseUrl = opt ? (opt.getAttribute('data-baseurl') || '') : '';
+  if (baseUrl && (baseUrl.indexOf('localhost') !== -1 || baseUrl.indexOf('host.docker.internal') !== -1)) {
+    var urlInput = document.getElementById('inputSprintUrl');
+    if (!urlInput.value.trim()) {
+      urlInput.value = baseUrl.replace(/\/$/, '') + '/jira/software/projects/DEMO/boards/5/sprints/42';
+    }
+    var instrInput = document.getElementById('inputAnalysisInstructions');
+    if (instrInput && !instrInput.value.trim()) {
+      instrInput.value = window.i18n.t('review_analysis.default_instructions');
+    }
+    raUpdateButtonState(false);
+  }
+});
+
+
+(function raApplyDefaultInstructions() {
+  var el = document.getElementById('inputAnalysisInstructions');
+  if (!el) return;
+  window.i18n.onReady(function() {
+    var current        = el.value.trim();
+    var currentDefault = window.i18n.t('review_analysis.default_instructions');
+    if (!current || current === currentDefault) {
+      if (!current) el.value = currentDefault;
+      return;
+    }
+    var otherLang = window.i18n.getLang() === 'de' ? 'en' : 'de';
+    fetch('/i18n/' + otherLang + '.json')
+      .then(function(r) { return r.ok ? r.json() : null; })
+      .then(function(data) {
+        if (!data) return;
+        var otherDefault = data.review_analysis && data.review_analysis.default_instructions;
+        if (otherDefault && current === otherDefault) {
+          el.value = currentDefault;
+        }
+      })
+      .catch(function() {});
+  });
+})();
+
+(function raRestore() {
+  try {
+    if (window._ra.runningId) {
+      _raAnalysisId = window._ra.runningId;
+      window._ra.analysisId = _raAnalysisId;
+  if (typeof raInitTokenUsageBar === 'function') raInitTokenUsageBar();
+  if (typeof raInitTokenUsageBar === 'function') raInitTokenUsageBar();
+      raUpdateButtonState(true);
+      showProgress(true);
+      startPolling();
+      fetch('/api/review-analyse/' + _raAnalysisId + '/status')
+        .then(function(r) { return r.ok ? r.json() : null; })
+        .then(function(d) { if (d) updateSteps(d.currentStep, d.status); })
+        .catch(function() {});
+    } else {
+      resetView();
+      var _raRestoreGen = window._ra.gen;
+      fetch('/api/review-analyse')
+        .then(function(r) { return r.ok ? r.json() : null; })
+        .then(function(list) {
+          if (!list || window._ra.gen !== _raRestoreGen) return;
+          var running = list.find(function(e) {
+            return e.status === 'RUNNING' || e.status === 'PENDING';
+          });
+          if (!running) return;
+          _raAnalysisId = running.id;
+          window._ra.analysisId = _raAnalysisId;
+          if (typeof raInitTokenUsageBar === 'function') raInitTokenUsageBar();
+  if (typeof raInitTokenUsageBar === 'function') raInitTokenUsageBar();
+          window._ra.runningId = running.id;
+          raUpdateButtonState(true);
+          showProgress(true);
+          startPolling();
+        })
+        .catch(function() {});
+      document.getElementById('inputSprintUrl').value = '';
+      document.getElementById('selectJiraConfig').selectedIndex = 0;
+      raUpdateButtonState(false);
+    }
+  } catch (e) {
+    console.warn('[RA] restore error:', e);
+    raUpdateButtonState(false);
+  }
+})();
+
+loadHistory();
+
+window.startReviewAnalysis  = function () { return startReviewAnalysis(); };
+window.cancelReviewAnalysis = cancelReviewAnalysis;
+window.loadHistoryItem      = loadHistoryItem;
+window.deleteItem           = deleteItem;
+window.rerunItem            = rerunItem;
+window.raExport             = raExport;
+window.copyResult           = copyResult;
+window.resetView            = resetView;
+</script>
+</th:block>
+</body>
+</html>

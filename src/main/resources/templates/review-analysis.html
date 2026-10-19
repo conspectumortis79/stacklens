@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org"
+      xmlns:layout="http://www.ultraq.net.nz/thymeleaf/layout"
+      layout:decorate="~{layout}" lang="de">
+<head><title>Sprint-Analyse</title>
+<meta name="mcp-sources" content="jira,gitlab">
+</head>
+<body>
+
+<th:block layout:fragment="page-title">
+  <span data-i18n="page_titles.review_analysis">Sprint-Analyse</span>
+</th:block>
+
+<th:block layout:fragment="page-subtitle">
+  <p class="page-subtitle">
+    <span data-i18n="page_subtitles.review_analysis">Erstellt KI-gestützte Sprint-Analysen und exportiert sie als Markdown oder HTML. Sprint-URL eingeben, Analyse-Anweisungen formulieren, dann starten.</span>
+  </p>
+</th:block>
+
+<th:block layout:fragment="page-actions">
+  <div style="display:flex;gap:8px;align-items:center;">
+  <button class="btn btn-sm btn-outline-secondary" style="border-color:#ddd7cb;color:#5b564d;"
+          data-prompt-prefix="review" disabled
+          onclick="openPromptEditorForPrefix('review', 'Sprint-Analyse', 'de', 'review.analysisPrompt', null)">
+    <i class="bi bi-cpu me-1"></i><span>KI-Prompt</span>
+  </button>
+  <button class="btn btn-sm" style="background:linear-gradient(135deg,#7c5cbf,#5b8ef0);color:#fff;border:none;"
+          onclick="kiChatToggle()" title="KI Chat">
+    <i class="bi bi-chat-dots-fill me-1"></i><span data-i18n="common.ki_chat_btn">KI Chat</span>
+  </button>
+  </div>
+</th:block>
+
+<th:block layout:fragment="head-extra">
+<script th:inline="javascript">
+/*<![CDATA[*/
+window.kiChatConfig = {
+  tabId: 'review-analysis',
+  tabLabel: 'Sprint-Analyse',
+  tabLabelKey: 'ki_chat.review_analysis.tab_label',
+  introMessage: 'Hi! Ich unterstütze dich bei Sprint-Reviews, Code-Reviews und der Auswertung von Velocity / Cycle-Time / PR-Health.',
+  introMessageKey: 'ki_chat.review_analysis.intro',
+  suggestionsKey: 'ki_chat.review_analysis.suggestions',
+  suggestions: [
+    'Welche Kennzahlen sind in einem Sprint-Review wichtig?',
+    'Erstelle eine Code-Review-Checkliste für PHP-PRs',
+    'Was sage ich in einer Sprint-Retro, wenn die Velocity sinkt?',
+    'Cycle-Time analysieren: wo liegen die Engpässe?',
+    'PR-Größe vs Review-Qualität — wie messen?',
+    'Definition of Done — pragmatischer Vorschlag',
+    'Wie bewerte ich subjektive Reviewer-Kommentare objektiv?',
+    'Sprint-Goal Beispiele für ein Backend-Team'
+  ],
+  systemHint: 'You are an experienced agile coach + senior code reviewer (PHP, Kotlin). Provide concrete frameworks and metrics, not vague platitudes.',
+  contextProvider: function(){ return ''; }
+};
+/*]]>*/
+</script>
+</th:block>
+
+<div layout:fragment="content">
+<th:block th:replace="~{fragments/review-analysis/styles :: styles}"></th:block>
+<th:block th:replace="~{fragments/shared/token-usage :: styles}"></th:block>
+
+<div class="ra-page" data-cf-token-usage-anchor="">
+
+  <div class="ra-card">
+    <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:4px;">
+      <h2 style="margin:0;">
+        <i class="bi bi-clipboard-data me-2" style="color:var(--ra-accent)"></i>
+        <span data-i18n="review_analysis.form_card_title">Sprint-Analyse</span>
+      </h2>
+      <div th:if="${#lists.isEmpty(jiraConfigs)}" style="font-size:13px;color:#b91c1c;">
+        <i class="bi bi-exclamation-circle me-1"></i>
+        <span data-i18n="review_analysis.no_jira_config_before">Keine aktive Jira-Konfiguration. Bitte zuerst unter</span>
+        <a href="/config" class="sl-link" data-i18n="nav.configuration">Konfiguration</a>
+        <span data-i18n="review_analysis.no_jira_config_after">einrichten.</span>
+      </div>
+    </div>
+
+    <form onsubmit="event.preventDefault(); startReviewAnalysis();" autocomplete="off">
+      <div style="display:flex;align-items:flex-end;gap:12px;flex-wrap:wrap;">
+
+        <div style="flex:1;min-width:200px;">
+          <div class="ra-label" data-i18n="review_analysis.label_sprint_url">Jira Sprint-Board URL</div>
+          <input id="inputSprintUrl" type="url" class="ra-input"
+                 placeholder="https://jira.example.com/jira/software/projects/XXX/boards/1"
+                 th:value="${savedConfig != null ? savedConfig.jiraSprintUrl : ''}"
+                 autocomplete="off"/>
+        </div>
+
+        <div style="flex:0 1 190px;min-width:140px;">
+          <div class="ra-label" data-i18n="review_analysis.label_jira_config">Jira-Konfiguration</div>
+          <select id="selectJiraConfig" class="ra-select" style="width:100%">
+            <option value="" data-i18n="review_analysis.jira_config_placeholder">-- Bitte auswählen --</option>
+            <option th:each="cfg,st : ${jiraConfigs}"
+                    th:value="${cfg.id}"
+                    th:text="${cfg.name}"
+                    th:attr="data-baseurl=${cfg.baseUrl}"
+                    th:selected="${savedConfig != null and savedConfig.jiraConfigId == cfg.id}"></option>
+          </select>
+        </div>
+
+        <div style="display:flex;gap:8px;flex-shrink:0;">
+          <button id="btnCancelReview" class="ra-btn-danger" type="button"
+                  disabled onclick="cancelReviewAnalysis()">
+            <i class="bi bi-x-circle me-2"></i>
+            <span data-i18n="common.cancel">Abbrechen</span>
+          </button>
+          <button id="btnStart" class="ra-btn-primary" type="submit">
+            <i class="bi bi-play-circle me-2"></i>
+            <span data-i18n="review_analysis.start">Analysieren</span>
+          </button>
+        </div>
+      </div>
+    </form>
+
+    <div class="mt-3">
+      <div class="ra-label">
+        <span data-i18n="review_analysis.label_analysis_instructions">Analyse Anweisungen</span>
+        <span style="color:var(--ra-accent,#e05);margin-left:3px;" title="Pflichtfeld">*</span>
+      </div>
+      <textarea id="inputAnalysisInstructions" class="ra-input mt-1"
+                style="min-height:140px;resize:vertical;font-size:14px;"
+                placeholder="z.B. Sammle alle technischen Tickets und bewerte den Fortschritt des Teams anhand der Story Points."
+                data-i18n-placeholder="review_analysis.analysis_instructions_placeholder"
+                th:text="${savedConfig != null ? savedConfig.analysisInstructions : ''}"></textarea>
+      <div id="raInstructionsHint" style="display:none;color:var(--ra-accent,#e05);font-size:.8rem;margin-top:4px;" data-i18n="review_analysis.instructions_required">Bitte Analyse-Anweisungen eingeben.</div>
+    </div>
+
+    <div class="mt-3 ra-pptx-section">
+      <div class="ra-label">
+        <span data-i18n="review_analysis.label_pptx_optional">PPTX-Vorlage (optional)</span>
+      </div>
+      <input type="file" id="raPptxFileInput" accept=".pptx,.ppt" style="display:none"
+             onchange="raPptxFileSelected(this)">
+      <div class="ra-pptx-dropzone" id="raPptxDropzone"
+           onclick="raPptxOpenBrowser()" role="button" tabindex="0">
+        <i class="bi bi-file-earmark-slides ra-pptx-dropzone-icon"></i>
+        <div class="ra-pptx-dropzone-title" data-i18n="review_analysis.pptx_dropzone_hint">
+          PPTX/PPT hier ablegen oder Datei wählen
+        </div>
+        <div class="ra-pptx-dropzone-sub" data-i18n="review_analysis.pptx_dropzone_sub">
+          Optional – ohne Datei läuft die Standard-Analyse.
+        </div>
+      </div>
+      <div id="raPptxChip" class="ra-pptx-chip" style="display:none">
+        <i class="bi bi-file-earmark-slides-fill"></i>
+        <span class="ra-pptx-chip-name"></span>
+        <button type="button" class="ra-pptx-chip-del" onclick="raPptxClear(event)" title="Entfernen">×</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="ra-card ra-progress-wrap" id="progressCard" style="display:none">
+    <h2>
+      <i class="bi bi-arrow-clockwise me-2 ra-spin" style="color:var(--ra-accent2)"></i>
+      <span data-i18n="review_analysis.progress_title">Analyse läuft&hellip;</span>
+    </h2>
+    <div id="progressStepText" class="text-muted mb-3" style="font-size:14px"
+         data-i18n="review_analysis.progress_starting">Wird gestartet&hellip;</div>
+    <div class="progress mb-3" style="height:6px">
+      <div id="progressBar" class="progress-bar progress-bar-striped progress-bar-animated"
+           style="background:var(--ra-accent);width:20%"></div>
+    </div>
+    <div class="ra-step-list">
+      <div class="ra-step" id="step1">
+        <span class="ra-step-icon pending">1</span>
+        <span data-i18n="review_analysis.step1">Sprint-Informationen werden geladen</span>
+      </div>
+      <div class="ra-step" id="step2">
+        <span class="ra-step-icon pending">2</span>
+        <span data-i18n="review_analysis.step2">Jira-Tickets werden geladen</span>
+      </div>
+      <div class="ra-step" id="step3">
+        <span class="ra-step-icon pending">3</span>
+        <span data-i18n="review_analysis.step3">KI-Sprint-Analyse wird erstellt</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="ra-card ra-result-card" id="resultsCard" style="display:none">
+    <div class="ra-result-action-bar">
+      <span class="ra-result-action-label" data-i18n="review_analysis.export_label">Export</span>
+
+      <button class="ra-dl-chip" onclick="raExport('md')">
+        <i class="bi bi-filetype-md"></i> Markdown
+      </button>
+      <button class="ra-dl-chip" onclick="raExport('html')">
+        <i class="bi bi-file-earmark-code"></i> HTML
+      </button>
+      <button class="ra-dl-chip ra-dl-chip--dashboard" onclick="raDownloadDashboard()" title="Sprint Dashboard herunterladen">
+        <i class="bi bi-bar-chart-line-fill"></i>
+        <span data-i18n="review_analysis.dl_dashboard">Dashboard</span>
+      </button>
+      <button id="raPptxHtmlChip" class="ra-dl-chip" style="display:none" onclick="raExport('html')">
+        <i class="bi bi-file-earmark-code"></i>
+        <span data-i18n="review_analysis.dl_html_pptx">Befülltes HTML</span>
+      </button>
+      <span id="raDetectedAssets"></span>
+      <button class="ra-btn-outline ms-auto" style="font-size:11px;padding:3px 10px" onclick="copyResult()">
+        <i class="bi bi-clipboard"></i>
+        <span data-i18n="review_analysis.copy">Kopieren</span>
+      </button>
+    </div>
+    <div id="raSupportedFormatsHint" class="ra-supported-formats-hint" style="display:none">
+      <i class="bi bi-info-circle me-1"></i>
+      <span data-i18n="review_analysis.supported_formats_hint">Supported output types the AI can generate</span>:
+      <code>html</code>, <code>svg</code>, <code>mermaid</code>, <code>csv</code>, <code>png</code>/<code>jpeg</code>
+    </div>
+    <div class="ra-result-done">
+      <i class="bi bi-check-circle-fill ra-result-done-icon"></i>
+      <div>
+        <div class="ra-result-done-title" data-i18n="review_analysis.results_title">Analyse abgeschlossen</div>
+        <div class="ra-result-done-sub" id="resultsDoneSub"></div>
+      </div>
+    </div>
+    <div class="ra-result-content">
+      <div id="resultsMarkdownBody" class="ra-markdown-body"></div>
+    </div>
+  </div>
+
+  <div class="ra-card" id="errorCard" style="display:none">
+    <h2 style="color:var(--ra-danger)">
+      <i class="bi bi-x-circle me-2"></i>
+      <span data-i18n="review_analysis.error_title">Analyse fehlgeschlagen</span>
+    </h2>
+    <p id="errorMessage" class="text-danger"></p>
+    <button class="ra-btn-outline mt-2" onclick="resetView()">
+      <i class="bi bi-arrow-left me-1"></i>
+      <span data-i18n="review_analysis.back">Zurück</span>
+    </button>
+  </div>
+
+  <th:block th:replace="~{fragments/shared/history :: card('review-analysis', '')}"></th:block>
+
+</div>
+</div>
+
+<th:block layout:fragment="scripts">
+<th:block th:replace="~{fragments/review-analysis/scripts :: scripts}"></th:block>
+<th:block th:replace="~{fragments/review-analysis/scripts-pptx :: scripts}"></th:block>
+<th:block th:replace="~{fragments/shared/token-usage :: scripts}"></th:block>
+
+<script>
+  if (window.slTokenUsagePage) window.slTokenUsagePage({
+        kind: 'review',
+        anchor: document.querySelector('.sl-page-header'),
+        resolveId: function () { return window._ra && window._ra.analysisId; }
+    });
+function raInitTokenUsageBar() {
+  if (window.slTokenUsageRebind) window.slTokenUsageRebind('review');
+}
+</script>
+</th:block>
+
+</body>
+</html>
+

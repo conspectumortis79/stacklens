@@ -1,0 +1,394 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" lang="de">
+<body>
+<th:block th:fragment="scripts">
+
+<script th:inline="javascript">
+/*<![CDATA[*/
+
+if (!window._ta) {
+  window._ta = {
+    cancelled  : new Set(),
+    gen        : 0,
+    pipelineId : null
+  };
+}
+window._ta.gen++;
+
+function taHasSelectedRepo() {
+  return !!document.querySelector('#localRepoList .ta-local-repo-card.selected');
+}
+
+function taUpdateStartButtonState() {
+  var hasRepo = taHasSelectedRepo();
+  var hint = document.getElementById('taNoRepoSelectedHint');
+  if (hint) hint.style.display = hasRepo ? 'none' : '';
+  ['btnStart', 'btnStartAgentPipeline'].forEach(function(id) {
+    var el = document.getElementById(id);
+    if (!el) return;
+    if (el.getAttribute('data-pipeline-locked') === 'true') return;
+    el.disabled = !hasRepo;
+    el.style.opacity = hasRepo ? '' : '0.45';
+    el.style.pointerEvents = hasRepo ? '' : 'none';
+  });
+}
+
+function taToggleLocalRepo(card) {
+  var isSelected = card.classList.toggle('selected');
+  var folderIcon = card.querySelector('.ta-local-repo-icon');
+  var cbIcon     = card.querySelector('.ta-local-repo-cb-icon');
+  if (folderIcon) folderIcon.className = 'bi ' + (isSelected ? 'bi-folder2-open' : 'bi-folder2') + ' ta-local-repo-icon';
+  if (cbIcon)     cbIcon.className = 'bi ' + (isSelected ? 'bi-check-circle-fill' : 'bi-circle') + ' ta-local-repo-cb-icon';
+  taUpdateStartButtonState();
+}
+
+function _taFbEscHtml(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+function taFbOpen() {
+  __kiChatOpenDirBrowser(function(path) {
+    if (!path) return;
+    var name = path.replace(/\\/g, '/').split('/').filter(Boolean).pop() || path;
+    fetch('/api/local-repos', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: null, name: name, path: path, active: true, scope: 'TICKET_ANALYSIS' })
+    }).then(function(r) { return r.json(); }).then(function(data) {
+      if (data.error) { showAlert(_t('common.error') + ': ' + data.error, 'danger'); return; }
+      taAddLocalRepo(data);
+    }).catch(function() { showAlert(_t('ticket_implementation.save_repository_failed'), 'danger'); });
+  });
+}
+
+
+function taAddLocalRepo(repo) {
+  var hint = document.getElementById('taNoRepoHint');
+  if (hint) hint.style.display = 'none';
+  var card = document.createElement('div');
+  card.className = 'ta-local-repo-card';
+  card.setAttribute('data-repo-id', String(repo.id));
+  card.innerHTML =
+    '<span class="ta-local-repo-checkbox"><i class="bi bi-circle ta-local-repo-cb-icon"></i></span>' +
+    '<i class="bi bi-folder2 ta-local-repo-icon"></i>' +
+    '<div style="min-width:0;flex:1;">' +
+      '<div style="display:flex;align-items:center;gap:4px;min-width:0;">' +
+        '<div class="ta-local-repo-name" style="min-width:0;">' + _taFbEscHtml(repo.name) + '</div>' +
+        '<button class="ta-local-repo-del" title="' + escHtml(_t('ticket_implementation.repo_remove_tooltip')) + '">' + escHtml(_t('ticket_implementation.remove_title')) + '</button>' +
+      '</div>' +
+      '<div class="ta-local-repo-path">' + _taFbEscHtml(repo.path) + '</div>' +
+    '</div>';
+  card.querySelector('.ta-local-repo-del').addEventListener('click', function(e) {
+    taDeleteLocalRepo(e, this, repo.id);
+  });
+  card.addEventListener('click', function(e) {
+    if (!e.target.closest('.ta-local-repo-del')) taToggleLocalRepo(card);
+  });
+  document.getElementById('localRepoList').appendChild(card);
+  taUpdateStartButtonState();
+}
+
+function taDeleteLocalRepo(e, btn, id) {
+  e.stopPropagation();
+  fetch('/api/local-repos/' + id, { method: 'DELETE' }).then(function() {
+    var card = btn.closest('.ta-local-repo-card');
+    if (card) card.remove();
+    if (!document.querySelectorAll('#localRepoList .ta-local-repo-card').length) {
+      var hint = document.getElementById('taNoRepoHint');
+      if (hint) hint.style.display = '';
+    }
+    taUpdateStartButtonState();
+  });
+}
+
+function updateTicketKeyHint() {
+  var sel     = document.getElementById('selectJiraConfig');
+  var hint    = document.getElementById('ticketKeyHint');
+  var hintVal = document.getElementById('ticketKeyHintValue');
+  var input   = document.getElementById('inputTicketKey');
+  if (!sel || !hint) return;
+  var opt        = sel.options[sel.selectedIndex];
+  var projectKey = (opt && opt.getAttribute('data-project-key')) || '';
+  var firstKey   = projectKey.split(',')[0].trim().toUpperCase();
+  var configName = opt ? opt.textContent : '';
+  var isDemo     = configName.toLowerCase().indexOf('demo') !== -1;
+  var DEMO_TICKET_KEY = 'DEMO-100';
+  if (isDemo) {
+    if (hintVal) hintVal.textContent = DEMO_TICKET_KEY;
+    hint.style.display = 'none';
+    var currentVal = input ? input.value.trim() : '';
+    if (input && (!currentVal || /^[A-Z]+-\d+$/.test(currentVal))) {
+      input.value = DEMO_TICKET_KEY;
+    }
+  } else if (firstKey) {
+    var exampleKey = firstKey + '-1';
+    if (hintVal) hintVal.textContent = exampleKey;
+    hint.style.display = '';
+  } else {
+    hint.style.display = 'none';
+  }
+}
+
+function taSetInputMode(mode) {
+  try { localStorage.setItem('ticket_input_mode', mode); } catch(e) {}
+  fetch('/api/ui-prefs/ticket_input_mode', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ value: mode })
+  }).catch(function() {});
+  _taApplyInputMode(mode);
+}
+
+function _taApplyInputMode(mode) {
+  var isText      = mode === 'text';
+  var jiraSection = document.getElementById('taJiraInputSection');
+  var textSection = document.getElementById('taTextInputSection');
+  var btnJira     = document.getElementById('btnModeJira');
+  var btnText     = document.getElementById('btnModeText');
+  var accentBg    = 'var(--ta-accent)';
+  if (jiraSection) jiraSection.style.display = isText ? 'none' : '';
+  if (textSection) textSection.style.display = isText ? '' : 'none';
+  if (btnJira) {
+    btnJira.style.background = isText ? 'transparent' : accentBg;
+    btnJira.style.color      = isText ? 'var(--ta-muted)' : '#fff';
+  }
+  if (btnText) {
+    btnText.style.background = isText ? accentBg : 'transparent';
+    btnText.style.color      = isText ? '#fff' : 'var(--ta-muted)';
+  }
+}
+
+(function taInitInputMode() {
+  var mode = 'jira';
+  try { mode = localStorage.getItem('ticket_input_mode') || 'jira'; } catch(e) {}
+  _taApplyInputMode(mode);
+  taUpdateStartButtonState();
+  fetch('/api/ui-prefs/ticket_input_mode')
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      var sv = d.value || 'jira';
+      try { localStorage.setItem('ticket_input_mode', sv); } catch(e) {}
+      _taApplyInputMode(sv);
+    }).catch(function() {});
+  taLoadDbChips();
+})();
+
+
+function taLoadDbChips() {
+  var container = document.getElementById('taDatabaseMultiSelect');
+  if (!container) return;
+  fetch('/api/config/database', { credentials: 'same-origin' })
+    .then(function(r) { return r.ok ? r.json() : []; })
+    .catch(function() { return []; })
+    .then(function(list) {
+      container.innerHTML = '';
+      var active = (list || []).filter(function(db) { return db.active !== false; });
+      var noHint = document.querySelector('#taDatabaseSection .ta-muted');
+      if (!active.length) {
+        if (noHint) noHint.style.display = '';
+        return;
+      }
+      if (noHint) noHint.style.display = 'none';
+      active.forEach(function(db) {
+        var chip = document.createElement('button');
+        chip.type = 'button';
+        chip.className = 'ta-db-chip';
+        chip.setAttribute('data-db-id', db.id);
+        chip.setAttribute('data-db-name', db.name + ' (' + (db.host || '') + ')');
+        chip.innerHTML = '<i class="bi bi-database me-1" style="font-size:11px;"></i>' + _taFbEscHtml(db.name + ' (' + (db.host || '') + ')');
+        chip.addEventListener('click', function() {
+          var selected = chip.classList.toggle('selected');
+          chip.style.background = selected ? 'var(--ta-accent)' : '';
+          chip.style.color = selected ? '#fff' : '';
+          taMockupUpdateFreitextHint();
+        });
+        container.appendChild(chip);
+      });
+    });
+}
+
+function taGetSelectedDbIds() {
+  var chips = document.querySelectorAll('#taDatabaseMultiSelect .ta-db-chip.selected');
+  return Array.prototype.map.call(chips, function(c) { return parseInt(c.getAttribute('data-db-id'), 10); });
+}
+
+
+async function startAnalysisJira() {
+  var ticketKey    = document.getElementById('inputTicketKey').value.trim().toUpperCase();
+  var jiraConfigId = parseInt(document.getElementById('selectJiraConfig').value, 10);
+  var selectedCard = document.querySelector('#localRepoList .ta-local-repo-card.selected');
+  var repoId       = selectedCard ? (selectedCard.getAttribute('data-repo-id') || null) : null;
+  var dbIds = taGetSelectedDbIds();
+
+  hideError();
+  if (!ticketKey)    { showError(_t('ticket_implementation.enter_ticket_key'));        return; }
+  if (!jiraConfigId) { showError(_t('ticket_implementation.select_jira_config_msg')); return; }
+  if (!taHasSelectedRepo()) {
+    showError(_t('ticket_implementation.repo_selection_required', 'Bitte zuerst ein Repository auswählen.'));
+    return;
+  }
+
+  var btnStart = document.getElementById('btnStart');
+  if (btnStart) btnStart.disabled = true;
+
+  var panel = document.getElementById('agentPipelineCard');
+  if (panel) panel.style.display = '';
+  apResetUI();
+  var lenaStage = document.getElementById('apStage-lena');
+  if (lenaStage) lenaStage.style.display = '';
+  apSetButtonsLocked(true);
+  apTimerStart();
+
+  try {
+    var jiraPayload = { ticketKey: ticketKey, jiraConfigId: jiraConfigId, localRepoConfigId: repoId ? parseInt(repoId, 10) : null, databaseConfigIds: dbIds };
+    if (typeof TA_MOCKUP_FILES !== 'undefined' && TA_MOCKUP_FILES.length > 0) {
+      jiraPayload.mockupImages = TA_MOCKUP_FILES.map(function(f) { return { base64: f.base64, mimeType: f.mimeType }; });
+    }
+    var res = await fetch('/api/agent-pipeline/from-jira', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(jiraPayload)
+    });
+    var data = await res.json();
+    if (!res.ok) {
+      showError(data.error || _t('ticket_implementation.error_start_analysis'));
+      apSetButtonsLocked(false);
+      return;
+    }
+    AP_CURRENT_ID = data.id;
+    window._ta.pipelineId = data.id;
+    reloadHistory();
+    apStartPolling(data.id);
+  } catch (e) {
+    console.error('[TA] startAnalysisJira:', e);
+    showError(_t('common.error') + ': ' + e.message);
+    if (btnStart) btnStart.disabled = false;
+    apSetButtonsLocked(false);
+  }
+}
+
+function cancelTicketImplementation() {
+  if (typeof apCancelPipeline === 'function') apCancelPipeline();
+}
+
+function deleteAnalysis(id) {
+  fetch('/api/ticket-implementation/' + id, { method: 'DELETE' }).then(function (res) {
+    if (res.status === 409) return;
+    window._ta.cancelled.delete(id);
+    hideError();
+    var btn = document.getElementById('btnStart');
+    if (btn) btn.disabled = false;
+    reloadHistory();
+  });
+}
+
+function taDeleteAllHistory() {
+  Promise.all([
+    fetch('/api/ticket-implementation/history', { method: 'DELETE' }).catch(function() {}),
+    fetch('/api/agent-pipeline', { method: 'DELETE' }).catch(function() {}),
+  ]).then(function() { reloadHistory(); });
+}
+
+var _taHistory = null;
+
+function taHistory() {
+  if (_taHistory) return _taHistory;
+  _taHistory = window.slHistory.mount({
+    root: 'hxCard-ticket-implementation',
+    page: 'ticket-implementation',
+    titleKey: 'ticket_implementation.history_title',
+    emptyKey: 'ticket_implementation.empty_history',
+    columns: {
+      title: { key: 'ticket_implementation.col_ticket', fallback: 'Ticket' }
+    },
+    map: {
+      id: function(a) { return a.kind + ':' + a.id; },
+      status: function(a) {
+        if (a.kind === 'ticket' && window._ta.cancelled.has(a.id)) return 'CANCELLED';
+        return a.status;
+      },
+      createdAt: function(a) {
+        return a.kind === 'ticket' ? a.createdAt : new Date(a.createdAt || 0).toISOString();
+      },
+      typeIcon: function(a) { return a.kind === 'pipeline' ? 'bi-robot' : 'bi-ticket-detailed'; },
+      title: function(a) { return a.kind === 'pipeline' ? (a.featureSlug || ('Pipeline #' + a.id)) : a.ticketKey; },
+      subtitle: function(a) {
+        return a.kind === 'pipeline'
+          ? window.slHelpers.t('ticket_implementation.pipeline_source', 'Agent-Pipeline')
+          : window.slHelpers.t('ticket_implementation.col_ticket', 'Ticket');
+      },
+      note: function(a) { return a.errorMessage || ''; },
+      canOpen: function(a) { return a.kind === 'pipeline'; },
+      isCurrent: function(a) { return a.kind === 'pipeline' && window._ta && window._ta.pipelineId === a.id; }
+    },
+    actions: {
+      open: function(a) { apShowPipelineRun(a.id); },
+      cancel: function(a) {
+        if (a.kind === 'pipeline') apCancelPipelineById(a.id);
+        else cancelTicketImplementation();
+      },
+      remove: function(a) {
+        if (a.kind === 'pipeline') apDeletePipelineById(a.id);
+        else deleteAnalysis(a.id);
+      },
+      deleteAll: function() { taDeleteAllHistory(); }
+    }
+  });
+  return _taHistory;
+}
+
+async function reloadHistory() {
+  try {
+    var [taRes, apRes] = await Promise.all([
+      fetch('/api/ticket-implementation'),
+      fetch('/api/agent-pipeline'),
+    ]);
+    var list      = taRes.ok ? await taRes.json() : [];
+    var pipelines = apRes.ok ? await apRes.json() : [];
+
+    var items = list.slice(0, 10).map(function (a) { a.kind = 'ticket'; return a; })
+      .concat(pipelines.slice(0, 10).map(function (p) { p.kind = 'pipeline'; return p; }));
+    items.sort(function (x, y) {
+      var tx = x.kind === 'ticket' ? new Date(x.createdAt).getTime() : (x.createdAt || 0);
+      var ty = y.kind === 'ticket' ? new Date(y.createdAt).getTime() : (y.createdAt || 0);
+      return ty - tx;
+    });
+    taHistory().setData(items);
+  } catch (_) {}
+}
+
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', reloadHistory);
+} else {
+  reloadHistory();
+}
+
+
+function showError(msg) {
+  var card = document.getElementById('errorCard');
+  if (card) {
+    card.style.display = 'block';
+    if (card.scrollIntoView) card.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+  var msgEl = document.getElementById('errorMessage');
+  if (msgEl) msgEl.textContent = msg;
+  var btn = document.getElementById('btnStart');
+  if (btn) btn.disabled = false;
+}
+
+function hideError() {
+  var el = document.getElementById('errorCard');
+  if (el) el.style.display = 'none';
+}
+
+function resetView() {
+  hideError();
+}
+
+
+/*]]>*/
+</script>
+<th:block th:replace="~{fragments/ticket-implementation/scripts-code-mr :: scripts-code-mr}"></th:block>
+<th:block th:replace="~{fragments/ticket-implementation/scripts-agent-pipeline :: scripts-agent-pipeline}"></th:block>
+</th:block>
+</body>
+</html>

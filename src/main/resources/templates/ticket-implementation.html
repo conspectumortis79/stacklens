@@ -1,0 +1,484 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org"
+      xmlns:layout="http://www.ultraq.net.nz/thymeleaf/layout"
+      layout:decorate="~{layout}" lang="de">
+<head><title data-i18n="page_titles.ticket_implementation">Ticket-Umsetzung</title>
+<meta name="mcp-sources" content="jira,confluence,gitlab">
+</head>
+<body>
+
+<th:block layout:fragment="page-title">
+  <span data-i18n="page_titles.ticket_implementation">Ticket-Umsetzung</span>
+</th:block>
+
+<th:block layout:fragment="page-subtitle">
+  <p class="page-subtitle">
+    <span data-i18n="page_subtitles.ticket_implementation">Analysiert Jira-Tickets auf Umsetzbarkeit, Qualität und Risiken – inklusive verknüpfter GitLab Merge Requests. Ticket-Key eingeben und "Analyse starten" klicken.</span>
+  </p>
+</th:block>
+
+<th:block layout:fragment="page-actions">
+  <div style="display:flex;gap:8px;align-items:center;">
+    <button class="btn btn-sm btn-outline-secondary" style="border-color:#ddd7cb;color:#5b564d;"
+            onclick="openAgentEditorForPipeline()">
+      <i class="bi bi-robot me-1"></i><span data-i18n="common.ki_agents_btn">KI Agents</span>
+    </button>
+    <button class="btn btn-sm" style="background:linear-gradient(135deg,#7c5cbf,#5b8ef0);color:#fff;border:none;"
+            onclick="kiChatToggle()" data-i18n-title="common.ki_chat_context_title" title="KI Chat – kontext-sensitive Hilfe für diesen Reiter">
+      <i class="bi bi-chat-dots-fill me-1"></i><span data-i18n="common.ki_chat_btn">KI Chat</span>
+    </button>
+  </div>
+</th:block>
+
+<div layout:fragment="content">
+<th:block th:replace="~{fragments/ticket-implementation/styles :: styles}"></th:block>
+<th:block th:replace="~{fragments/shared/token-usage :: styles}"></th:block>
+
+<th:block th:replace="~{fragments/ticket-implementation/modals :: modals}"></th:block>
+
+
+<div class="ta-page" data-cf-token-usage-anchor="">
+
+  <div class="ta-card">
+    <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:4px;">
+      <h2 style="margin:0;"><i class="bi bi-ticket-detailed me-2" style="color:var(--ta-accent)"></i>
+        <span data-i18n="ticket_implementation.form_title">Ticket analysieren</span>
+      </h2>
+      <div th:if="${#lists.isEmpty(jiraConfigs)}" style="font-size:13px;color:#b91c1c;">
+        <i class="bi bi-exclamation-circle me-1"></i><span data-i18n="ticket_implementation.no_jira_config_intro">Keine aktive Jira-Konfiguration. Bitte unter</span> <a href="/config" class="sl-link" data-i18n="nav.configuration">Konfiguration</a> <span data-i18n="ticket_implementation.no_jira_config_outro">einrichten.</span>
+      </div>
+    </div>
+
+    <form onsubmit="event.preventDefault(); startAnalysisJira();" autocomplete="off">
+
+      <div class="ta-input-mode-bar" style="display:flex;align-items:center;gap:6px;margin-bottom:14px;background:var(--ta-line);border-radius:10px;padding:3px;">
+        <button type="button" id="btnModeJira" onclick="taSetInputMode('jira')"
+                style="flex:1;border:none;border-radius:8px;padding:5px 12px;font-size:12px;font-weight:600;cursor:pointer;transition:background .15s,color .15s;background:var(--ta-accent);color:#fff;">
+          <i class="bi bi-ticket-detailed me-1"></i><span data-i18n="ticket_implementation.mode_jira">Jira-Ticket</span>
+        </button>
+        <button type="button" id="btnModeText" onclick="taSetInputMode('text')"
+                style="flex:1;border:none;border-radius:8px;padding:5px 12px;font-size:12px;font-weight:600;cursor:pointer;transition:background .15s,color .15s;background:transparent;color:var(--ta-muted);">
+          <i class="bi bi-pencil-square me-1"></i><span data-i18n="ticket_implementation.mode_text">Direkteingabe</span>
+        </button>
+      </div>
+
+      <div id="taJiraInputSection">
+        <div style="display:flex;flex-wrap:nowrap;align-items:flex-end;gap:12px;">
+
+          <div style="flex:0 0 auto;width:24%;min-width:0;">
+            <div class="ta-label" data-i18n="ticket_implementation.label_ticket_key">Jira Ticket-Key</div>
+            <input id="inputTicketKey" type="text" class="ta-input" style="width:100%;height:38px;box-sizing:border-box;" placeholder="z.B. PROJ-1234"
+                   autocomplete="off" spellcheck="false"/>
+          </div>
+
+          <div style="flex:0 0 auto;width:24%;min-width:0;position:relative;">
+            <div class="ta-label" data-i18n="ticket_implementation.label_jira_config">Jira-Konfiguration</div>
+            <select id="selectJiraConfig" class="ta-select" style="width:100%;height:38px;box-sizing:border-box;" onchange="updateTicketKeyHint()">
+              <option value="" data-i18n="ticket_implementation.jira_select_ph">— Jira-Config wählen —</option>
+              <option th:each="cfg,st : ${jiraConfigs}"
+                      th:value="${cfg.id}"
+                      th:data-project-key="${cfg.projectKey}"
+                      th:text="${cfg.projectKey != null and !cfg.projectKey.contains(',') ? cfg.name + ' (' + cfg.projectKey + ')' : cfg.name}"></option>
+            </select>
+          </div>
+
+          <div style="display:flex;gap:8px;flex-shrink:0;flex-wrap:nowrap;white-space:nowrap;margin-left:auto;">
+            <button id="btnCancelTicket" class="ta-btn-danger" type="button" onclick="cancelTicketImplementation()" style="height:38px;flex-shrink:0;">
+              <i class="bi bi-x-circle me-2"></i>
+              <span data-i18n="common.cancel">Abbrechen</span>
+            </button>
+            <button type="button" id="btnStart"
+                    onclick="startAnalysisJira()"
+                    style="display:inline-flex;align-items:center;gap:6px;border:none;border-radius:999px;padding:7px 16px;font-size:13px;font-weight:700;cursor:pointer;background:linear-gradient(135deg,#7c5cbf,#5b8ef0);color:#fff;height:38px;flex-shrink:0;"
+                    title="PHP Agent Pipeline">
+              <i class="bi bi-robot me-1"></i><span data-i18n="ticket_implementation.agent_pipeline_btn">PHP Agent Pipeline</span>
+            </button>
+          </div>
+        </div>
+        <div id="ticketKeyHint" style="display:none;font-size:12px;margin-top:4px;color:var(--ta-muted)">
+          <span data-i18n="ticket_implementation.ticket_key_hint_prefix">Beispiel:</span>
+          <strong id="ticketKeyHintValue"></strong>
+        </div>
+      </div>
+
+      <div id="taTextInputSection" style="display:none;">
+        <div class="ta-label" style="margin-bottom:6px;">
+          <i class="bi bi-pencil-square me-1" style="color:var(--ta-accent);"></i><span data-i18n="ticket_implementation.requirement_text_label">Anforderungstext (Ticket-Beschreibung, AKs, User Story …)</span>
+        </div>
+        <div class="ta-rawtext-wrap">
+          <textarea id="inputRawText" rows="8" class="ta-rawtext-box"
+                    placeholder="Beschreibe die Anforderung direkt, z.B.&#10;&#10;Als Nutzer möchte ich...&#10;&#10;AK: Der Button ist grün&#10;AK: Die Validierung erfolgt client-seitig&#10;- Testfall 1&#10;- Testfall 2" data-i18n-placeholder="ticket_implementation.requirement_text_placeholder"></textarea>
+          <div class="sl-scroll-track" id="taRawScrollTrack" style="border-radius:0 10px 10px 0;"><div class="sl-scroll-thumb" id="taRawScrollThumb"></div></div>
+        </div>
+        <div id="taFreitextContextHint" style="display:none;margin-top:6px;"></div>
+        <div style="display:flex;justify-content:flex-end;margin-top:8px;flex-wrap:nowrap;white-space:nowrap;gap:8px;">
+          <button class="ta-btn-danger" type="button" onclick="cancelTicketImplementation()" style="height:38px;flex-shrink:0;">
+            <i class="bi bi-x-circle me-2"></i>
+            <span data-i18n="common.cancel">Abbrechen</span>
+          </button>
+          <button type="button" id="btnStartAgentPipeline"
+                  onclick="taStartAgentPipeline()"
+                  style="display:inline-flex;align-items:center;gap:6px;border:none;border-radius:999px;padding:7px 16px;font-size:13px;font-weight:700;cursor:pointer;background:linear-gradient(135deg,#7c5cbf,#5b8ef0);color:#fff;height:38px;flex-shrink:0;"
+                  title="PHP Agent Pipeline: Lena → Nora → Cole → Ivan → Max → Finn → Faye → Vera → Tess → Syd → Quinn → Sage → Rex" data-i18n-title="ticket_implementation.agent_pipeline_title">
+            <i class="bi bi-robot me-1"></i><span data-i18n="ticket_implementation.agent_pipeline_btn">PHP Agent Pipeline</span>
+          </button>
+        </div>
+      </div>
+
+    </form>
+
+    <div class="mt-3" style="border-top:1px solid var(--ta-line);padding-top:14px;">
+      <div id="taNoRepoSelectedHint" style="font-size:12px;color:#b45309;padding:0 2px 8px;display:none;">
+        <i class="bi bi-exclamation-triangle me-1"></i><span data-i18n="ticket_implementation.repo_selection_required">Mindestens 1 Repository auswählen, um die Pipeline zu starten.</span>
+      </div>
+      <div style="display:flex;align-items:center;gap:6px;margin-bottom:6px;">
+        <div class="ta-label" style="margin-bottom:0;" data-i18n="ticket_implementation.local_repos_title">Lokale Repositories</div>
+        <span class="ta-info-icon" tabindex="0"
+              aria-label="Lokale Repositories Hinweis"
+              data-i18n-title="ticket_implementation.local_repos_tooltip"
+              data-i18n-tooltip="ticket_implementation.local_repos_tooltip"
+              data-tooltip="Wähle das Repository aus, das für dieses Ticket bearbeitet werden soll. Das ausgewählte Repository wird als Kontext für alle Agents verwendet.">
+          <i class="bi bi-info-circle-fill"></i>
+        </span>
+        <button type="button" onclick="taFbOpen()" title="Repository hinzufügen" data-i18n-title="ticket_implementation.repo_add_title"
+                style="background:var(--ta-accent);color:#fff;border:none;border-radius:8px;padding:4px 10px 4px 7px;display:inline-flex;align-items:center;gap:4px;cursor:pointer;font-size:12px;font-weight:600;flex-shrink:0;line-height:1.4;">
+          <i class="bi bi-plus" style="font-size:15px;"></i>
+          <span data-i18n="ticket_implementation.add_inline">Hinzufügen</span>
+        </button>
+      </div>
+      <div id="localRepoList" style="display:flex;flex-direction:column;gap:5px;">
+        <div th:each="repo : ${localRepoConfigs}"
+             class="ta-local-repo-card"
+             th:data-repo-id="${repo.id}"
+             onclick="taToggleLocalRepo(this)">
+          <span class="ta-local-repo-checkbox"><i class="bi bi-circle ta-local-repo-cb-icon"></i></span>
+          <i class="bi bi-folder2 ta-local-repo-icon"></i>
+          <div style="min-width:0;flex:1;">
+            <div style="display:flex;align-items:center;gap:4px;min-width:0;">
+              <div class="ta-local-repo-name" style="min-width:0;" th:text="${repo.name}"></div>
+              <button class="ta-local-repo-del" th:onclick="'taDeleteLocalRepo(event,this,' + ${repo.id} + ')'"
+                      data-i18n="ticket_implementation.remove_title"
+                      data-i18n-title="ticket_implementation.repo_remove_tooltip">Entfernen</button>
+            </div>
+            <div class="ta-local-repo-path" th:text="${repo.path}"></div>
+          </div>
+        </div>
+        <div id="taNoRepoHint" th:if="${#lists.isEmpty(localRepoConfigs)}" style="font-size:12px;color:var(--ta-muted);padding:6px 2px;">
+          <i class="bi bi-info-circle me-1"></i><span data-i18n="ticket_implementation.no_local_repo_hint">Noch kein Repository</span>
+        </div>
+      </div>
+
+      <div id="taDatabaseSection" style="margin-top:12px;border-top:1px solid var(--ta-line);padding-top:12px;">
+        <div style="display:flex;align-items:center;gap:6px;margin-bottom:6px;">
+          <div class="ta-label" style="margin-bottom:0;" data-i18n="ticket_implementation.db_schema_title">Datenbank (optional)</div>
+          <span class="ta-info-icon" tabindex="0"
+                aria-label="Datenbank Hinweis"
+                data-i18n-title="ticket_implementation.db_schema_tooltip"
+                data-i18n-tooltip="ticket_implementation.db_schema_tooltip"
+                data-tooltip="Verbindet eine oder mehrere Datenbank-Konfigurationen, damit Cole und Max das Schema kennen und datenbankbezogene Änderungen präzise planen können.">
+            <i class="bi bi-info-circle-fill"></i>
+          </span>
+        </div>
+        <div id="taDatabaseMultiSelect" style="display:flex;flex-wrap:wrap;gap:6px;"></div>
+        <div th:if="${#lists.isEmpty(dbConfigs)}" style="font-size:11px;color:var(--ta-muted);margin-top:4px;">
+          <i class="bi bi-info-circle me-1"></i><span data-i18n="ticket_implementation.db_none_configured">Keine Datenbanken konfiguriert – unter Konfiguration hinzufügen.</span>
+        </div>
+      </div>
+
+      <div id="taMockupSection" style="margin-top:12px;border-top:1px solid var(--ta-line);padding-top:12px;">
+        <div style="display:flex;align-items:center;gap:6px;margin-bottom:6px;">
+          <div class="ta-label" style="margin-bottom:0;" data-i18n="ticket_implementation.mockup_title">Frontend-Mockup (optional)</div>
+          <span class="ta-info-icon" tabindex="0"
+                aria-label="Frontend-Mockup Hinweis"
+                data-i18n-title="ticket_implementation.mockup_tooltip"
+                data-i18n-tooltip="ticket_implementation.mockup_tooltip"
+                data-tooltip="Lade ein Mockup hoch, um Faye bei der Frontend-Umsetzung visuell zu unterstützen. Unterstützte Formate: PNG, JPG, SVG, HEIC, TIFF (max. ~7,5 MB). Das Bild wird als visueller Kontext in den Faye-Prompt eingebettet.">
+            <i class="bi bi-info-circle-fill"></i>
+          </span>
+        </div>
+        <input type="file" id="taMockupFileInput" accept=".png,.jpg,.jpeg,.svg,.heic,.heif,.tif,.tiff" multiple style="display:none" onchange="taMockupFileSelected(this)">
+        <div class="ta-mockup-upload-zone" id="taMockupUploadZone" onclick="taMockupFbOpen()">
+          <i class="bi bi-folder2-open ta-mockup-upload-icon"></i>
+          <div class="ta-mockup-upload-text" data-i18n="ticket_implementation.mockup_zone_hint">Klicken zum Auswählen von Mockup-Dateien</div>
+        </div>
+        <div id="taMockupChips" class="ta-mockup-chips" style="display:none;"></div>
+      </div>
+    </div>
+
+
+  </div>
+
+
+  <div id="agentPipelineCard" style="display:none;margin-bottom:16px;">
+    <div class="ta-card" style="border:2px solid #7c5cbf22;background:linear-gradient(135deg,#faf8ff,#f8fbff);">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:16px;">
+        <h2 style="margin:0;font-size:16px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+          <i class="bi bi-robot me-2" style="color:#7c5cbf;"></i>
+          <span data-i18n="ticket_implementation.agent_pipeline_title_running">PHP Agent Pipeline läuft…</span>
+          <span id="apTimer" class="ap-timer" style="display:none;">
+            <i class="bi bi-stopwatch"></i><span id="apTimerDisplay">0:00</span>
+          </span>
+        </h2>
+        <div style="display:flex;justify-content:flex-end;">
+          <button onclick="taClosePipelinePanel()" style="background:none;border:none;font-size:18px;cursor:pointer;color:var(--ta-muted);line-height:1;" title="Schließen">&times;</button>
+        </div>
+      </div>
+
+      <div id="apStages" style="display:flex;flex-direction:column;gap:10px;">
+        <div id="apStage-lena" class="ap-stage" style="display:none;border:1.5px solid var(--ta-line);border-radius:12px;overflow:hidden;">
+          <div style="display:flex;align-items:center;gap:10px;padding:10px 14px;background:var(--ap-stage-bg);cursor:pointer;" onclick="apToggleStage('lena')">
+            <i id="apIcon-lena" class="bi bi-hourglass" style="font-size:14px;color:var(--ta-muted);"></i>
+            <span style="font-size:13px;font-weight:700;flex:1;" data-i18n="ticket_implementation.ap_stage_lena">⓪ Lena — Jira-Ticket-Umsetzung</span>
+            <span id="apBadge-lena" class="ap-badge ap-badge-pending" data-i18n="ticket_implementation.ap_pending">Ausstehend</span>
+            <i class="bi bi-chevron-down ap-chevron" style="font-size:11px;color:var(--ta-muted);transition:transform .2s;"></i>
+          </div>
+          <div id="apOutputWrap-lena" class="ap-output-wrap" style="display:none;">
+            <div id="apOutput-lena" class="ap-output" style="padding:12px 16px;background:var(--ap-output-bg);font-size:12px;line-height:1.7;white-space:pre-wrap;font-family:monospace;max-height:400px;overflow-y:scroll;flex:1;min-width:0;"></div>
+            <div class="sl-scroll-track" id="apScrollTrack-lena"><div class="sl-scroll-thumb" id="apScrollThumb-lena"></div></div>
+          </div>
+        </div>
+
+        <div id="apStage-nora" class="ap-stage" style="border:1.5px solid var(--ta-line);border-radius:12px;overflow:hidden;">
+          <div style="display:flex;align-items:center;gap:10px;padding:10px 14px;background:var(--ap-stage-bg);cursor:pointer;" onclick="apToggleStage('nora')">
+            <i id="apIcon-nora" class="bi bi-hourglass" style="font-size:14px;color:var(--ta-muted);"></i>
+            <span style="font-size:13px;font-weight:700;flex:1;" data-i18n="ticket_implementation.ap_stage_nora">① Nora — Anforderungen & Akzeptanzkriterien</span>
+            <span id="apBadge-nora" class="ap-badge ap-badge-pending" data-i18n="ticket_implementation.ap_pending">Ausstehend</span>
+            <i class="bi bi-chevron-down ap-chevron" style="font-size:11px;color:var(--ta-muted);transition:transform .2s;"></i>
+          </div>
+          <div id="apOutputWrap-nora" class="ap-output-wrap" style="display:none;">
+            <div id="apOutput-nora" class="ap-output" style="padding:12px 16px;background:var(--ap-output-bg);font-size:12px;line-height:1.7;white-space:pre-wrap;font-family:monospace;max-height:400px;overflow-y:scroll;flex:1;min-width:0;"></div>
+            <div class="sl-scroll-track" id="apScrollTrack-nora"><div class="sl-scroll-thumb" id="apScrollThumb-nora"></div></div>
+          </div>
+        </div>
+
+        <div id="apStage-cole" class="ap-stage" style="border:1.5px solid var(--ta-line);border-radius:12px;overflow:hidden;">
+          <div style="display:flex;align-items:center;gap:10px;padding:10px 14px;background:var(--ap-stage-bg);cursor:pointer;" onclick="apToggleStage('cole')">
+            <i id="apIcon-cole" class="bi bi-hourglass" style="font-size:14px;color:var(--ta-muted);"></i>
+            <span style="font-size:13px;font-weight:700;flex:1;" data-i18n="ticket_implementation.ap_stage_cole">② Cole — Implementierungsplan</span>
+            <span id="apBadge-cole" class="ap-badge ap-badge-pending" data-i18n="ticket_implementation.ap_pending">Ausstehend</span>
+            <i class="bi bi-chevron-down ap-chevron" style="font-size:11px;color:var(--ta-muted);transition:transform .2s;"></i>
+          </div>
+          <div id="apOutputWrap-cole" class="ap-output-wrap" style="display:none;">
+            <div id="apOutput-cole" class="ap-output" style="padding:12px 16px;background:var(--ap-output-bg);font-size:12px;line-height:1.7;white-space:pre-wrap;font-family:monospace;max-height:400px;overflow-y:scroll;flex:1;min-width:0;"></div>
+            <div class="sl-scroll-track" id="apScrollTrack-cole"><div class="sl-scroll-thumb" id="apScrollThumb-cole"></div></div>
+          </div>
+        </div>
+
+        <div id="apStage-ivan" class="ap-stage" style="border:1.5px solid var(--ta-line);border-radius:12px;overflow:hidden;">
+          <div style="display:flex;align-items:center;gap:10px;padding:10px 14px;background:var(--ap-stage-bg);cursor:pointer;" onclick="apToggleStage('ivan')">
+            <i id="apIcon-ivan" class="bi bi-hourglass" style="font-size:14px;color:var(--ta-muted);"></i>
+            <span style="font-size:13px;font-weight:700;flex:1;" data-i18n="ticket_implementation.ap_stage_ivan">Ⓘ Ivan — Git & Setup</span>
+            <span id="apBadge-ivan" class="ap-badge ap-badge-pending" data-i18n="ticket_implementation.ap_pending">Ausstehend</span>
+            <i class="bi bi-chevron-down ap-chevron" style="font-size:11px;color:var(--ta-muted);transition:transform .2s;"></i>
+          </div>
+          <div id="apOutputWrap-ivan" class="ap-output-wrap" style="display:none;">
+            <div id="apOutput-ivan" class="ap-output" style="padding:12px 16px;background:var(--ap-output-bg);font-size:12px;line-height:1.7;white-space:pre-wrap;font-family:monospace;max-height:400px;overflow-y:scroll;flex:1;min-width:0;"></div>
+            <div class="sl-scroll-track" id="apScrollTrack-ivan"><div class="sl-scroll-thumb" id="apScrollThumb-ivan"></div></div>
+          </div>
+        </div>
+
+        <div id="apStage-max" class="ap-stage" style="border:1.5px solid var(--ta-line);border-radius:12px;overflow:hidden;">
+          <div style="display:flex;align-items:center;gap:10px;padding:10px 14px;background:var(--ap-stage-bg);cursor:pointer;" onclick="apToggleStage('max')">
+            <i id="apIcon-max" class="bi bi-hourglass" style="font-size:14px;color:var(--ta-muted);"></i>
+            <span style="font-size:13px;font-weight:700;flex:1;" data-i18n="ticket_implementation.ap_stage_max">③ Max — PHP Architektur & Repo-Analyse</span>
+            <span id="apBadge-max" class="ap-badge ap-badge-pending" data-i18n="ticket_implementation.ap_pending">Ausstehend</span>
+            <i class="bi bi-chevron-down ap-chevron" style="font-size:11px;color:var(--ta-muted);transition:transform .2s;"></i>
+          </div>
+          <div id="apOutputWrap-max" class="ap-output-wrap" style="display:none;">
+            <div id="apOutput-max" class="ap-output" style="padding:12px 16px;background:var(--ap-output-bg);font-size:12px;line-height:1.7;white-space:pre-wrap;font-family:monospace;max-height:400px;overflow-y:scroll;flex:1;min-width:0;"></div>
+            <div class="sl-scroll-track" id="apScrollTrack-max"><div class="sl-scroll-thumb" id="apScrollThumb-max"></div></div>
+          </div>
+        </div>
+
+        <div id="apStage-finn" class="ap-stage" style="border:1.5px solid var(--ta-line);border-radius:12px;overflow:hidden;">
+          <div style="display:flex;align-items:center;gap:10px;padding:10px 14px;background:var(--ap-stage-bg);cursor:pointer;" onclick="apToggleStage('finn')">
+            <i id="apIcon-finn" class="bi bi-hourglass" style="font-size:14px;color:var(--ta-muted);"></i>
+            <span style="font-size:13px;font-weight:700;flex:1;" data-i18n="ticket_implementation.ap_stage_finn">④ Finn — PHP Code-Implementierung</span>
+            <span id="apBadge-finn" class="ap-badge ap-badge-pending" data-i18n="ticket_implementation.ap_pending">Ausstehend</span>
+            <i class="bi bi-chevron-down ap-chevron" style="font-size:11px;color:var(--ta-muted);transition:transform .2s;"></i>
+          </div>
+          <div id="apOutputWrap-finn" class="ap-output-wrap" style="display:none;">
+            <div id="apOutput-finn" class="ap-output" style="padding:12px 16px;background:var(--ap-output-bg);font-size:12px;line-height:1.7;white-space:pre-wrap;font-family:monospace;max-height:600px;overflow-y:scroll;flex:1;min-width:0;"></div>
+            <div class="sl-scroll-track" id="apScrollTrack-finn"><div class="sl-scroll-thumb" id="apScrollThumb-finn"></div></div>
+          </div>
+        </div>
+
+        <div id="apStage-faye" class="ap-stage" style="border:1.5px solid var(--ta-line);border-radius:12px;overflow:hidden;">
+          <div style="display:flex;align-items:center;gap:10px;padding:10px 14px;background:var(--ap-stage-bg);cursor:pointer;" onclick="apToggleStage('faye')">
+            <i id="apIcon-faye" class="bi bi-hourglass" style="font-size:14px;color:var(--ta-muted);"></i>
+            <span style="font-size:13px;font-weight:700;flex:1;" data-i18n="ticket_implementation.ap_stage_faye">⑤ Faye — Frontend-Implementierung</span>
+            <span id="apBadge-faye" class="ap-badge ap-badge-pending" data-i18n="ticket_implementation.ap_pending">Ausstehend</span>
+            <i class="bi bi-chevron-down ap-chevron" style="font-size:11px;color:var(--ta-muted);transition:transform .2s;"></i>
+          </div>
+          <div id="apOutputWrap-faye" class="ap-output-wrap" style="display:none;">
+            <div id="apOutput-faye" class="ap-output" style="padding:12px 16px;background:var(--ap-output-bg);font-size:12px;line-height:1.7;white-space:pre-wrap;font-family:monospace;max-height:600px;overflow-y:scroll;flex:1;min-width:0;"></div>
+            <div class="sl-scroll-track" id="apScrollTrack-faye"><div class="sl-scroll-thumb" id="apScrollThumb-faye"></div></div>
+          </div>
+        </div>
+
+        <div id="apStage-vera" class="ap-stage" style="border:1.5px solid var(--ta-line);border-radius:12px;overflow:hidden;">
+          <div style="display:flex;align-items:center;gap:10px;padding:10px 14px;background:var(--ap-stage-bg);cursor:pointer;" onclick="apToggleStage('vera')">
+            <i id="apIcon-vera" class="bi bi-hourglass" style="font-size:14px;color:var(--ta-muted);"></i>
+            <span style="font-size:13px;font-weight:700;flex:1;" data-i18n="ticket_implementation.ap_stage_vera">⑥ Vera — Infrastruktur</span>
+            <span id="apBadge-vera" class="ap-badge ap-badge-pending" data-i18n="ticket_implementation.ap_pending">Ausstehend</span>
+            <i class="bi bi-chevron-down ap-chevron" style="font-size:11px;color:var(--ta-muted);transition:transform .2s;"></i>
+          </div>
+          <div id="apOutputWrap-vera" class="ap-output-wrap" style="display:none;">
+            <div id="apOutput-vera" class="ap-output" style="padding:12px 16px;background:var(--ap-output-bg);font-size:12px;line-height:1.7;white-space:pre-wrap;font-family:monospace;max-height:600px;overflow-y:scroll;flex:1;min-width:0;"></div>
+            <div class="sl-scroll-track" id="apScrollTrack-vera"><div class="sl-scroll-thumb" id="apScrollThumb-vera"></div></div>
+          </div>
+        </div>
+
+        <div id="apStage-tess" class="ap-stage" style="border:1.5px solid var(--ta-line);border-radius:12px;overflow:hidden;">
+          <div style="display:flex;align-items:center;gap:10px;padding:10px 14px;background:var(--ap-stage-bg);cursor:pointer;" onclick="apToggleStage('tess')">
+            <i id="apIcon-tess" class="bi bi-hourglass" style="font-size:14px;color:var(--ta-muted);"></i>
+            <span style="font-size:13px;font-weight:700;flex:1;" data-i18n="ticket_implementation.ap_stage_tess">⑦ Tess — Tests</span>
+            <span id="apBadge-tess" class="ap-badge ap-badge-pending" data-i18n="ticket_implementation.ap_pending">Ausstehend</span>
+            <i class="bi bi-chevron-down ap-chevron" style="font-size:11px;color:var(--ta-muted);transition:transform .2s;"></i>
+          </div>
+          <div id="apOutputWrap-tess" class="ap-output-wrap" style="display:none;">
+            <div id="apOutput-tess" class="ap-output" style="padding:12px 16px;background:var(--ap-output-bg);font-size:12px;line-height:1.7;white-space:pre-wrap;font-family:monospace;max-height:600px;overflow-y:scroll;flex:1;min-width:0;"></div>
+            <div class="sl-scroll-track" id="apScrollTrack-tess"><div class="sl-scroll-thumb" id="apScrollThumb-tess"></div></div>
+          </div>
+        </div>
+
+        <div id="apStage-syd" class="ap-stage" style="border:1.5px solid var(--ta-line);border-radius:12px;overflow:hidden;">
+          <div style="display:flex;align-items:center;gap:10px;padding:10px 14px;background:var(--ap-stage-bg);cursor:pointer;" onclick="apToggleStage('syd')">
+            <i id="apIcon-syd" class="bi bi-hourglass" style="font-size:14px;color:var(--ta-muted);"></i>
+            <span style="font-size:13px;font-weight:700;flex:1;" data-i18n="ticket_implementation.ap_stage_syd">⑧ Syd — Systemtests</span>
+            <span id="apBadge-syd" class="ap-badge ap-badge-pending" data-i18n="ticket_implementation.ap_pending">Ausstehend</span>
+            <i class="bi bi-chevron-down ap-chevron" style="font-size:11px;color:var(--ta-muted);transition:transform .2s;"></i>
+          </div>
+          <div id="apOutputWrap-syd" class="ap-output-wrap" style="display:none;">
+            <div id="apOutput-syd" class="ap-output" style="padding:12px 16px;background:var(--ap-output-bg);font-size:12px;line-height:1.7;white-space:pre-wrap;font-family:monospace;max-height:600px;overflow-y:scroll;flex:1;min-width:0;"></div>
+            <div class="sl-scroll-track" id="apScrollTrack-syd"><div class="sl-scroll-thumb" id="apScrollThumb-syd"></div></div>
+          </div>
+        </div>
+
+        <div id="apStage-quinn" class="ap-stage" style="border:1.5px solid var(--ta-line);border-radius:12px;overflow:hidden;">
+          <div style="display:flex;align-items:center;gap:10px;padding:10px 14px;background:var(--ap-stage-bg);cursor:pointer;" onclick="apToggleStage('quinn')">
+            <i id="apIcon-quinn" class="bi bi-hourglass" style="font-size:14px;color:var(--ta-muted);"></i>
+            <span style="font-size:13px;font-weight:700;flex:1;" data-i18n="ticket_implementation.ap_stage_quinn">⑨ Quinn — Qualität &amp; Coverage</span>
+            <span id="apBadge-quinn" class="ap-badge ap-badge-pending" data-i18n="ticket_implementation.ap_pending">Ausstehend</span>
+            <i class="bi bi-chevron-down ap-chevron" style="font-size:11px;color:var(--ta-muted);transition:transform .2s;"></i>
+          </div>
+          <div id="apOutputWrap-quinn" class="ap-output-wrap" style="display:none;">
+            <div id="apOutput-quinn" class="ap-output" style="padding:12px 16px;background:var(--ap-output-bg);font-size:12px;line-height:1.7;white-space:pre-wrap;font-family:monospace;max-height:600px;overflow-y:scroll;flex:1;min-width:0;"></div>
+            <div class="sl-scroll-track" id="apScrollTrack-quinn"><div class="sl-scroll-thumb" id="apScrollThumb-quinn"></div></div>
+          </div>
+        </div>
+
+        <div id="apStage-sage" class="ap-stage" style="border:1.5px solid var(--ta-line);border-radius:12px;overflow:hidden;">
+          <div style="display:flex;align-items:center;gap:10px;padding:10px 14px;background:var(--ap-stage-bg);cursor:pointer;" onclick="apToggleStage('sage')">
+            <i id="apIcon-sage" class="bi bi-hourglass" style="font-size:14px;color:var(--ta-muted);"></i>
+            <span style="font-size:13px;font-weight:700;flex:1;" data-i18n="ticket_implementation.ap_stage_sage">⑩ Sage — Security Review</span>
+            <span id="apBadge-sage" class="ap-badge ap-badge-pending" data-i18n="ticket_implementation.ap_pending">Ausstehend</span>
+            <i class="bi bi-chevron-down ap-chevron" style="font-size:11px;color:var(--ta-muted);transition:transform .2s;"></i>
+          </div>
+          <div id="apOutputWrap-sage" class="ap-output-wrap" style="display:none;">
+            <div id="apOutput-sage" class="ap-output" style="padding:12px 16px;background:var(--ap-output-bg);font-size:12px;line-height:1.7;white-space:pre-wrap;font-family:monospace;max-height:600px;overflow-y:scroll;flex:1;min-width:0;"></div>
+            <div class="sl-scroll-track" id="apScrollTrack-sage"><div class="sl-scroll-thumb" id="apScrollThumb-sage"></div></div>
+          </div>
+        </div>
+
+        <div id="apStage-rex" class="ap-stage" style="border:1.5px solid var(--ta-line);border-radius:12px;overflow:hidden;">
+          <div style="display:flex;align-items:center;gap:10px;padding:10px 14px;background:var(--ap-stage-bg);cursor:pointer;" onclick="apToggleStage('rex')">
+            <i id="apIcon-rex" class="bi bi-hourglass" style="font-size:14px;color:var(--ta-muted);"></i>
+            <span style="font-size:13px;font-weight:700;flex:1;" data-i18n="ticket_implementation.ap_stage_rex">⑪ Rex — Build &amp; Fix</span>
+            <span id="apBadge-rex" class="ap-badge ap-badge-pending" data-i18n="ticket_implementation.ap_pending">Ausstehend</span>
+            <i class="bi bi-chevron-down ap-chevron" style="font-size:11px;color:var(--ta-muted);transition:transform .2s;"></i>
+          </div>
+          <div id="apOutputWrap-rex" class="ap-output-wrap" style="display:none;">
+            <div id="apOutput-rex" class="ap-output" style="padding:12px 16px;background:var(--ap-output-bg);font-size:12px;line-height:1.7;white-space:pre-wrap;font-family:monospace;max-height:600px;overflow-y:scroll;flex:1;min-width:0;"></div>
+            <div class="sl-scroll-track" id="apScrollTrack-rex"><div class="sl-scroll-thumb" id="apScrollThumb-rex"></div></div>
+          </div>
+        </div>
+      </div>
+
+      <div id="apError" style="display:none;margin-top:12px;padding:10px 14px;background:#fff3f3;border:1.5px solid #f5c6cb;border-radius:10px;color:#b91c1c;font-size:13px;"></div>
+
+      <div id="apQuotaError" style="display:none;margin-top:12px;padding:14px 16px;background:#fffbea;border:1.5px solid #eab308;border-radius:10px;color:#7a5a0a;font-size:13px;">
+        <div style="display:flex;align-items:flex-start;gap:10px;">
+          <i class="bi bi-exclamation-triangle-fill" style="font-size:18px;color:#e6a700;flex-shrink:0;margin-top:1px;"></i>
+          <div>
+            <strong data-i18n="ticket_implementation.ap_quota_title">GitHub Copilot Kontingent aufgebraucht</strong>
+            <p style="margin:6px 0 0;line-height:1.5;" data-i18n="common.be_copilot_quota">Problem mit dem GitHub Copilot-Account: Dein Kontingent ist möglicherweise aufgebraucht oder dein Abonnement ist inaktiv. Bitte überprüfe dein GitHub Copilot-Abonnement unter github.com/settings/copilot.</p>
+          </div>
+        </div>
+      </div>
+
+      <div style="margin-top:14px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+        <span id="apStatusText" style="font-size:12px;color:var(--ta-muted);" data-i18n="ticket_implementation.ap_status_waiting">Warte auf Start…</span>
+        <div id="apSpinner" style="display:none;color:#7c5cbf;width:16px;height:16px;border-width:2px;" class="spinner-border spinner-border-sm" role="status"></div>
+        <span id="apFeatureSlug" style="font-size:11px;color:var(--ta-muted);font-family:monospace;margin-left:4px;opacity:.75;"></span>
+      </div>
+
+      <div id="apPullRequestBanner" style="display:none;margin-top:14px;padding:12px 16px;background:linear-gradient(135deg,#eaf5ff,#f0f8ff);border:1.5px solid #0969da44;border-radius:12px;align-items:center;gap:12px;flex-wrap:wrap;">
+        <i class="bi bi-git" style="font-size:20px;color:#0969da;flex-shrink:0;"></i>
+        <div style="flex:1;min-width:0;">
+          <div style="font-size:13px;font-weight:700;color:#24292f;" data-i18n="ticket_implementation.ap_pr_title">Pipeline abgeschlossen – Änderungen als Pull Request ansehen</div>
+          <div style="font-size:11px;color:#57606a;margin-top:2px;" data-i18n="ticket_implementation.ap_pr_subtitle">Zeigt nur die Änderungen der Agent-Pipeline (Diff gegen Base-Branch)</div>
+        </div>
+        <a id="apPullRequestLink" href="#" target="_blank" rel="noopener"
+           style="display:inline-flex;align-items:center;gap:6px;border:none;border-radius:999px;padding:7px 18px;font-size:13px;font-weight:700;cursor:pointer;background:linear-gradient(135deg,#0969da,#0550ae);color:#fff;text-decoration:none;white-space:nowrap;flex-shrink:0;">
+          <i class="bi bi-arrow-up-right-square me-1"></i><span data-i18n="ticket_implementation.ap_pr_open_btn">Simulierten PR öffnen</span>
+        </a>
+      </div>
+
+      <div id="apWriteSection" style="display:none;margin-top:10px;align-items:center;gap:10px;flex-wrap:wrap;">
+        <button onclick="apOpenWriteModal()"
+                style="display:inline-flex;align-items:center;gap:6px;border:1.5px solid #1e7a3a;border-radius:999px;padding:5px 14px;font-size:12px;font-weight:600;cursor:pointer;background:transparent;color:#1e7a3a;">
+          <i class="bi bi-folder-symlink"></i>
+          <span data-i18n="ticket_implementation.ap_write_modal_title">Dateien in Repository schreiben</span>
+        </button>
+        <span id="apWriteResult" style="font-size:12px;color:var(--ta-muted);"></span>
+      </div>
+    </div>
+  </div>
+
+  <div class="ta-card" id="errorCard" style="display:none">
+    <h2 style="color:var(--ta-danger)">
+      <i class="bi bi-x-circle me-2"></i>
+      <span data-i18n="ticket_implementation.error_title">Analyse fehlgeschlagen</span>
+    </h2>
+    <p id="errorMessage" class="text-danger"></p>
+    <button class="ta-btn-outline mt-2" onclick="resetView()">
+      <i class="bi bi-arrow-left me-1"></i>
+      <span data-i18n="ticket_implementation.back">Zurück</span>
+    </button>
+  </div>
+
+  <th:block th:replace="~{fragments/shared/history :: card('ticket-implementation', '')}"></th:block>
+
+</div>
+
+<th:block th:replace="~{fragments/ticket-implementation/scripts :: scripts}"></th:block>
+<th:block th:replace="~{fragments/shared/token-usage :: scripts}"></th:block>
+
+<script>
+  if (window.cfTokenUsage) {
+    window.cfTokenUsage.init('ticket_implementation', null, {
+      anchor: document.querySelector('.sl-page-header, .ta-page, .ta-form-card')
+    });
+  }
+  (function () {
+    if (!window.cfTokenUsage) return;
+    function _tugWatch() {
+      try {
+        window.cfTokenUsage.watch('ticket_implementation', function () {
+          var v = (typeof currentImplId !== 'undefined') ? currentImplId : null;
+          return (v == null) ? null : Number(v);
+        });
+      } catch (e) {  }
+    }
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', _tugWatch);
+    } else {
+      _tugWatch();
+    }
+  })();
+</script>
+</div>
+</body>
+</html>
+

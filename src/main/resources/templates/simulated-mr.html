@@ -1,0 +1,709 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" lang="de">
+<head>
+    <meta charset="UTF-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1"/>
+    <title>Merge Request · StackLens</title>
+    <link rel="stylesheet" th:href="@{/vendor/css/bootstrap-icons.min.css}"/>
+    <style>
+        :root {
+            --gl-bg:           #f0f0f0;
+            --gl-white:        #fff;
+            --gl-header-bg:    #1f1f1f;
+            --gl-orange:       #fc6d26;
+            --gl-purple:       #6b4fbb;
+            --gl-green:        #108548;
+            --gl-red:          #ae1800;
+            --gl-blue:         #1068bf;
+            --gl-border:       #dcdcde;
+            --gl-text:         #1f2328;
+            --gl-muted:        #64686f;
+            --gl-diff-add:     #ddfbe7;
+            --gl-diff-add-ln:  #b5edcc;
+            --gl-diff-hdr:     #f5f2ff;
+        }
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            font-size: 14px;
+            color: var(--gl-text);
+            background: var(--gl-bg);
+            min-height: 100vh;
+        }
+
+        .gl-nav {
+            background: var(--gl-header-bg);
+            height: 48px;
+            display: flex;
+            align-items: center;
+            padding: 0 16px;
+            gap: 16px;
+            position: sticky;
+            top: 0;
+            z-index: 200;
+        }
+        .gl-nav-logo {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            color: #fff;
+            font-weight: 600;
+            font-size: 15px;
+            text-decoration: none;
+            flex-shrink: 0;
+        }
+        .gl-nav-divider { width: 1px; height: 22px; background: #3f3f3f; flex-shrink: 0; }
+        .gl-breadcrumb {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            color: #b0b0b0;
+            font-size: 13px;
+            flex: 1;
+            min-width: 0;
+            overflow: hidden;
+            white-space: nowrap;
+        }
+        .gl-breadcrumb a { color: #d0d0d0; text-decoration: none; }
+        .gl-breadcrumb a:hover { color: #fff; text-decoration: underline; }
+        .gl-breadcrumb-sep { color: #686868; }
+        .gl-sim-badge {
+            background: var(--gl-orange);
+            color: #fff;
+            padding: 3px 10px;
+            border-radius: 10px;
+            font-size: 11px;
+            font-weight: 600;
+            flex-shrink: 0;
+            letter-spacing: 0.02em;
+        }
+
+        .gl-main {
+            max-width: 1280px;
+            margin: 0 auto;
+            padding: 28px 20px 100px;
+        }
+
+        .gl-mr-card {
+            background: var(--gl-white);
+            border: 1px solid var(--gl-border);
+            border-radius: 6px;
+            padding: 22px 24px;
+            margin-bottom: 16px;
+        }
+        .gl-mr-title-row {
+            display: flex;
+            align-items: flex-start;
+            gap: 12px;
+            margin-bottom: 14px;
+        }
+        .gl-mr-title {
+            font-size: 20px;
+            font-weight: 600;
+            line-height: 1.35;
+            flex: 1;
+        }
+        .gl-mr-iid {
+            font-size: 18px;
+            font-weight: 400;
+            color: var(--gl-muted);
+            flex-shrink: 0;
+            margin-top: 2px;
+        }
+        .gl-status-open {
+            display: inline-flex;
+            align-items: center;
+            gap: 7px;
+            background: var(--gl-green);
+            color: #fff;
+            padding: 5px 14px;
+            border-radius: 16px;
+            font-size: 13px;
+            font-weight: 600;
+            flex-shrink: 0;
+        }
+        .gl-status-open::before {
+            content: '';
+            width: 7px; height: 7px;
+            border-radius: 50%;
+            background: rgba(255,255,255,0.55);
+            display: inline-block;
+        }
+        .gl-mr-meta {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 14px;
+            color: var(--gl-muted);
+            font-size: 13px;
+        }
+        .gl-branch-flow { display: flex; align-items: center; gap: 6px; }
+        .gl-branch-tag {
+            background: #f0f0ff;
+            border: 1px solid #c5bcf5;
+            border-radius: 4px;
+            padding: 2px 9px;
+            font-family: 'Fira Code', monospace;
+            font-size: 12px;
+            color: var(--gl-purple);
+        }
+        .gl-dot { color: #999; }
+
+        .gl-action-bar {
+            background: var(--gl-white);
+            border: 1px solid var(--gl-border);
+            border-radius: 6px;
+            padding: 14px 20px;
+            margin-bottom: 16px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+        .gl-action-info {
+            flex: 1;
+            font-size: 13px;
+            color: var(--gl-muted);
+        }
+        .gl-action-info strong { color: var(--gl-text); }
+        .gl-btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 7px 16px;
+            border-radius: 4px;
+            font-size: 13px;
+            font-weight: 500;
+            border: 1px solid;
+            cursor: default;
+            user-select: none;
+            white-space: nowrap;
+        }
+        .gl-btn-outline { background: #fff; border-color: var(--gl-border); color: var(--gl-text); }
+        .gl-btn-approve { background: #e9f3ec; border-color: #b7d9bc; color: var(--gl-green); }
+        .gl-btn-merge   { background: var(--gl-blue); border-color: var(--gl-blue); color: #fff; }
+
+        .gl-tabs-wrap {
+            background: var(--gl-white);
+            border: 1px solid var(--gl-border);
+            border-bottom: none;
+            border-radius: 6px 6px 0 0;
+            padding: 0 16px;
+            display: flex;
+            gap: 4px;
+        }
+        .gl-tab {
+            padding: 12px 16px;
+            cursor: pointer;
+            color: var(--gl-muted);
+            font-size: 13px;
+            border-bottom: 2px solid transparent;
+            margin-bottom: -1px;
+            user-select: none;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .gl-tab:hover { color: var(--gl-text); }
+        .gl-tab.active {
+            color: var(--gl-purple);
+            border-bottom-color: var(--gl-purple);
+            font-weight: 500;
+        }
+        .gl-tab-cnt {
+            background: #e8e8ec;
+            border-radius: 10px;
+            padding: 1px 7px;
+            font-size: 12px;
+            color: var(--gl-muted);
+        }
+        .gl-tab.active .gl-tab-cnt { background: var(--gl-purple); color: #fff; }
+
+        .gl-panel { display: none; }
+        .gl-panel.active { display: block; }
+
+        .gl-ov-grid {
+            display: grid;
+            grid-template-columns: 1fr 268px;
+            gap: 16px;
+            background: var(--gl-white);
+            border: 1px solid var(--gl-border);
+            border-top: none;
+            border-radius: 0 0 6px 6px;
+            padding: 20px 20px 24px;
+        }
+        .gl-desc-section h5 {
+            font-size: 12px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+            color: var(--gl-muted);
+            margin-bottom: 14px;
+        }
+        .gl-desc-body { font-size: 14px; line-height: 1.65; }
+        .gl-desc-body pre {
+            background: #f8f8fa;
+            border: 1px solid #e5e5ea;
+            border-radius: 4px;
+            padding: 12px 14px;
+            font-size: 12px;
+            font-family: 'Fira Code', monospace;
+            white-space: pre-wrap;
+            overflow-x: auto;
+            margin: 8px 0;
+        }
+        .gl-desc-body h6 { font-size: 13px; font-weight: 600; margin: 16px 0 8px; }
+        .gl-desc-body p { margin-bottom: 10px; white-space: pre-wrap; word-break: break-word; }
+
+        .gl-sidebar { border-left: 1px solid var(--gl-border); padding-left: 20px; }
+        .gl-sb-section { padding-bottom: 16px; margin-bottom: 16px; border-bottom: 1px solid var(--gl-border); }
+        .gl-sb-section:last-child { border-bottom: none; padding-bottom: 0; }
+        .gl-sb-label {
+            font-size: 11px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+            color: var(--gl-muted);
+            margin-bottom: 8px;
+        }
+        .gl-sb-value { font-size: 13px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+        .gl-avatar {
+            width: 24px; height: 24px;
+            border-radius: 50%;
+            background: var(--gl-purple);
+            color: #fff;
+            font-size: 10px; font-weight: 700;
+            display: inline-flex; align-items: center; justify-content: center;
+            flex-shrink: 0;
+        }
+        .gl-lbl {
+            display: inline-flex; align-items: center;
+            padding: 3px 10px;
+            border-radius: 100px;
+            font-size: 12px; font-weight: 500;
+            background: var(--gl-purple); color: #fff;
+        }
+
+        .gl-commits-wrap {
+            background: var(--gl-white);
+            border: 1px solid var(--gl-border);
+            border-top: none;
+            border-radius: 0 0 6px 6px;
+            padding: 20px;
+        }
+        .gl-commit-row {
+            display: flex; align-items: center; gap: 14px;
+            padding: 12px 16px;
+            border: 1px solid var(--gl-border);
+            border-radius: 6px;
+        }
+        .gl-commit-sha {
+            background: #f0f0ff; color: var(--gl-purple);
+            padding: 3px 9px; border-radius: 4px;
+            font-family: 'Fira Code', monospace; font-size: 12px;
+            flex-shrink: 0;
+        }
+
+        .gl-changes-wrap {
+            background: var(--gl-white);
+            border: 1px solid var(--gl-border);
+            border-top: none;
+            border-radius: 0 0 6px 6px;
+            padding: 16px;
+        }
+        .gl-changes-stat-bar {
+            display: flex; align-items: center; gap: 10px;
+            font-size: 13px; color: var(--gl-muted);
+            margin-bottom: 14px;
+        }
+        .gl-add-stat { color: var(--gl-green); font-weight: 600; }
+        .gl-del-stat { color: var(--gl-red);   font-weight: 600; }
+
+        .gl-diff-file {
+            border: 1px solid var(--gl-border);
+            border-radius: 6px;
+            margin-bottom: 12px;
+            overflow: hidden;
+        }
+        .gl-diff-file-hdr {
+            background: var(--gl-diff-hdr);
+            border-bottom: 1px solid var(--gl-border);
+            padding: 9px 14px;
+            display: flex; align-items: center; gap: 10px;
+        }
+        .gl-diff-path {
+            font-family: 'Fira Code', monospace;
+            font-size: 12px;
+            color: var(--gl-purple);
+            font-weight: 500;
+            flex: 1;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        .gl-diff-lang {
+            background: #e5deff; color: var(--gl-purple);
+            padding: 2px 8px; border-radius: 4px;
+            font-size: 11px; font-weight: 600;
+            flex-shrink: 0;
+        }
+        .gl-diff-type {
+            padding: 2px 8px; border-radius: 4px;
+            font-size: 11px; font-weight: 600;
+            flex-shrink: 0;
+        }
+        .gl-diff-type.new      { background: #ddfbe7; color: #108548; }
+        .gl-diff-type.modified { background: #fff0d3; color: #916000; }
+        .gl-diff-scroll { overflow-x: auto; max-height: 600px; overflow-y: auto; }
+        .gl-diff-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-family: 'Fira Code', monospace;
+            font-size: 12px;
+        }
+        .gl-diff-table td { padding: 1px 10px; vertical-align: top; line-height: 1.5; white-space: pre; }
+        .gl-diff-ln { width: 46px; text-align: right; color: #9d9da5; border-right: 1px solid var(--gl-border); user-select: none; }
+        .gl-diff-sym { width: 22px; text-align: center; user-select: none; }
+        .gl-diff-add td                { background: var(--gl-diff-add); }
+        .gl-diff-add .gl-diff-ln      { background: var(--gl-diff-add-ln); color: #5c7032; }
+        .gl-diff-add .gl-diff-sym     { color: var(--gl-green); font-weight: 700; }
+        .gl-diff-hdr-row td           { background: var(--gl-diff-hdr); color: var(--gl-muted); font-style: italic; }
+
+        #gl-loading {
+            text-align: center;
+            padding: 80px 0;
+            color: var(--gl-muted);
+        }
+        .gl-spinner {
+            width: 30px; height: 30px;
+            border: 3px solid #e0e0e0;
+            border-top-color: var(--gl-purple);
+            border-radius: 50%;
+            animation: spin .75s linear infinite;
+            margin: 0 auto 14px;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        @media(max-width: 768px) {
+            .gl-ov-grid { grid-template-columns: 1fr; }
+            .gl-sidebar { border-left: none; border-top: 1px solid var(--gl-border); padding: 16px 0 0; }
+        }
+    </style>
+</head>
+<body>
+
+<nav class="gl-nav">
+    <div class="gl-nav-logo">
+        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 380 380">
+            <path d="M282.83,170.73l-.27-.69L231.31,31.83a5.83,5.83,0,0,0-5.54-3.89,6,6,0,0,0-5.65,
+                     4L188.93,125.73l-31.19-93.79a5.84,5.84,0,0,0-5.65-4,6,6,0,0,0-5.54,3.89L95.37,170l-.27.69
+                     a73.51,73.51,0,0,0,24.42,85.19l.12.09.31.22,60.25,45.1,29.82,22.57,18.17,13.72a6.76,6.76,0,0,
+                     0,8.16,0l18.17-13.72,29.82-22.57,60.57-45.35.13-.1A73.51,73.51,0,0,0,282.83,170.73Z"
+                  fill="#fc6d26"/>
+        </svg>
+        GitLab
+    </div>
+    <div class="gl-nav-divider"></div>
+    <div class="gl-breadcrumb" id="gl-breadcrumb">
+        <span>Wird geladen…</span>
+    </div>
+    <span class="gl-sim-badge">Simuliert · StackLens</span>
+</nav>
+
+<main class="gl-main">
+    <div id="gl-loading">
+        <div class="gl-spinner"></div>
+        <div>Merge Request wird geladen…</div>
+    </div>
+    <div id="gl-content" style="display:none"></div>
+</main>
+
+<script th:src="@{/js/simulated-helpers.js}"></script>
+<script th:inline="javascript">
+/*<![CDATA[*/
+'use strict';
+
+const ANALYSIS_ID = /*[[${analysisId}]]*/ 0;
+
+document.addEventListener('DOMContentLoaded', function () {
+    loadMr(ANALYSIS_ID);
+});
+
+async function loadMr(id) {
+    try {
+        const resp = await fetch('/api/ticket-implementation/' + id);
+        if (!resp.ok) throw new Error('HTTP ' + resp.status);
+        render(await resp.json());
+    } catch (e) {
+        document.getElementById('gl-loading').innerHTML =
+            '<i class="bi bi-exclamation-triangle" style="font-size:40px;color:#ae1800"></i>' +
+            '<br><br>Fehler beim Laden des Merge Requests:<br>' + esc(e.message);
+    }
+}
+
+function render(data) {
+    const ci    = data.codeImplementation || {};
+    const ticket = data.ticket  || {};
+    const mono  = data.monorepoAnalysis   || {};
+    const key   = data.ticketKey || 'TICKET';
+
+    const summary  = txt(ticket.summary || ticket.fields?.summary) || key;
+    const desc     = txt(ticket.description || ticket.fields?.description);
+    const criteria = txt(ticket.acceptanceCriteria || ticket.fields?.acceptanceCriteria);
+    const mrTitle  = 'feat(' + key.toLowerCase() + '): ' + summary;
+    const mrIid    = data.id   || 1;
+    const branch   = 'feature/' + key.toLowerCase();
+    const repoName = (ci.identifiedRepositories || [])[0] || 'project';
+    const now      = fmtDate(data.completedAt);
+
+    const allFiles = [].concat(ci.files || [], ci.testFiles || [], ci.systemTestFiles || []);
+    const totalLines = allFiles.reduce((a, f) => a + (f.code || '').split('\n').length, 0);
+
+    document.getElementById('gl-breadcrumb').innerHTML =
+        '<a href="#">' + esc(repoName) + '</a>' +
+        '<span class="gl-breadcrumb-sep">›</span>' +
+        '<a href="#">Merge Requests</a>' +
+        '<span class="gl-breadcrumb-sep">›</span>' +
+        '<span>!' + mrIid + '</span>';
+
+    const html =
+        buildMrCard(mrTitle, mrIid, branch, repoName, now, allFiles.length, totalLines) +
+        buildActionBar() +
+        buildTabs(allFiles.length) +
+        '<div class="gl-panel active" id="tab-overview">' +
+            buildOverview(desc, criteria, ci, mono, key, repoName) +
+        '</div>' +
+        '<div class="gl-panel" id="tab-commits">' +
+            buildCommits(key, summary, now) +
+        '</div>' +
+        '<div class="gl-panel" id="tab-changes">' +
+            buildChanges(allFiles, totalLines) +
+        '</div>';
+
+    document.getElementById('gl-loading').style.display = 'none';
+    const el = document.getElementById('gl-content');
+    el.innerHTML = html;
+    el.style.display = 'block';
+}
+
+function buildMrCard(title, iid, branch, repo, date, fileCount, lines) {
+    return `
+    <div class="gl-mr-card">
+        <div class="gl-mr-title-row">
+            <div class="gl-mr-title">${esc(title)}</div>
+            <div class="gl-mr-iid">!${iid}</div>
+            <div class="gl-status-open">Open</div>
+        </div>
+        <div class="gl-mr-meta">
+            <div class="gl-branch-flow">
+                <span class="gl-branch-tag">${esc(branch)}</span>
+                <span>→</span>
+                <span class="gl-branch-tag">main</span>
+            </div>
+            <span class="gl-dot">·</span>
+            <span>von <strong>StackLens AI</strong></span>
+            <span class="gl-dot">·</span>
+            <span>${esc(date)}</span>
+            <span class="gl-dot">·</span>
+            <span>${fileCount} Datei${fileCount !== 1 ? 'en' : ''} geändert, <span style="color:var(--gl-green)">+${lines} Zeilen</span></span>
+        </div>
+    </div>`;
+}
+
+function buildActionBar() {
+    return `
+    <div class="gl-action-bar">
+        <div class="gl-action-info">
+            <strong>Bereit zum Mergen</strong> — Alle generierten Änderungen wurden geprüft
+        </div>
+        <button class="gl-btn gl-btn-outline">
+            <i class="bi bi-person-plus"></i> Review anfordern
+        </button>
+        <button class="gl-btn gl-btn-approve">
+            <i class="bi bi-check-lg"></i> Genehmigen
+        </button>
+        <button class="gl-btn gl-btn-merge">
+            <i class="bi bi-git"></i> Mergen
+        </button>
+    </div>`;
+}
+
+function buildTabs(fileCount) {
+    return `
+    <div class="gl-tabs-wrap">
+        <div class="gl-tab active" onclick="switchTab('overview')">
+            <i class="bi bi-file-text"></i> Übersicht
+        </div>
+        <div class="gl-tab" onclick="switchTab('commits')">
+            <i class="bi bi-clock-history"></i> Commits
+            <span class="gl-tab-cnt">1</span>
+        </div>
+        <div class="gl-tab" onclick="switchTab('changes')">
+            <i class="bi bi-file-diff"></i> Änderungen
+            <span class="gl-tab-cnt">${fileCount}</span>
+        </div>
+    </div>`;
+}
+
+function switchTab(name) {
+    const names = ['overview', 'commits', 'changes'];
+    document.querySelectorAll('.gl-tab').forEach((t, i) =>
+        t.classList.toggle('active', names[i] === name));
+    document.querySelectorAll('.gl-panel').forEach(p =>
+        p.classList.toggle('active', p.id === 'tab-' + name));
+}
+
+function buildOverview(desc, criteria, ci, mono, key, repo) {
+    let descHtml = '';
+    if (desc) descHtml += '<p>' + esc(desc) + '</p>';
+    if (criteria) {
+        descHtml += '<h6>Akzeptanzkriterien</h6><pre>' + esc(criteria) + '</pre>';
+    }
+    if (ci.implementationNotes) {
+        descHtml += '<h6>Implementierungshinweise</h6><p style="color:var(--gl-muted);">' + esc(ci.implementationNotes) + '</p>';
+    }
+    if (!descHtml) descHtml = '<p style="color:var(--gl-muted);font-style:italic;">Keine Beschreibung verfügbar</p>';
+
+    let dbHtml = '';
+    if ((ci.databaseChanges || []).length > 0) {
+        dbHtml += '<h6>Datenbankänderungen</h6>';
+        for (const db of ci.databaseChanges) {
+            dbHtml += '<p><strong>' + esc(db.database) + ':</strong> ' + esc(db.description) + '</p>';
+            if (db.sql) dbHtml += '<pre>' + esc(db.sql) + '</pre>';
+        }
+    }
+
+    const projPurpose = mono.projectPurpose || '';
+    const repos = (ci.identifiedRepositories || []).join(', ');
+    const dbs   = (ci.identifiedDatabases   || []).join(', ');
+    const milestone = (key.split('-')[0] || 'Sprint') + ' Sprint';
+
+    const sidebar = `
+        <div class="gl-sidebar">
+            <div class="gl-sb-section">
+                <div class="gl-sb-label">Zugewiesen an</div>
+                <div class="gl-sb-value">
+                    <span class="gl-avatar">AI</span> StackLens AI
+                </div>
+            </div>
+            <div class="gl-sb-section">
+                <div class="gl-sb-label">Reviewer</div>
+                <div class="gl-sb-value">
+                    <span class="gl-avatar" style="background:var(--gl-blue)">R</span> Anstehend
+                </div>
+            </div>
+            <div class="gl-sb-section">
+                <div class="gl-sb-label">Labels</div>
+                <div class="gl-sb-value">
+                    <span class="gl-lbl">enhancement</span>
+                    <span class="gl-lbl" style="background:#ae1800;">KI-generiert</span>
+                </div>
+            </div>
+            <div class="gl-sb-section">
+                <div class="gl-sb-label">Milestone</div>
+                <div class="gl-sb-value">${esc(milestone)}</div>
+            </div>
+            ${repos ? `<div class="gl-sb-section">
+                <div class="gl-sb-label">Repository</div>
+                <div class="gl-sb-value" style="font-family:'Fira Code',monospace;font-size:12px;">${esc(repos)}</div>
+            </div>` : ''}
+            ${dbs ? `<div class="gl-sb-section">
+                <div class="gl-sb-label">Datenbanken</div>
+                <div class="gl-sb-value" style="font-size:12px;">${esc(dbs)}</div>
+            </div>` : ''}
+            ${projPurpose ? `<div class="gl-sb-section">
+                <div class="gl-sb-label">Projektzweck</div>
+                <div class="gl-sb-value" style="font-size:12px;color:var(--gl-muted);display:block;line-height:1.5;">
+                    ${esc(projPurpose.substring(0, 160))}${projPurpose.length > 160 ? '…' : ''}
+                </div>
+            </div>` : ''}
+        </div>`;
+
+    return `
+    <div class="gl-ov-grid">
+        <div class="gl-desc-section">
+            <h5>Beschreibung</h5>
+            <div class="gl-desc-body">${descHtml}${dbHtml}</div>
+        </div>
+        ${sidebar}
+    </div>`;
+}
+
+function buildCommits(key, summary, date) {
+    const sha = shortSha();
+    return `
+    <div class="gl-commits-wrap">
+        <div class="gl-commit-row">
+            <i class="bi bi-git" style="font-size:20px;color:var(--gl-purple);flex-shrink:0;"></i>
+            <div style="flex:1;min-width:0;">
+                <div style="font-weight:500;font-size:13px;margin-bottom:4px;">
+                    feat(${esc(key.toLowerCase())}): ${esc(summary)}
+                </div>
+                <div style="color:var(--gl-muted);font-size:12px;">StackLens AI &middot; ${esc(date)}</div>
+            </div>
+            <code class="gl-commit-sha">${sha}</code>
+        </div>
+    </div>`;
+}
+
+function buildChanges(allFiles, totalLines) {
+    if (allFiles.length === 0) {
+        return '<div class="gl-changes-wrap" style="text-align:center;padding:40px;color:var(--gl-muted);">Keine Dateiänderungen</div>';
+    }
+
+    const statBar = `
+    <div class="gl-changes-stat-bar">
+        <strong>${allFiles.length}</strong> Datei${allFiles.length !== 1 ? 'en' : ''} geändert
+        &nbsp;<span class="gl-add-stat">+${totalLines}</span>
+        &nbsp;<span class="gl-del-stat">&minus;0</span>
+    </div>`;
+
+    let diffHtml = '';
+    for (const f of allFiles) {
+        diffHtml += buildDiffFile(f);
+    }
+
+    return '<div class="gl-changes-wrap">' + statBar + diffHtml + '</div>';
+}
+
+function buildDiffFile(file) {
+    const lines      = (file.code || '').split('\n');
+    const lang       = (file.language || '').toUpperCase();
+    const changeType = (file.changeType || 'NEW').toUpperCase();
+    const isNew      = changeType === 'NEW' || changeType === 'CREATED' || changeType === 'ADD';
+    const typeLbl    = isNew ? 'Neu' : 'Geändert';
+    const typeCls    = isNew ? 'new' : 'modified';
+
+    let rows = `<tr class="gl-diff-hdr-row">
+        <td class="gl-diff-ln"></td>
+        <td class="gl-diff-ln"></td>
+        <td class="gl-diff-sym"></td>
+        <td>@@ -0,0 +1,${lines.length} @@</td>
+    </tr>`;
+
+    lines.forEach((line, i) => {
+        rows += `<tr class="gl-diff-add">
+            <td class="gl-diff-ln"></td>
+            <td class="gl-diff-ln">${i + 1}</td>
+            <td class="gl-diff-sym">+</td>
+            <td>${esc(line)}</td>
+        </tr>`;
+    });
+
+    return `
+    <div class="gl-diff-file">
+        <div class="gl-diff-file-hdr">
+            <i class="bi bi-file-code" style="color:var(--gl-purple);flex-shrink:0;"></i>
+            <div class="gl-diff-path" title="${esc(file.path)}">${esc(file.path)}</div>
+            ${lang  ? `<span class="gl-diff-lang">${esc(lang)}</span>` : ''}
+            <span class="gl-diff-type ${typeCls}">${typeLbl}</span>
+        </div>
+        <div class="gl-diff-scroll">
+            <table class="gl-diff-table"><tbody>${rows}</tbody></table>
+        </div>
+    </div>`;
+}
+/*]]>*/
+</script>
+</body>
+</html>

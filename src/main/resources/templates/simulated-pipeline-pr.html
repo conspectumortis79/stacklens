@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" lang="de">
+<head>
+    <meta charset="UTF-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1"/>
+    <title>Simulierter Pull Request · StackLens</title>
+    <link rel="stylesheet" th:href="@{/vendor/css/bootstrap-icons.min.css}"/>
+    <style>
+        :root {
+            --gh-bg:           #f6f8fa;
+            --gh-white:        #fff;
+            --gh-header-bg:    #24292f;
+            --gh-green:        #1f883d;
+            --gh-purple:       #8250df;
+            --gh-blue:         #0969da;
+            --gh-red:          #cf222e;
+            --gh-border:       #d0d7de;
+            --gh-text:         #1f2328;
+            --gh-muted:        #656d76;
+        }
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            font-size: 14px;
+            color: var(--gh-text);
+            background: var(--gh-bg);
+            min-height: 100vh;
+        }
+        .gh-nav {
+            background: var(--gh-header-bg);
+            height: 64px;
+            display: flex;
+            align-items: center;
+            padding: 0 16px;
+            gap: 16px;
+        }
+        .gh-nav-logo {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            color: #fff;
+            font-weight: 600;
+            font-size: 15px;
+            text-decoration: none;
+        }
+        .gh-breadcrumb {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            color: #b0b0b0;
+            font-size: 13px;
+            flex: 1;
+        }
+        .gh-breadcrumb a { color: #d0d0d0; text-decoration: none; }
+        .gh-sim-badge {
+            background: var(--gh-purple);
+            color: #fff;
+            padding: 3px 10px;
+            border-radius: 10px;
+            font-size: 11px;
+            font-weight: 600;
+            letter-spacing: 0.02em;
+        }
+
+        .gh-main { max-width: 1100px; margin: 24px auto; padding: 0 16px; }
+        .gh-pr-card {
+            background: var(--gh-white);
+            border: 1px solid var(--gh-border);
+            border-radius: 6px;
+            padding: 18px 22px;
+            margin-bottom: 16px;
+        }
+        .gh-pr-title { font-size: 22px; font-weight: 600; line-height: 1.3; margin-bottom: 10px; }
+        .gh-pr-meta {
+            display: flex; flex-wrap: wrap; gap: 14px;
+            color: var(--gh-muted); font-size: 13px;
+        }
+        .gh-status {
+            display: inline-flex; align-items: center; gap: 6px;
+            color: var(--gh-text); font-weight: 600;
+        }
+        .gh-status::before {
+            content: ''; width: 10px; height: 10px; border-radius: 50%;
+            background: var(--gh-green); display: inline-block;
+        }
+        .gh-branch-tag {
+            background: #f6f8fa; border: 1px solid var(--gh-border);
+            border-radius: 4px; padding: 2px 9px;
+            font-family: 'Fira Code', monospace; font-size: 12px;
+            color: var(--gh-text);
+        }
+        .gh-desc-body { padding: 18px 22px; line-height: 1.55; }
+        .gh-desc-body h5 { font-size: 13px; font-weight: 700; margin: 18px 0 8px; }
+        .gh-desc-body h5:first-child { margin-top: 0; }
+        .gh-desc-body pre {
+            background: #f6f8fa; border: 1px solid var(--gh-border); border-radius: 4px;
+            padding: 10px 12px; font-size: 12px;
+            font-family: 'Fira Code', monospace; white-space: pre-wrap;
+            overflow-x: auto; margin: 6px 0;
+        }
+        .gh-desc-body p { margin: 6px 0; }
+        .gh-card {
+            background: var(--gh-white);
+            border: 1px solid var(--gh-border);
+            border-radius: 6px;
+            margin-bottom: 16px;
+        }
+        .gh-finding-card {
+            padding: 14px 18px;
+            border-bottom: 1px solid var(--gh-border);
+            font-size: 13px;
+        }
+        .gh-finding-card:last-child { border-bottom: none; }
+        .gh-badge {
+            display: inline-block;
+            font-size: 11px;
+            font-weight: 700;
+            padding: 2px 9px;
+            border-radius: 999px;
+            margin-right: 6px;
+        }
+        .gh-badge-HIGH { background: #ffebe9; color: #82071e; }
+        .gh-badge-MEDIUM { background: #fff8c5; color: #7d4e00; }
+        .gh-badge-LOW { background: #dafbe1; color: #116329; }
+        .gh-loading { padding: 60px 20px; text-align: center; color: var(--gh-muted); }
+        .gh-spinner {
+            width: 32px; height: 32px; border: 3px solid #ddd;
+            border-top-color: var(--gh-purple); border-radius: 50%;
+            animation: gh-spin 0.8s linear infinite; margin: 0 auto 14px;
+        }
+        @keyframes gh-spin { to { transform: rotate(360deg); } }
+    </style>
+</head>
+<body>
+<nav class="gh-nav">
+    <a class="gh-nav-logo" href="/">
+        <i class="bi bi-github"></i>
+        StackLens
+    </a>
+    <div class="gh-breadcrumb" id="gh-breadcrumb">
+        <span>Pipeline-Analyse</span>
+        <span class="gh-breadcrumb-sep">/</span>
+        <span>Pull Requests</span>
+        <span class="gh-breadcrumb-sep">/</span>
+        <span>#</span>
+    </div>
+    <span class="gh-sim-badge">KI-Simuliert</span>
+</nav>
+
+<main class="gh-main">
+    <div class="gh-loading" id="gh-loading">
+        <div class="gh-spinner"></div>
+        <div>Pull Request wird geladen…</div>
+    </div>
+    <div id="gh-content" style="display:none"></div>
+</main>
+
+<script th:src="@{/js/simulated-helpers.js}"></script>
+<script th:inline="javascript">
+/*<![CDATA[*/
+'use strict';
+
+const ANALYSIS_ID = /*[[${analysisId}]]*/ 0;
+
+document.addEventListener('DOMContentLoaded', function () {
+    loadPr(ANALYSIS_ID);
+});
+
+async function loadPr(id) {
+    try {
+        const resp = await fetch('/api/pipeline-analysis/analysis/' + id + '/status');
+        if (!resp.ok) throw new Error('HTTP ' + resp.status);
+        const data = await resp.json();
+        render(data);
+    } catch (e) {
+        const loading = document.getElementById('gh-loading');
+        if (loading) {
+            loading.innerHTML =
+                '<i class="bi bi-exclamation-triangle" style="font-size:40px;color:var(--gh-red)"></i>' +
+                '<br><br>Fehler beim Laden des Pull Requests:<br>' + esc(e.message);
+        }
+    }
+}
+
+function fmtDateTime(iso) {
+    if (!iso) return '–';
+    try {
+        const d = new Date(iso);
+        return d.toLocaleString('de-DE', { dateStyle: 'medium', timeStyle: 'short' });
+    } catch (_) {
+        return iso;
+    }
+}
+
+function render(data) {
+    const summary = txt(data.summaryText);
+    const findingsJson = data.findingsJson || '[]';
+    let findings = [];
+    try { findings = JSON.parse(findingsJson); } catch (_) { findings = []; }
+
+    const title = 'Pipeline-Analyse – Befunde & Optimierungen (Analysis #' + data.id + ')';
+    const branch = 'pipeline-analysis-' + data.id;
+
+    document.getElementById('gh-breadcrumb').innerHTML =
+        '<a href="/pipeline-analysis">Pipeline-Analyse</a>' +
+        '<span class="gh-breadcrumb-sep">/</span>' +
+        '<span>Simulierter Pull Request</span>' +
+        '<span class="gh-breadcrumb-sep">/</span>' +
+        '<span>#' + data.id + '</span>';
+
+    const html =
+        '<div class="gh-pr-card">' +
+            '<div class="gh-pr-title">' + esc(title) + '</div>' +
+            '<div class="gh-pr-meta">' +
+                '<span class="gh-status">Open</span>' +
+                '<span>·</span>' +
+                '<span><span class="gh-branch-tag">' + esc(branch) + '</span> wants to merge into <span class="gh-branch-tag">main</span></span>' +
+                '<span>·</span>' +
+                '<span>StackLens AI opened ' + esc(fmtDateTime(data.createdAt)) + '</span>' +
+            '</div>' +
+        '</div>' +
+        '<div class="gh-card">' +
+            '<div class="gh-desc-body">' +
+                '<h5>Description</h5>' +
+                (summary ? '<p>' + esc(summary) + '</p>' :
+                    '<p style="color:var(--gh-muted)">No summary available.</p>') +
+                '<h5>Findings (' + findings.length + ')</h5>' +
+                (findings.length === 0
+                    ? '<p style="color:var(--gh-muted)">No findings.</p>'
+                    : findings.map(function (f) {
+                        var sev = (f.severity || 'MEDIUM').toUpperCase();
+                        return '<div class="gh-finding-card">' +
+                            '<span class="gh-badge gh-badge-' + esc(sev) + '">' + esc(sev) + '</span>' +
+                            '<span class="gh-badge" style="background:#fbefff;color:#8250df;">' + esc(f.type || 'UNKNOWN') + '</span>' +
+                            (f.file ? '<code style="font-size:12px;background:#f6f8fa;padding:2px 6px;border-radius:4px;">' + esc(f.file) + (f.line ? ':' + esc(String(f.line)) : '') + '</code>' : '') +
+                            '<p style="margin-top:8px;">' + esc(f.description || '') + '</p>' +
+                            (f.suggestion ? '<pre style="background:#fff7ed;border-color:#f59e0b;">' + esc(f.suggestion) + '</pre>' : '') +
+                        '</div>';
+                    }).join('')) +
+                '<h5>Marker file</h5>' +
+                '<p style="color:var(--gh-muted);font-size:13px;">This PR contains <code>.stacklens/pipeline-analysis-' + data.id + '.md</code> with a reference to this analysis.</p>' +
+            '</div>' +
+        '</div>';
+
+    document.getElementById('gh-loading').style.display = 'none';
+    const el = document.getElementById('gh-content');
+    el.innerHTML = html;
+    el.style.display = 'block';
+}
+/*]]>*/
+</script>
+</body>
+</html>

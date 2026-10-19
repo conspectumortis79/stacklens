@@ -1,0 +1,416 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" lang="de">
+<body>
+<th:block th:fragment="scripts">
+<script th:inline="none">
+/*<![CDATA[*/
+
+if (!window._ts) { window._ts = { gen: 0, runningId: null, lastOpenId: null }; }
+window._ts.gen++;
+window._ts.activeId = window._ts.activeId || null;
+
+(function(){
+  function t(key, fb){ return (window.slHelpers && window.slHelpers.t) ? window.slHelpers.t(key, fb) : (fb || key); }
+  var $ = function(id){ return document.getElementById(id); };
+  var _tsPageGen = window._ts.gen;
+  var _tsResumeSeq = 0;
+  var state = { activeId: null, pollTimer: null, originalVisible: false };
+
+
+  function loadJiraConfigs(){
+    var _gen = _tsPageGen;
+    return fetch('/api/config/jira', { credentials:'same-origin' })
+      .then(function(r){ return r.ok ? r.json() : []; })
+      .catch(function(){ return []; })
+      .then(function(list){
+        if (window._ts.gen !== _gen) return;
+        var sel = $('tsJiraConfig');
+        if (!sel) return;
+        sel.innerHTML = '';
+        (list || []).filter(function(c){ return c.active; }).forEach(function(c){
+          var o = document.createElement('option');
+          o.value = c.id;
+          o.textContent = c.name + ' — ' + c.baseUrl;
+          o.setAttribute('data-baseurl', c.baseUrl || '');
+          o.setAttribute('data-name', c.name || '');
+          sel.appendChild(o);
+        });
+        applyDemoAutoFill();
+      });
+  }
+
+  var DEMO_TICKET_KEY = 'SUMMARY-1';
+  var _tsTicketKeyTouched = false;
+  function applyDemoAutoFill(){
+    var sel = $('tsJiraConfig');
+    if (!sel) return;
+    var opt = sel.options[sel.selectedIndex];
+    if (!opt) return;
+    var baseUrl    = opt.getAttribute('data-baseurl') || '';
+    var configName = (opt.getAttribute('data-name') || '').toLowerCase();
+    var isDemo = baseUrl.indexOf('localhost') !== -1 || configName.indexOf('demo') !== -1;
+    var input = $('tsTicketKey');
+    if (!input) return;
+    if (!isDemo) return;
+    if (_tsTicketKeyTouched) return;
+    var current = input.value.trim();
+    if (!current || /^[A-Z]+-\d+$/.test(current)) {
+      input.value = DEMO_TICKET_KEY;
+    }
+  }
+
+  function showDefaultTemplate(){
+    $('tsShowDefault').addEventListener('click', function(){
+      var ta = $('tsTemplate');
+      if (!ta) return;
+      fetch('/api/ticket-summary/template/default', { credentials:'same-origin' })
+        .then(function(r){ return r.ok ? r.json() : null; })
+        .then(function(data){
+          if (!data || !data.template) return;
+          ta.value = data.template;
+          ta.scrollTop = 0;
+        })
+        .catch(function(){});
+    });
+  }
+
+  function cancelCurrent(){
+    if (!state.activeId) return;
+    var id = state.activeId;
+    fetch('/api/ticket-summary/' + id + '/cancel', { method:'POST' })
+      .then(function(){
+        var cb = $('tsCancel'); if (cb) cb.disabled = true;
+      });
+  }
+  function toggleOriginal(){
+    var wrap = $('tsOriginalWrap');
+    if (!wrap) return;
+    state.originalVisible = !state.originalVisible;
+    wrap.style.display = state.originalVisible ? '' : 'none';
+    var btnLabel = $('tsBtnToggleOriginal');
+    if (btnLabel) {
+      var label = btnLabel.querySelector('span[data-i18n]') || btnLabel;
+      label.textContent = state.originalVisible
+        ? t('ticket_summary.results_hide', 'Ausblenden')
+        : t('ticket_summary.results_view', 'Anzeigen');
+    }
+  }
+
+  function bindListeners(){
+    var form = $('tsForm');
+    if (!form) return false;
+    if (form.dataset.tsBound === '1') return true;
+    form.dataset.tsBound = '1';
+    form.addEventListener('submit', function(e){
+      e.preventDefault();
+      startSummary();
+    });
+    var cancelBtn = $('tsCancel');
+    if (cancelBtn) cancelBtn.addEventListener('click', cancelCurrent);
+    var tog = $('tsBtnToggleOriginal');
+    if (tog) tog.addEventListener('click', toggleOriginal);
+    var delAll = $('tsBtnDelAll');
+    if (delAll) delAll.addEventListener('click', deleteAll);
+    var cfg = $('tsJiraConfig');
+    if (cfg) cfg.addEventListener('change', applyDemoAutoFill);
+    var tk = $('tsTicketKey');
+    if (tk) {
+      tk.addEventListener('input', function(){
+        _tsTicketKeyTouched = !!tk.value.trim();
+      });
+    }
+    return true;
+  }
+
+  function startSummary(){
+    var ticketKeyEl = $('tsTicketKey');
+    var jiraSel     = $('tsJiraConfig');
+    var templateEl  = $('tsTemplate');
+    if (!ticketKeyEl || !jiraSel) return;
+    var ticketKey = ticketKeyEl.value.trim();
+    if (!ticketKey) {
+      showAlert(t('ticket_summary.be_ticket_key_required', 'Ticket-Key ist erforderlich.'), 'warning');
+      return;
+    }
+    var configId = jiraSel.value ? Number(jiraSel.value) : null;
+    var template = templateEl ? templateEl.value : '';
+    var body = { ticketKey: ticketKey, jiraConfigId: configId };
+    if (template && template.trim()) body.templateOverride = template;
+
+    var startBtn = $('tsStart'); if (startBtn) startBtn.disabled = true;
+    var cancelBtn = $('tsCancel'); if (cancelBtn) cancelBtn.disabled = false;
+    var pc = $('tsProgressCard'); if (pc) pc.style.display = '';
+    var stepEl = $('tsProgressStep');
+    if (stepEl) stepEl.textContent = t('ticket_summary.progress_fetching', 'Ticket wird geladen…');
+    var rc = $('tsResultsCard'); if (rc) rc.style.display = 'none';
+
+    fetch('/api/ticket-summary', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    })
+      .then(function(r){ return r.json().then(function(j){ return { ok: r.ok, j: j }; }); })
+      .then(function(res){
+        if (!res.ok) {
+          showAlert((res.j && res.j.error) || t('ticket_summary.be_invalid_input', 'Ungültige Eingabe.'), 'danger');
+          if (startBtn) startBtn.disabled = false;
+          if (cancelBtn) cancelBtn.disabled = true;
+          var pc2 = $('tsProgressCard'); if (pc2) pc2.style.display = 'none';
+          return;
+        }
+        state.activeId = res.j.id;
+        window._ts.activeId = state.activeId;
+        if (typeof tsInitTokenUsageBar === 'function') tsInitTokenUsageBar();
+        window._ts.runningId = res.j.id;
+        window._ts.lastOpenId = res.j.id;
+        _tsResumeSeq++;
+        startPolling(res.j.id);
+        loadHistory();
+      })
+      .catch(function(){
+        showAlert(t('common.network_error', 'Netzwerkfehler: '), 'danger');
+        if (startBtn) startBtn.disabled = false;
+        if (cancelBtn) cancelBtn.disabled = true;
+        var pc3 = $('tsProgressCard'); if (pc3) pc3.style.display = 'none';
+      });
+  }
+
+  function startPolling(id){
+    if (state.pollTimer) { clearInterval(state.pollTimer); state.pollTimer = null; }
+    fetchAndRender(id, false);
+    state.pollTimer = setInterval(function(){
+      if (window._ts.gen !== _tsPageGen) {
+        clearInterval(state.pollTimer); state.pollTimer = null; return;
+      }
+      fetchAndRender(id, true);
+    }, 2500);
+  }
+
+  function fetchAndRender(id, polling){
+    fetch('/api/ticket-summary/' + id, { credentials:'same-origin' })
+      .then(function(r){ return r.ok ? r.json() : null; })
+      .then(function(data){
+        if (!data) return;
+        if (window._ts.gen !== _tsPageGen) return;
+        if (Number(state.activeId) !== Number(id)) return;
+        renderDetail(data);
+        if (data.status === 'COMPLETED' || data.status === 'FAILED' || data.status === 'CANCELLED') {
+          if (state.pollTimer) { clearInterval(state.pollTimer); state.pollTimer = null; }
+          window._ts.runningId = null;
+          var startBtn = $('tsStart'); if (startBtn) startBtn.disabled = false;
+          var cancelBtn = $('tsCancel'); if (cancelBtn) cancelBtn.disabled = true;
+          loadHistory(id);
+        }
+      });
+  }
+
+  function renderDetail(data){
+    var status = $('tsStatus');
+    if (!status) return;
+    var statusText = '';
+    if (data.status === 'RUNNING' || data.status === 'PENDING') {
+      statusText = data.currentStep || t('ticket_summary.progress_fetching', 'Ticket wird geladen…');
+    } else if (data.status === 'COMPLETED') {
+      statusText = t('ticket_summary.step_done', 'Fertig.');
+    } else if (data.status === 'FAILED') {
+      statusText = '⚠ ' + (data.errorMessage || t('common.error', 'Fehler'));
+    } else if (data.status === 'CANCELLED') {
+      statusText = '⛔ ' + t('ticket_summary.step_cancelled', 'Abgebrochen.');
+    }
+    status.textContent = statusText;
+    status.className = 'ts-status' +
+      (data.status === 'FAILED' ? ' error' : '') +
+      (data.status === 'CANCELLED' ? ' cancelled' : '');
+
+    var progressCard = $('tsProgressCard');
+    var progressStep = $('tsProgressStep');
+    if (progressCard) progressCard.style.display =
+      (data.status === 'RUNNING' || data.status === 'PENDING') ? '' : 'none';
+    if (progressStep) {
+      progressStep.textContent = (data.status === 'RUNNING' || data.status === 'PENDING')
+        ? (data.currentStep || t('ticket_summary.progress_invoking', 'KI erstellt die Zusammenfassung…'))
+        : '';
+    }
+
+    var resultsCard = $('tsResultsCard');
+    if (resultsCard) {
+      resultsCard.style.display = (data.status === 'COMPLETED' || data.status === 'FAILED') ? '' : 'none';
+    }
+
+    var box = $('tsResults');
+    if (data.summaryHtml && box) {
+      box.innerHTML = data.summaryHtml;
+    } else if (box) {
+      box.innerHTML = '';
+    }
+    var origText = $('tsOriginalText');
+    if (origText) origText.textContent = data.originalText || '';
+  }
+
+  var _tsHistory = null;
+  var _tsHistoryActiveId = null;
+
+  function tsHistory() {
+    if (_tsHistory) return _tsHistory;
+    _tsHistory = window.slHistory.mount({
+      root: 'hxCard-ticket-summary',
+      page: 'ticket-summary',
+      titleKey: 'ticket_summary.history_heading',
+      emptyKey: 'ticket_summary.history_empty',
+      columns: {
+        title: { key: 'ticket_summary.col_ticket', fallback: 'Ticket' }
+      },
+      map: {
+        id: function(item) { return item.id; },
+        status: function(item) { return item.status; },
+        createdAt: function(item) { return item.createdAt; },
+        typeIcon: function() { return 'bi-ticket-detailed'; },
+        title: function(item) { return item.ticketKey || ''; },
+        isCurrent: function(item) { return Number(_tsHistoryActiveId) === Number(item.id); }
+      },
+      actions: {
+        open: function(item) { openSummary(item.id); },
+        cancel: function(item) { tsCancelHistoryItem(item.id); },
+        remove: function(item) { tsDeleteHistoryItem(item.id); },
+        deleteAll: function() { deleteAll(); }
+      }
+    });
+    return _tsHistory;
+  }
+
+  function tsCancelHistoryItem(id) {
+    fetch('/api/ticket-summary/' + id + '/cancel', { method:'POST', credentials:'same-origin' })
+      .then(function(){ loadHistory(); })
+      .catch(function(){ loadHistory(); });
+  }
+
+  function tsDeleteHistoryItem(id) {
+    fetch('/api/ticket-summary/' + id, { method:'DELETE' }).then(function(){
+      if (Number(state.activeId) === Number(id)) {
+        state.activeId = null;
+        window._ts.activeId = state.activeId;
+        if (window._ts.runningId === id) window._ts.runningId = null;
+        if (window._ts.lastOpenId === id) window._ts.lastOpenId = null;
+        $('tsResultsCard').style.display = 'none';
+        var pc = $('tsProgressCard'); if (pc) pc.style.display = 'none';
+      }
+      loadHistory();
+    });
+  }
+
+  function loadHistory(selectId){
+    if (selectId != null) _tsHistoryActiveId = selectId;
+    var _lhGen = _tsPageGen;
+    return fetch('/api/ticket-summary', { credentials:'same-origin' })
+      .then(function(r){ return r.ok ? r.json() : []; })
+      .then(function(list){
+        if (window._ts.gen !== _lhGen) return [];
+        tsHistory().setData(Array.isArray(list) ? list : []);
+        return list;
+      });
+  }
+
+  function openSummary(id){
+    state.activeId = id;
+    window._ts.activeId = state.activeId;
+    if (typeof tsInitTokenUsageBar === 'function') tsInitTokenUsageBar();
+    window._ts.lastOpenId = id;
+    var pc = $('tsProgressCard'); if (pc) pc.style.display = '';
+    var rc = $('tsResultsCard'); if (rc) rc.style.display = 'none';
+    var startBtn = $('tsStart'); if (startBtn) startBtn.disabled = true;
+    var cancelBtn = $('tsCancel'); if (cancelBtn) cancelBtn.disabled = false;
+    _tsHistoryActiveId = id;
+    if (_tsHistory) _tsHistory.refresh();
+    startPolling(id);
+  }
+
+  function tryResumeRunning(list){
+    var myResumeSeq = ++_tsResumeSeq;
+    var running = null;
+    if (list && list.length) {
+      for (var i = 0; i < list.length; i++) {
+        var s = (list[i].status || '').toUpperCase();
+        if (s === 'RUNNING' || s === 'PENDING') { running = list[i]; break; }
+      }
+    }
+    if (running) {
+      window._ts.runningId = running.id;
+      openSummary(running.id);
+      return;
+    }
+
+    var storedId = window._ts.lastOpenId || window._ts.runningId;
+    if (!storedId) return;
+    fetch('/api/ticket-summary/' + storedId, { credentials:'same-origin' })
+      .then(function(r){ return r.ok ? r.json() : null; })
+      .catch(function(){ return null; })
+      .then(function(data){
+        if (window._ts.gen !== _tsPageGen) return;
+        if (!data) { window._ts.runningId = null; return; }
+        if (_tsResumeSeq !== myResumeSeq) return;
+        var s = (data.status || '').toUpperCase();
+        if (s === 'COMPLETED' || s === 'FAILED') {
+          window._ts.runningId = null;
+          state.activeId = storedId;
+          window._ts.activeId = state.activeId;
+          if (typeof tsInitTokenUsageBar === 'function') tsInitTokenUsageBar();
+          renderDetail(data);
+          _tsHistoryActiveId = storedId;
+          if (_tsHistory) _tsHistory.refresh();
+          loadHistory(storedId);
+        } else if (s === 'RUNNING' || s === 'PENDING') {
+          window._ts.runningId = storedId;
+          openSummary(storedId);
+        } else {
+          window._ts.runningId = null;
+          window._ts.lastOpenId = null;
+        }
+      });
+  }
+
+  function deleteAll(){
+    fetch('/api/ticket-summary', { method:'DELETE' }).then(function(){
+      state.activeId = null;
+      window._ts.activeId = state.activeId;
+      window._ts.runningId = null;
+      window._ts.lastOpenId = null;
+      $('tsResultsCard').style.display = 'none';
+      var pc = $('tsProgressCard'); if (pc) pc.style.display = 'none';
+      loadHistory();
+    });
+  }
+
+  function loadAll(){
+    _tsPageGen = window._ts.gen;
+    showDefaultTemplate();
+    loadJiraConfigs();
+    loadHistory().then(function(list){ tryResumeRunning(list || []); });
+  }
+
+  function init(){
+    if (!bindListeners()) return;
+    loadAll();
+  }
+
+  if (window._tsNavHandler) document.removeEventListener('app:navigate', window._tsNavHandler);
+  window._tsNavHandler = function() {
+    if (!document.getElementById('tsForm')) {
+      window._ts.gen++;
+      return;
+    }
+    init();
+  };
+  document.addEventListener('app:navigate', window._tsNavHandler);
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', init);
+  } else {
+    init();
+  }
+})();
+/*]]>*/
+</script>
+</th:block>
+</body>
+</html>

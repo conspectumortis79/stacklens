@@ -1,0 +1,528 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" lang="de">
+<body>
+<th:block th:fragment="scripts-findings">
+<script>
+  function caResetMrBannerActions() {
+    var bannerBtns = document.querySelector('#caMrBanner .d-flex.gap-2');
+    if (!bannerBtns) return;
+    bannerBtns.innerHTML =
+      '<button class="btn btn-sm btn-outline-secondary" style="font-size:12px;" onclick="caSwitch(\'tabChanges\', document.querySelector(\'.ca-tab-btn:last-child\'))">' +
+        '<i class="bi bi-file-diff me-1"></i><span data-i18n="code_analysis.tab_changes">Änderungen</span>' +
+      '</button>' +
+      '<button class="btn btn-sm" style="background:#fc6d26;color:#fff;border-radius:999px;font-size:12px;" onclick="caOpenMrDialog()">' +
+        '<i class="bi bi-git me-1"></i>MR erstellen' +
+      '</button>';
+  }
+
+  function caApplyData(data) {
+    caInitTokenUsageBar();
+    var _tabsEl2 = document.getElementById('analysisTabs');
+    if (_tabsEl2) _tabsEl2.classList.remove('d-none');
+
+    var badge = document.getElementById('analysisStatusBadge');
+    if (badge) {
+      if (data.status === 'COMPLETED') {
+        badge.innerHTML = '<span class="ca-status-badge ca-status-badge--completed"><i class="bi bi-check-circle-fill me-1"></i>' + (window.i18n ? window.i18n.t('code_analysis.status_completed') : 'Abgeschlossen') + '</span>';
+        caSetCardStatus(caCurrentRepoId, 'completed', data.gitlabConfigId, data.gitlabProjectId);
+        if (typeof caLoadHistory === 'function') caLoadHistory();
+      } else if (data.status === 'RUNNING' || data.status === 'PENDING') {
+        badge.innerHTML = '<span class="ca-status-badge ca-status-badge--running"><span class="spinner-border spinner-border-sm me-1"></span>' + (window.i18n ? window.i18n.t('code_analysis.running_status') : 'Läuft…') + '</span>';
+        caSetCardStatus(caCurrentRepoId, 'running', data.gitlabConfigId, data.gitlabProjectId);
+        caStartPolling();
+        return;
+      } else if (data.status === 'FAILED') {
+        badge.innerHTML = '<span class="ca-status-badge ca-status-badge--error"><i class="bi bi-x-circle-fill me-1"></i>' + (window.i18n ? window.i18n.t('code_analysis.status_error') : 'Fehler') + '</span>';
+        caSetCardStatus(caCurrentRepoId, 'aborted', data.gitlabConfigId, data.gitlabProjectId);
+      }
+    }
+
+    if (data.status === 'FAILED') {
+      caShowError(data.errorMessage || 'Unbekannter Fehler');
+      return;
+    }
+
+    caHideEl('caMrResult');
+    caHideEl('caMrError');
+    caResetMrBannerActions();
+
+    caHideEl('caEmptyState');
+    if (data.summaryText) {
+      var sc = document.getElementById('caSummaryContent');
+      if (sc) {
+        sc.innerHTML = '<div class="ca-prose"><p>' + caEsc(data.summaryText).replace(/\n/g, '</p><p>') + '</p></div>';
+        caShowEl('caSummaryContent');
+      }
+    }
+
+    var findings = [];
+    if (data.findingsJson) {
+      try { findings = JSON.parse(data.findingsJson); } catch(_) {}
+    }
+
+    if (findings.length > 0) {
+      var duplicateList = findings.filter(function(f) { return f.type === 'DUPLICATE_CODE'; });
+      var hexList       = findings.filter(function(f) { return f.type === 'HEXAGONAL'; });
+      var unusedList    = findings.filter(function(f) { return f.type === 'UNUSED_FUNCTION' || f.type === 'UNUSED_VARIABLE'; });
+
+      var _dup = document.getElementById('caDuplicateContent');
+      if (_dup) _dup.innerHTML = duplicateList.length > 0 ? caBuildFindingsHtml(duplicateList) : '<div class="ca-empty"><i class="bi bi-files"></i>' + (window.i18n ? window.i18n.t('code_analysis.no_duplicates') : 'Keine doppelten Code-Blöcke gefunden.') + '</div>';
+      var _hex = document.getElementById('caHexContent');
+      if (_hex) _hex.innerHTML = hexList.length > 0 ? caBuildFindingsHtml(hexList) : '<div class="ca-empty"><i class="bi bi-hexagon"></i>' + (window.i18n ? window.i18n.t('code_analysis.no_hexagonal') : 'Keine hexagonalen Architekturverstöße.') + '</div>';
+      var _unu = document.getElementById('caUnusedContent');
+      if (_unu) _unu.innerHTML = unusedList.length > 0 ? caBuildFindingsHtml(unusedList) : '<div class="ca-empty"><i class="bi bi-slash-circle"></i>' + (window.i18n ? window.i18n.t('code_analysis.no_unused') : 'Keine ungenutzten Symbole gefunden.') + '</div>';
+      var _all = document.getElementById('caAllContent');
+      if (_all) _all.innerHTML = caBuildFindingsHtml(findings);
+
+      var _scStats = document.getElementById('caSummaryContent');
+      if (_scStats) {
+        var summaryInner = _scStats.innerHTML;
+        var statsHtml =
+          '<div class="d-flex gap-3 flex-wrap mb-4">' +
+            caStatCard(findings.length,    'Befunde gesamt',   '#7c5cbf', 'bi-list-ul') +
+            caStatCard(duplicateList.length,'Duplizierter Code','#be185d', 'bi-files') +
+            caStatCard(hexList.length,      'Hexagonal',        '#0284c7', 'bi-hexagon') +
+            caStatCard(unusedList.length,   'Ungenutzt',        '#b45309', 'bi-slash-circle') +
+          '</div>';
+        _scStats.innerHTML = statsHtml + summaryInner;
+      }
+    }
+
+    var changes = [];
+    if (data.fileChangesJson) {
+      try { changes = JSON.parse(data.fileChangesJson); } catch(_) {}
+    }
+    if (changes.length > 0) {
+      var _chg = document.getElementById('caChangesContent');
+      if (_chg) _chg.innerHTML = caBuildChangesHtml(changes);
+      caShowEl('caMrSection');
+      var bannerText = document.getElementById('caMrBannerText');
+      if (bannerText) bannerText.textContent = changes.length + ' ' + (window.i18n ? window.i18n.t('code_analysis.changes_banner_suffix') : 'Dateiänderung(en) vorgeschlagen – per GitLab MR anwenden');
+      caShowEl('caMrBanner');
+    }
+
+    if (data.mrUrl) {
+      var mrResult = document.getElementById('caMrResult');
+      var mrLink   = document.getElementById('caMrLink');
+      if (mrResult && mrLink) {
+        mrLink.href        = data.mrUrl;
+        mrLink.textContent = data.mrUrl;
+        caShowEl('caMrResult');
+      }
+      caShowEl('caMrBanner');
+      var bannerText = document.getElementById('caMrBannerText');
+      if (bannerText) bannerText.textContent = window.i18n ? window.i18n.t('code_analysis.mr_already_created') : 'GitLab Merge Request bereits erstellt';
+      var bannerBtns = document.querySelector('#caMrBanner .d-flex.gap-2');
+      if (bannerBtns) bannerBtns.innerHTML =
+        '<a href="' + caEsc(data.mrUrl) + '" target="_blank" rel="noopener noreferrer" class="btn btn-sm" style="background:#fc6d26;color:#fff;border-radius:999px;font-size:12px;">' +
+          '<i class="bi bi-box-arrow-up-right me-1"></i>' + (window.i18n ? window.i18n.t('code_analysis.mr_open') : 'MR öffnen') + '</a>';
+    }
+
+    if (data.mermaid) {
+      caMermaidStore = data.mermaid;
+      var mermaidPanel = document.getElementById('tabMermaid');
+      if (mermaidPanel && mermaidPanel.classList.contains('active')) {
+        caRenderMermaid(data.mermaid);
+      } else {
+        var emptyEl = document.getElementById('caMermaidEmpty');
+        if (emptyEl) emptyEl.innerHTML = '<i class="bi bi-diagram-3"></i>' + (window.i18n ? window.i18n.t('code_analysis.mermaid_ready') : 'Diagramm verfügbar. Klicke auf den Mermaid-Tab um es anzuzeigen.');
+      }
+    }
+
+    if (data.drawioXml) {
+      caDrawioXmlStore = data.drawioXml;
+      var drawioPanel = document.getElementById('tabDrawio');
+      if (drawioPanel && drawioPanel.classList.contains('active')) {
+        caRenderDrawio(data.drawioXml);
+      } else {
+        var emptyDe = document.getElementById('caDrawioEmpty');
+        if (emptyDe) emptyDe.innerHTML = '<i class="bi bi-bounding-box-circles"></i>' + (window.i18n ? window.i18n.t('code_analysis.drawio_ready') : 'Diagramm verfügbar. Klicke auf den Draw.io-Tab um es anzuzeigen.');
+      }
+    }
+  }
+
+  function caStatCard(count, label, color, icon) {
+    return '<div style="background:var(--ca-paper);border:1px solid var(--ca-line);border-radius:12px;padding:12px 18px;min-width:120px;text-align:center;">' +
+      '<i class="bi ' + icon + ' mb-1 d-block" style="color:' + color + ';font-size:1.4rem;"></i>' +
+      '<div style="font-size:22px;font-weight:800;color:' + color + ';">' + count + '</div>' +
+      '<div style="font-size:12px;color:var(--ca-muted);">' + label + '</div>' +
+    '</div>';
+  }
+
+  function caBuildFindingsHtml(findings) {
+    if (!findings || findings.length === 0) return '<div class="ca-empty"><i class="bi bi-list-ul"></i>' + (window.i18n ? window.i18n.t('code_analysis.no_findings') : 'Keine Befunde.') + '</div>';
+    var html = '<div>';
+    findings.forEach(function(f, idx) {
+      var typeBg   = caTypeBg(f.type);
+      var sevBg    = caSevBg(f.severity);
+      var lineInfo = f.line ? ' · Zeile ' + f.line : '';
+      var snippetBtn = '';
+      if (f.suggestedCode) {
+        var btnId = 'snip-' + idx + '-' + Math.random().toString(36).substr(2,6);
+        snippetBtn =
+          '<span id="' + btnId + '-data" style="display:none;" data-code="' + f.suggestedCode.replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;') + '" data-type="' + caEsc(f.type || '') + '"></span>' +
+          '<button class="btn btn-sm btn-outline-secondary ms-auto" style="font-size:11px;white-space:nowrap;" ' +
+            'onclick="caShowSnippetById(\'' + btnId + '-data\')">' +
+            '<i class="bi bi-code-slash me-1"></i>Code-Vorschlag' +
+          '</button>';
+      }
+      var origSnippetBlock = '';
+      if (f.snippet) {
+        var sDataId = 'snip-orig-data-' + idx + '-' + Math.random().toString(36).substr(2,6);
+        var sPreId  = 'snip-orig-pre-'  + idx + '-' + Math.random().toString(36).substr(2,6);
+        origSnippetBlock =
+          '<span id="' + sDataId + '" style="display:none;" data-code="' + f.snippet.replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;') + '"></span>' +
+          '<button class="btn btn-sm" style="font-size:11px;border:1px solid var(--ca-line);padding:2px 8px;background:var(--ca-bg);color:var(--ca-ink);margin:6px 0 2px;" ' +
+            'onclick="caToggleSnippetBlock(\'' + sDataId + '\',\'' + sPreId + '\')">' +
+            '<i class="bi bi-code me-1"></i>Fundstelle' +
+          '</button>' +
+          '<pre id="' + sPreId + '" class="ca-code-block" style="display:none;margin:0 0 6px;font-size:12px;max-height:180px;overflow-y:auto;border-radius:8px;"></pre>';
+      }
+      html +=
+        '<div class="ca-finding-card">' +
+          '<div class="ca-finding-header">' +
+            '<span class="ca-badge" style="background:' + typeBg.bg + ';color:' + typeBg.fg + ';">' + caEsc(f.type || '?') + '</span>' +
+            '<span class="ca-badge" style="background:' + sevBg.bg + ';color:' + sevBg.fg + ';">' + caEsc(f.severity || 'MEDIUM') + '</span>' +
+            '<span class="text-muted" style="font-size:12px;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' +
+              '<i class="bi bi-file-code me-1"></i>' + caEsc(f.file || '') + caEsc(lineInfo) +
+            '</span>' +
+            snippetBtn +
+          '</div>' +
+          origSnippetBlock +
+          '<div style="font-size:14px;margin-bottom:4px;">' + caEsc(f.description || '') + '</div>' +
+          (f.suggestion
+            ? '<div style="font-size:13px;color:var(--ca-muted);margin-top:6px;"><i class="bi bi-lightbulb me-1" style="color:#eab308;"></i>' + caEsc(f.suggestion) + '</div>'
+            : '') +
+        '</div>';
+    });
+    html += '</div>';
+    return html;
+  }
+
+  function caShowSnippetById(dataElId) {
+    var el = document.getElementById(dataElId);
+    if (!el) return;
+    document.getElementById('snippetModalTitle').textContent = (el.getAttribute('data-type') || '') + ' – Code-Vorschlag';
+    document.getElementById('snippetModalCode').textContent  = el.getAttribute('data-code') || '';
+    showModalById('snippetModal');
+  }
+
+  function caToggleSnippetBlock(dataElId, preElId) {
+    var pre = document.getElementById(preElId);
+    if (!pre) return;
+    if (pre.style.display === 'none' || !pre.style.display) {
+      var dataEl = document.getElementById(dataElId);
+      pre.textContent = dataEl ? dataEl.getAttribute('data-code') : '';
+      pre.style.display = 'block';
+    } else {
+      pre.style.display = 'none';
+    }
+  }
+
+  function caBuildChangesHtml(changes) {
+    var html = '<div>';
+    changes.forEach(function(fc) {
+      html +=
+        '<div style="border:1px solid var(--ca-line);border-radius:12px;overflow:hidden;margin-bottom:12px;">' +
+          '<div style="background:var(--ca-bg);border-bottom:1px solid var(--ca-line);padding:8px 14px;display:flex;align-items:center;gap:8px;">' +
+            '<i class="bi bi-file-earmark-code me-1" style="color:var(--ca-accent);"></i>' +
+            '<strong style="font-size:13px;word-break:break-all;">' + caEsc(fc.path || '') + '</strong>' +
+            '<span class="ca-badge ms-auto" style="background:#d4edda;color:#155724;">' + caEsc(fc.changeType || 'UPDATE') + '</span>' +
+          '</div>' +
+          '<pre class="ca-code-block" style="margin:0;border-radius:0;max-height:400px;overflow-y:auto;">' + caEsc(fc.code || '') + '</pre>' +
+        '</div>';
+    });
+    html += '</div>';
+    return html;
+  }
+
+  function caTypeBg(type) {
+    if (!type) return { bg: '#e5e7eb', fg: '#374151' };
+    if (type === 'DUPLICATE_CODE')     return { bg: '#fce7f3', fg: '#9d174d' };
+    if (type === 'HEXAGONAL')          return { bg: '#fef3c7', fg: '#92400e' };
+    if (type === 'UNUSED_FUNCTION')    return { bg: '#fee2e2', fg: '#991b1b' };
+    if (type === 'UNUSED_VARIABLE')    return { bg: '#fce7f3', fg: '#9d174d' };
+    return { bg: '#f3f4f6', fg: '#374151' };
+  }
+
+  function caSevBg(sev) {
+    if (sev === 'HIGH')   return { bg: '#fee2e2', fg: '#991b1b' };
+    if (sev === 'LOW')    return { bg: '#d1fae5', fg: '#065f46' };
+    return { bg: '#fef3c7', fg: '#92400e' };
+  }
+
+  function caResolveCurrentAnalysisId() {
+    if (caCurrentAnalysisId) return Promise.resolve(caCurrentAnalysisId);
+
+    var url = null;
+    if (caGitlabConfigId && caGitlabProjectId) {
+      url = '/api/code-analysis/gitlab/' + caGitlabConfigId + '/project/' + caGitlabProjectId + '/latest';
+    } else if (caGithubRepoConfigId) {
+      url = '/api/code-analysis/github/' + caGithubRepoConfigId + '/latest';
+    } else if (caCurrentRepoId) {
+      url = '/api/code-analysis/local/' + caCurrentRepoId + '/latest';
+    }
+
+    if (!url) return Promise.resolve(null);
+
+    return fetch(url)
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        if (!data || data.status === 'NONE' || !data.id) return null;
+        caCurrentAnalysisId = data.id;
+        caInitTokenUsageBar();
+        return data.id;
+      })
+      .catch(function() { return null; });
+  }
+
+  function caOpenMrDialog() {
+    caResolveCurrentAnalysisId().then(function(analysisId) {
+      if (!analysisId) {
+        var msg = (window.i18n ? window.i18n.t('code_analysis.no_analysis') : 'Keine Analyse vorhanden.');
+        var errEl = document.getElementById('caMrError');
+        if (errEl) {
+          errEl.textContent = msg;
+          caShowEl('caMrError');
+        }
+        return;
+      }
+
+      if (caGitlabConfigId && caGitlabProjectId) {
+        caDoCreateMr(analysisId, caGitlabConfigId, caGitlabProjectId);
+      } else {
+        var sel = document.getElementById('mrGitlabConfigSelect');
+        if (sel) { sel.value = ''; }
+        var projRow = document.getElementById('mrProjectRow');
+        if (projRow) projRow.style.display = 'none';
+        caHideEl('mrModalError');
+        showModalById('mrModal');
+      }
+    });
+  }
+
+  function caMrLoadProjects() {
+    var configId = document.getElementById('mrGitlabConfigSelect').value;
+    var projRow  = document.getElementById('mrProjectRow');
+    var projSel  = document.getElementById('mrProjectSelect');
+    caHideEl('mrModalError');
+    if (!configId) {
+      projRow.style.display = 'none';
+      return;
+    }
+    var helpers = window.slHelpers || {};
+    projSel.innerHTML = '<option>' + (window.i18n ? window.i18n.t('common.loading') : 'Wird geladen…') + '</option>';
+    projRow.style.display = '';
+    fetch('/api/local-repos/gitlab/' + configId + '/projects')
+      .then(function(r) { return helpers.jsonArray ? helpers.jsonArray(r) : r.json(); })
+      .then(function(projects) {
+        projSel.innerHTML = '<option value="">' + (window.i18n ? window.i18n.t('code_analysis.select_project_ph') : '— Projekt wählen —') + '</option>';
+        projects.forEach(function(p) {
+          var opt = document.createElement('option');
+          opt.value = p.id;
+          opt.textContent = p.path;
+          projSel.appendChild(opt);
+        });
+        if (projects.length === 0) {
+          projRow.style.display = 'none';
+          var empty = document.getElementById('mrModalError');
+          empty.textContent = window.i18n ? window.i18n.t('code_analysis.no_projects') : 'Keine Projekte gefunden.';
+          caShowEl('mrModalError');
+        }
+      })
+      .catch(function(e) {
+        projRow.style.display = 'none';
+        projSel.innerHTML = '<option value=""></option>';
+        var errEl = document.getElementById('mrModalError');
+        errEl.textContent = (e && e.message) ? e.message : String(e);
+        caShowEl('mrModalError');
+      });
+  }
+
+  function caSubmitMr() {
+    var configId  = parseInt(document.getElementById('mrGitlabConfigSelect').value, 10);
+    var projectId = parseInt(document.getElementById('mrProjectSelect').value, 10);
+    if (!configId || !projectId) {
+      var errEl = document.getElementById('mrModalError');
+      errEl.textContent = window.i18n ? window.i18n.t('code_analysis.mr_select_hint') : 'Bitte GitLab-Konfiguration und Projekt auswählen.';
+      errEl.className = errEl.className.replace(/\bd-none\b/g, '').trim();
+      return;
+    }
+    hideModalById('mrModal');
+    caDoCreateMr(caCurrentAnalysisId, configId, projectId);
+  }
+
+  function caDoCreateMr(analysisId, configId, projectId) {
+    caHideEl('caMrResult');
+    caHideEl('caMrError');
+    var mrSection = document.getElementById('caMrSection');
+    if (mrSection) {
+      var btn = mrSection.querySelector('button');
+      if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>' + (window.i18n ? window.i18n.t('code_analysis.mr_creating') : 'Erstelle MR…'); }
+    }
+    var bannerBtns = document.querySelector('#caMrBanner .d-flex.gap-2');
+    if (bannerBtns) bannerBtns.innerHTML =
+      '<span style="font-size:12px;color:var(--ca-text-muted,#888)"><span class="spinner-border spinner-border-sm me-1"></span>' +
+      (window.i18n ? window.i18n.t('code_analysis.mr_creating') : 'Erstelle MR…') + '</span>';
+
+    fetch('/api/code-analysis/analysis/' + analysisId + '/create-mr', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ gitlabConfigId: configId, projectId: projectId })
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      var mrSection = document.getElementById('caMrSection');
+      var btn = mrSection ? mrSection.querySelector('button') : null;
+      if (btn) { btn.disabled = false; btn.innerHTML = '<i class="bi bi-git me-1"></i>' + (window.i18n ? window.i18n.t('code_analysis.mr_create_btn') : 'MR erstellen'); }
+
+      if (data.error) {
+        var errEl = document.getElementById('caMrError');
+        errEl.textContent = data.error;
+        caShowEl('caMrError');
+        caResetMrBannerActions();
+        return;
+      }
+      var mrLink = document.getElementById('caMrLink');
+      if (mrLink) {
+        mrLink.href = data.mrUrl;
+        mrLink.textContent = data.mrUrl;
+      }
+      caShowEl('caMrResult');
+      var bannerText = document.getElementById('caMrBannerText');
+      if (bannerText) bannerText.textContent = window.i18n ? window.i18n.t('code_analysis.mr_already_created') : 'GitLab Merge Request bereits erstellt';
+      var bannerBtnsEl = document.querySelector('#caMrBanner .d-flex.gap-2');
+      if (bannerBtnsEl) bannerBtnsEl.innerHTML =
+        '<a href="' + caEsc(data.mrUrl) + '" target="_blank" rel="noopener noreferrer" class="btn btn-sm" style="background:#fc6d26;color:#fff;border-radius:999px;font-size:12px;">' +
+          '<i class="bi bi-box-arrow-up-right me-1"></i>' + (window.i18n ? window.i18n.t('code_analysis.mr_open') : 'MR öffnen') + '</a>';
+    })
+    .catch(function(e) {
+      var mrSection = document.getElementById('caMrSection');
+      var btn = mrSection ? mrSection.querySelector('button') : null;
+      if (btn) { btn.disabled = false; btn.innerHTML = '<i class="bi bi-git me-1"></i>' + (window.i18n ? window.i18n.t('code_analysis.mr_create_btn') : 'MR erstellen'); }
+      var errEl = document.getElementById('caMrError');
+      errEl.textContent = (window.i18n ? window.i18n.t('common.error') : 'Fehler') + ': ' + (e.message || e);
+      caShowEl('caMrError');
+      caResetMrBannerActions();
+    });
+  }
+
+  function caShowEl(id) {
+    var el = document.getElementById(id);
+    if (el) el.className = el.className.replace(/\bd-none\b/g, '').trim();
+  }
+  function caHideEl(id) {
+    var el = document.getElementById(id);
+    if (el && !el.className.includes('d-none')) el.className = (el.className + ' d-none').trim();
+  }
+  function caShowError(msg) {
+    caHideEl('caEmptyState');
+    var errEl = document.getElementById('caError');
+    errEl.textContent = msg;
+    caShowEl('caError');
+  }
+  function caEsc(s) {
+    return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+
+  var _glContextTarget = null;
+
+  function caShowContextMenu(e, configId, projectId, httpUrl, projectName, projectPath) {
+    _glContextTarget = { configId: configId, projectId: projectId, httpUrl: httpUrl, projectName: projectName, projectPath: projectPath };
+    var menu = document.getElementById('glContextMenu');
+    menu.style.display = 'block';
+    var x = e.clientX, y = e.clientY;
+    var mw = menu.offsetWidth || 230, mh = menu.offsetHeight || 50;
+    if (x + mw > window.innerWidth)  x = window.innerWidth  - mw - 8;
+    if (y + mh > window.innerHeight) y = window.innerHeight - mh - 8;
+    menu.style.left = x + 'px';
+    menu.style.top  = y + 'px';
+  }
+
+  if (window._caCtxCloseHandler) document.removeEventListener('click', window._caCtxCloseHandler);
+  window._caCtxCloseHandler = function() { var m = document.getElementById('glContextMenu'); if (m) m.style.display = 'none'; };
+  document.addEventListener('click', window._caCtxCloseHandler);
+  if (window._caCtxMenuHandler) document.removeEventListener('contextmenu', window._caCtxMenuHandler);
+  window._caCtxMenuHandler = function(e) {
+    if (!e.target.closest('.ca-repo-card[data-gl-http-url]')) {
+      var m = document.getElementById('glContextMenu'); if (m) m.style.display = 'none';
+    }
+  };
+  document.addEventListener('contextmenu', window._caCtxMenuHandler);
+
+  function caStartClone() {
+    document.getElementById('glContextMenu').style.display = 'none';
+    if (!_glContextTarget) return;
+    var t = _glContextTarget;
+    var safeName = (t.projectName || 'repo').replace(/[/\\:*?"<>|]/g, '_');
+    document.getElementById('cloneProjectLabel').textContent = t.projectPath || t.projectName;
+    document.getElementById('cloneSubfolderHint').textContent = safeName;
+    document.getElementById('cloneTargetDir').value = '';
+    var errEl = document.getElementById('cloneError');
+    errEl.textContent = '';
+    errEl.className = errEl.className.replace(/\b(?!d-none)\S+/g, '').trim() + ' alert alert-danger d-none';
+    document.getElementById('cloneProgress').className = (document.getElementById('cloneProgress').className || '') + ' d-none';
+    var btn = document.getElementById('cloneBtn');
+    btn.disabled = false;
+    btn.innerHTML = '<i class="bi bi-cloud-download me-1"></i>' + (window.i18n ? window.i18n.t('code_analysis.clone_btn') : 'Klonen');
+    showModalById('cloneModal');
+  }
+
+  function cloneBrowseDir() {
+    if (!_glContextTarget) return;
+    window._fbTargetInputId = 'cloneTargetDir';
+    window._fbReturnToModal = false;
+    hideModalById('cloneModal');
+    fbOpenBrowser(document.getElementById('cloneTargetDir').value.trim());
+  }
+
+  function caDoClone() {
+    if (!_glContextTarget) return;
+    var t = _glContextTarget;
+    var targetDir = (document.getElementById('cloneTargetDir').value || '').trim();
+    var errEl = document.getElementById('cloneError');
+    errEl.className = errEl.className.replace(/(?<!\S)(?![\s\S]*\bd-none\b)/, '').replace(/\bd-none\b/, '').trim();
+
+    if (!targetDir) {
+      errEl.textContent = window.i18n ? window.i18n.t('code_analysis.clone_target_required') : 'Bitte ein Zielverzeichnis angeben.';
+      errEl.className = 'alert alert-danger';
+      return;
+    }
+
+    var btn = document.getElementById('cloneBtn');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>' + (window.i18n ? window.i18n.t('code_analysis.cloning') : 'Klone…');
+    errEl.className = (errEl.className || '') + ' d-none';
+    document.getElementById('cloneProgress').className = document.getElementById('cloneProgress').className.replace(/\bd-none\b/g, '').trim();
+
+    fetch('/api/local-repos/gitlab/' + t.configId + '/clone', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ httpUrl: t.httpUrl, projectName: t.projectName, targetDir: targetDir })
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      document.getElementById('cloneProgress').className = (document.getElementById('cloneProgress').className || '') + ' d-none';
+      btn.disabled = false;
+      btn.innerHTML = '<i class="bi bi-cloud-download me-1"></i>' + (window.i18n ? window.i18n.t('code_analysis.clone_btn') : 'Klonen');
+      if (!data.success) {
+        errEl.textContent = data.error || 'Unbekannter Fehler';
+        errEl.className = 'alert alert-danger';
+        return;
+      }
+      hideModalById('cloneModal');
+      caRefreshRepoCard(data.repo);
+      showAlert(window.i18n ? window.i18n.t('code_analysis.clone_success') : 'Repository geklont und hinzugef\u00fcgt!', 'success');
+    })
+    .catch(function(e) {
+      document.getElementById('cloneProgress').className = (document.getElementById('cloneProgress').className || '') + ' d-none';
+      btn.disabled = false;
+      btn.innerHTML = '<i class="bi bi-cloud-download me-1"></i>' + (window.i18n ? window.i18n.t('code_analysis.clone_btn') : 'Klonen');
+      errEl.textContent = (window.i18n ? window.i18n.t('common.error') : 'Fehler') + ': ' + (e.message || e);
+      errEl.className = 'alert alert-danger';
+    });
+  }
+</script>
+</th:block>
+</body>
+</html>

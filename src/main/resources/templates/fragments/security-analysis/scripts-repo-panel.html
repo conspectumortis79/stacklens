@@ -1,0 +1,556 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" lang="de">
+<body>
+<th:block th:fragment="scripts-repo-panel">
+
+<script>
+
+  function baOpenAddRepoModal(id, name, path, active) {
+    document.getElementById('baRepoId').value   = id   || '';
+    document.getElementById('baRepoName').value = name || '';
+    document.getElementById('baRepoPath').value = path || '';
+    document.getElementById('baRepoActive').checked = (active === undefined || active === null) ? true : !!active;
+    document.getElementById('baRepoModalError').classList.add('d-none');
+    document.getElementById('baRepoModalTitle').querySelector('span').textContent =
+      id ? _baI18n('bug_analysis.repo_edit_title','Repository bearbeiten')
+         : _baI18n('bug_analysis.repo_add_title','Repository hinzufügen');
+    var modal = new bootstrap.Modal(document.getElementById('baRepoModal'));
+    modal.show();
+  }
+
+  function baSaveRepo() {
+    var id     = document.getElementById('baRepoId').value;
+    var name   = document.getElementById('baRepoName').value.trim();
+    var path   = document.getElementById('baRepoPath').value.trim();
+    var active = document.getElementById('baRepoActive').checked;
+    var err    = document.getElementById('baRepoModalError');
+    if (!name || !path) { err.textContent = _baI18n('common.fill_required','Pflichtfelder ausfüllen'); err.classList.remove('d-none'); return; }
+
+    var scope = 'BUG_ANALYSIS';
+    var url    = id ? '/api/local-repos/' + id : '/api/local-repos';
+    var method = id ? 'PUT' : 'POST';
+    fetch(url, { method: method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: id ? parseInt(id, 10) : null, name: name, path: path, active: active, scope: scope }) })
+      .then(function(r) {
+        if (!r.ok) throw new Error(_baI18n('common.error_save','Fehler beim Speichern.'));
+        return r.json();
+      })
+      .then(function(repo) {
+        if (repo.error) { err.textContent = repo.error; err.classList.remove('d-none'); return; }
+        bootstrap.Modal.getInstance(document.getElementById('baRepoModal')).hide();
+        baRefreshLocalRepoCard(repo);
+      })
+      .catch(function(e) { err.textContent = e.message; err.classList.remove('d-none'); });
+  }
+
+  function baRefreshLocalRepoCard(repo) {
+    var card = document.getElementById('baRepoCard-' + repo.id);
+    if (card) {
+      card.querySelector('.ba-repo-name').textContent = repo.name;
+      card.querySelector('.ba-repo-path').textContent = repo.path;
+      card.setAttribute('data-repo-name',   repo.name);
+      card.setAttribute('data-repo-path',   repo.path);
+      card.setAttribute('data-repo-active', repo.active);
+      card.classList.toggle('ba-repo-inactive', !repo.active);
+    } else {
+
+      var noHint = document.querySelector('#baLocalRepoList .text-muted');
+      if (noHint) noHint.remove();
+
+      var newCard = document.createElement('div');
+      newCard.className = 'ba-repo-card' + (repo.active ? '' : ' ba-repo-inactive');
+      newCard.id = 'baRepoCard-' + repo.id;
+      newCard.setAttribute('data-repo-id',     repo.id);
+      newCard.setAttribute('data-repo-name',   repo.name);
+      newCard.setAttribute('data-repo-path',   repo.path);
+      newCard.setAttribute('data-repo-active', repo.active);
+      newCard.setAttribute('onclick', 'baSelectLocal(+this.dataset.repoId, this.dataset.repoName)');
+      newCard.style.cursor = 'pointer';
+      newCard.innerHTML =
+        '<div class="ba-repo-name">' + baEsc(repo.name) + '</div>' +
+        '<div class="ba-repo-path">' + baEsc(repo.path) + '</div>' +
+        '<div class="ba-card-status"></div>' +
+        '<div class="ba-btn-row">' +
+          '<button class="ba-btn-xs ba-btn-xs-success"' +
+            ' onclick="event.stopPropagation(); var c=this.closest(\'.ba-repo-card\'); baSelectLocal(+c.dataset.repoId, c.dataset.repoName); baStartAnalysis(+c.dataset.repoId, c.dataset.repoName, null, null, null)">' +
+            '<i class="bi bi-play-fill"></i> ' + (window.i18n ? window.i18n.t('bug_analysis.btn_start') : 'Starten') + '</span>' +
+          '</button>' +
+          '<button class="ba-btn-xs ba-btn-xs-cancel"' +
+            ' onclick="event.stopPropagation(); baCancelAnalysis()" title="Abbrechen">' +
+            '<i class="bi bi-x-circle"></i>' +
+          '</button>' +
+          '<button class="ba-btn-xs ba-btn-xs-outline" data-ba-edit="true"' +
+            ' onclick="event.stopPropagation(); var c=this.closest(\'.ba-repo-card\'); baOpenAddRepoModal(+c.dataset.repoId, c.dataset.repoName, c.dataset.repoPath, c.dataset.repoActive === \'true\')">' +
+            '<i class="bi bi-pencil"></i>' +
+          '</button>' +
+          '<button class="ba-btn-xs ba-btn-xs-outline"' +
+            ' onclick="event.stopPropagation(); baDeleteRepo(+this.closest(\'.ba-repo-card\').dataset.repoId)">' +
+            '<i class="bi bi-trash"></i>' +
+          '</button>' +
+        '</div>';
+
+      var list = document.getElementById('baLocalRepoList');
+      list.appendChild(newCard);
+
+      var cards = Array.prototype.slice.call(list.querySelectorAll('.ba-repo-card'));
+      cards.sort(function(a, b) {
+        return (a.getAttribute('data-repo-name') || '').localeCompare(b.getAttribute('data-repo-name') || '');
+      });
+      cards.forEach(function(c) { list.appendChild(c); });
+      _baApplyI18n();
+    }
+  }
+
+  function baDeleteRepo(id) {
+    showConfirm(
+      _baI18n('bug_analysis.confirm_delete_repo', 'Repository wirklich löschen?'),
+      _baI18n('common.delete', 'Löschen'),
+      function() {
+        fetch('/api/local-repos/' + id, { method: 'DELETE' })
+          .then(function() {
+            var card = document.getElementById('baRepoCard-' + id);
+            if (card) card.remove();
+            if (baCurrentRepoId === id) {
+              baCurrentRepoId = null;
+              baCurrentRepoName = '';
+              if (baPollTimer) { clearInterval(baPollTimer); baPollTimer = null; }
+              ++_baPollVersion;
+              baShowEmpty('');
+            }
+          });
+      },
+      _baI18n('common.delete', 'Löschen'),
+      'bi-trash',
+      '#b91c1c'
+    );
+  }
+
+  var _baGlLoaded = {};
+
+  function baLoadGitlabConfigs() {
+    var section   = document.getElementById('baGitlabSection');
+    var container = document.getElementById('baGitlabConfigList');
+    if (!container) return;
+    _baGlLoaded = {};
+    var _gen = ++_baGlConfigGen;
+    var _seq = _baGlVisitSeq;
+    fetch('/api/local-repos/gitlab/configs')
+      .then(function(r) { return r.json(); })
+      .then(function(configs) {
+        if (_gen !== _baGlConfigGen || _seq !== _baGlVisitSeq) return;
+        if (!configs || configs.length === 0) {
+          container.innerHTML =
+            '<div class="text-muted small text-center py-3">' +
+              '<i class="bi bi-gitlab d-block fs-4 mb-1" style="color:#fc6d26;opacity:.5;"></i>' +
+              (window.i18n ? window.i18n.t('code_analysis.no_gitlab_config') : 'Keine GitLab-Konfiguration vorhanden.') + '<br>' +
+              '<a href="/config" class="sl-link small"><i class="bi bi-gear me-1"></i>' + (window.i18n ? window.i18n.t('code_analysis.configure_now') : 'Jetzt konfigurieren') + '</a>' +
+            '</div>';
+          return;
+        }
+        container.innerHTML = '';
+        configs = configs.slice().sort(function(a, b) { return (a.name || '').localeCompare(b.name || ''); });
+        configs.forEach(function(cfg) {
+          var wrapper = document.createElement('div');
+          wrapper.className = 'mb-2';
+          wrapper.innerHTML =
+            '<div class="d-flex align-items-center gap-2 p-2 rounded ba-gitlab-header" ' +
+              'style="border:1px solid var(--ba-line);cursor:pointer;" ' +
+              'id="baGlHeader-' + cfg.id + '" ' +
+              'onclick="baToggleGitlabConfig(this,' + cfg.id + ')">' +
+              '<i class="bi bi-gitlab" style="color:#fc6d26;"></i>' +
+              '<span class="fw-bold flex-grow-1" style="font-size:13px;word-break:break-all;">' + baEsc(cfg.name) + '</span>' +
+              '<i class="bi bi-chevron-down small text-muted ba-gl-chevron"></i>' +
+            '</div>' +
+            '<div class="ba-gitlab-projects d-none" id="baGlProjects-' + cfg.id + '" data-config-id="' + cfg.id + '">' +
+              '<div class="text-muted small text-center py-2">' + _baI18n('bug_analysis.loading_projects', 'Projekte werden geladen\u2026') + '</div>' +
+            '</div>';
+          container.appendChild(wrapper);
+        });
+
+        var _saved;
+        try { _saved = JSON.parse(localStorage.getItem('ba_state') || 'null'); } catch(_) {}
+
+        container.querySelectorAll('.ba-gitlab-projects[data-config-id]').forEach(function(div) {
+          var cfgId = div.getAttribute('data-config-id');
+          var _baGlPref = null;
+          try { _baGlPref = localStorage.getItem('ba_gl_open_' + cfgId); } catch(_) {}
+          var wasOpen = _baGlPref === '1';
+
+          if (!wasOpen && _baGlPref !== '0' && _saved && String(_saved.gitlabConfigId) === String(cfgId)) wasOpen = true;
+          if (wasOpen) {
+            var hdr = document.getElementById('baGlHeader-' + cfgId);
+            if (hdr) baToggleGitlabConfig(hdr, cfgId);
+          }
+        });
+        if (_saved && _saved.gitlabConfigId && _saved.gitlabProjectId) {
+          var _h = document.getElementById('baGlHeader-' + _saved.gitlabConfigId);
+          var _p = document.getElementById('baGlProjects-' + _saved.gitlabConfigId);
+          var _baSavedPref = null;
+          try { _baSavedPref = localStorage.getItem('ba_gl_open_' + _saved.gitlabConfigId); } catch(_) {}
+          if (_h && _p && _p.classList.contains('d-none') && _baSavedPref !== '0') baToggleGitlabConfig(_h, _saved.gitlabConfigId);
+
+          baSelectGitlab(_saved.gitlabConfigId, _saved.gitlabProjectId, _saved.gitlabProjectPath, _saved.repoName, _saved.analysisId || null);
+        }
+
+        _baConfigsDomReady = true;
+        _baMaybeAutoOpen();
+      })
+      .catch(function() {
+        if (_gen !== _baGlConfigGen || _seq !== _baGlVisitSeq) return;
+        _baConfigsDomReady = true;
+        _baMaybeAutoOpen();
+        if (container) container.innerHTML = '<div class="text-muted small text-center py-2"><i class="bi bi-exclamation-circle me-1 text-warning"></i>' + (window.i18n ? window.i18n.t('common.load_failed') : 'Konnte nicht geladen werden.') + '</div>';
+      });
+  }
+
+  function baToggleGitlabConfig(headerEl, configId) {
+    var projectsDiv = headerEl.parentElement.querySelector('.ba-gitlab-projects');
+    var chevron     = headerEl.querySelector('.ba-gl-chevron');
+    if (!projectsDiv) return;
+    var isOpen = !projectsDiv.classList.contains('d-none');
+    if (isOpen) {
+      projectsDiv.classList.add('d-none');
+      if (chevron) chevron.className = chevron.className.replace(/\bbi-chevron-up\b/g, 'bi-chevron-down');
+      try { localStorage.setItem('ba_gl_open_' + configId, '0'); } catch(_) {}
+    } else {
+      projectsDiv.classList.remove('d-none');
+      if (chevron) chevron.className = chevron.className.replace(/\bbi-chevron-down\b/g, 'bi-chevron-up');
+      try { localStorage.setItem('ba_gl_open_' + configId, '1'); } catch(_) {}
+      if (!_baGlLoaded[configId]) {
+        _baGlLoaded[configId] = true;
+        baFetchGitlabProjects(configId, projectsDiv);
+      }
+    }
+  }
+
+  function baFetchGitlabProjects(configId, container) {
+    fetch('/api/local-repos/gitlab/' + configId + '/projects')
+      .then(function(r) { return (window.slHelpers || {}).jsonArray ? (window.slHelpers || {}).jsonArray(r) : r.json(); })
+      .then(function(projects) {
+        if (!document.body.contains(container)) return;
+        if (projects.length === 0) {
+          container.innerHTML = '<div class="text-muted small text-center p-2">' + _baI18n('bug_analysis.no_projects', 'Keine Projekte gefunden.') + '</div>';
+          return;
+        }
+        baRenderGitlabProjectList(configId, container, projects);
+      })
+      .catch(function(e) {
+        if (!document.body.contains(container)) return;
+        container.innerHTML = '<div class="text-danger small p-2">Fehler: ' + baEsc((e && e.message) || '') + '</div>';
+      });
+  }
+
+  function baRenderGitlabProjectList(configId, container, projects) {
+    var filterInput = document.createElement('input');
+    filterInput.type = 'search';
+    filterInput.className = 'form-control form-control-sm mb-2 mt-1 sl-search-input';
+    filterInput.setAttribute('autocomplete', 'off');
+    filterInput.placeholder = _baI18n('bug_analysis.filter_projects', 'Projekt filtern\u2026');
+    filterInput.style.cssText = 'border-radius:999px;margin-left:-4px;width:calc(100% + 4px);';
+    container.innerHTML = '';
+    container.appendChild(filterInput);
+    var listDiv = document.createElement('div');
+    container.appendChild(listDiv);
+
+    function render(term) {
+      var filtered = term
+        ? projects.filter(function(p) {
+            return ((p.name || '') + ' ' + (p.path_with_namespace || '')).toLowerCase().indexOf(term.toLowerCase()) >= 0;
+          })
+        : projects;
+      filtered = filtered.slice().sort(function(a, b) {
+        return (a.name || a.path_with_namespace || '').localeCompare(b.name || b.path_with_namespace || '');
+      });
+      listDiv.innerHTML = '';
+      filtered.slice(0, 100).forEach(function(p) {
+        var path = p.path_with_namespace || p.path || '';
+        var name = p.name || path.split('/').pop() || ('Projekt ' + p.id);
+        var card = document.createElement('div');
+        card.className = 'ba-repo-card ba-gl-project-' + configId;
+        card.setAttribute('data-cfg-id',     configId);
+        card.setAttribute('data-project-id', p.id);
+        card.setAttribute('data-gl-path',    path);
+        card.setAttribute('data-gl-name',    name);
+        card.innerHTML =
+          '<div class="ba-repo-name">' + baEsc(name) + '</div>' +
+          '<div class="ba-repo-path">' + baEsc(path) + '</div>' +
+          '<div class="ba-card-status"></div>' +
+          '<div class="ba-btn-row">' +
+            '<button class="ba-btn-xs ba-btn-xs-success" data-ba-action="gl-start"><i class="bi bi-play-fill"></i> ' + (window.i18n ? window.i18n.t('bug_analysis.btn_start') : 'Starten') + '</button>' +
+            '<button class="ba-btn-xs ba-btn-xs-cancel"  data-ba-action="gl-cancel" title="Abbrechen"><i class="bi bi-x-circle"></i></button>' +
+          '</div>';
+        card.addEventListener('click', (function(pId, pPath, pName) {
+          return function(e) {
+            var btn = e.target.closest('[data-ba-action]');
+            if (btn) {
+              e.stopPropagation();
+              var action = btn.getAttribute('data-ba-action');
+              if (action === 'gl-start') {
+                baSelectGitlab(configId, pId, pPath, pName);
+                baStartAnalysis(null, pName, configId, pId, pPath);
+              } else if (action === 'gl-cancel') {
+                baCancelAnalysis();
+              }
+              return;
+            }
+            baSelectGitlab(configId, pId, pPath, pName);
+          };
+        })(p.id, path, name));
+        listDiv.appendChild(card);
+      });
+      if (window.baRefreshCardStatuses) baRefreshCardStatuses();
+    }
+    render('');
+
+    if (baGitlabConfigId == configId && baGitlabProjectId != null) {
+      listDiv.querySelectorAll('.ba-repo-card').forEach(function(c) {
+        c.classList.toggle('selected', c.dataset.projectId == baGitlabProjectId);
+      });
+    }
+    filterInput.addEventListener('input', function() { render(filterInput.value.trim()); });
+    filterInput.addEventListener('keydown', function(e) {
+      if ((e.key === 'Escape' || e.key === 'Esc') && filterInput.value) {
+        filterInput.value = '';
+        filterInput.dispatchEvent(new Event('input', { bubbles: true }));
+      }
+    });
+  }
+
+  var _baFbReturnToModal = false;
+
+  function baFbDerivedName(path) {
+    return String(path).replace(/\\/g, '/').split('/').filter(Boolean).pop() || String(path);
+  }
+
+  function baFbShowRepoModal() {
+    var el = document.getElementById('baRepoModal');
+    if (el && document.body.contains(el)) new bootstrap.Modal(el).show();
+  }
+
+  function baFbApplyPickedPath(path) {
+    var derivedName = baFbDerivedName(path);
+    if (_baFbReturnToModal) {
+      _baFbReturnToModal = false;
+      fetch('/api/local-repos', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: null, name: derivedName, path: path, active: true, scope: 'BUG_ANALYSIS' })
+      })
+        .then(function (r) { return r.json(); })
+        .then(function (data) {
+          if (data.error) { showAlert('Fehler: ' + data.error, 'danger'); return; }
+          baRefreshLocalRepoCard(data);
+        });
+      return;
+    }
+    document.getElementById('baRepoPath').value = path;
+    var nameEl = document.getElementById('baRepoName');
+    if (nameEl && !nameEl.value.trim()) nameEl.value = derivedName;
+    baFbShowRepoModal();
+  }
+
+  function baFbOpenBrowserForNewRepo() {
+    _baFbReturnToModal = true;
+    __kiChatOpenDirBrowser(function (path) {
+      if (path) baFbApplyPickedPath(path);
+    });
+  }
+
+  function baFbOpenBrowserForEdit() {
+    _baFbReturnToModal = false;
+    var curPath = document.getElementById('baRepoPath').value.trim();
+    var editModal = bootstrap.Modal.getInstance(document.getElementById('baRepoModal'));
+    if (editModal) editModal.hide();
+    __kiChatOpenDirBrowser(function (path) {
+      if (path) { baFbApplyPickedPath(path); return; }
+      baFbShowRepoModal();
+    }, { startPath: curPath });
+  }
+
+  function baToggleGithubAccordion(headerEl) {
+    var reposDiv = headerEl.parentElement.querySelector('.ba-github-repos');
+    var chevron  = headerEl.querySelector('.ba-gh-chevron');
+    if (!reposDiv) return;
+    var isOpen = !reposDiv.classList.contains('d-none');
+    if (isOpen) {
+      reposDiv.classList.add('d-none');
+      if (chevron) chevron.className = chevron.className.replace(/\bbi-chevron-up\b/g, 'bi-chevron-down');
+      try { localStorage.setItem('ba_gh_open', '0'); } catch(_) {}
+    } else {
+      reposDiv.classList.remove('d-none');
+      if (chevron) chevron.className = chevron.className.replace(/\bbi-chevron-down\b/g, 'bi-chevron-up');
+      try { localStorage.setItem('ba_gh_open', '1'); } catch(_) {}
+      _baInitGithubFilter(reposDiv);
+    }
+  }
+
+  function _baInitGithubFilter(reposDiv) {
+    if (reposDiv.querySelector('.ba-gh-filter')) return;
+    var cards = Array.prototype.slice.call(reposDiv.querySelectorAll('.ba-repo-card'));
+    if (cards.length < 2) return;
+    var filterInput = document.createElement('input');
+    filterInput.type = 'search';
+    filterInput.className = 'form-control form-control-sm mb-2 mt-1 ba-gh-filter sl-search-input';
+    filterInput.setAttribute('autocomplete', 'off');
+    filterInput.placeholder = _baI18n('bug_analysis.filter_projects', 'Projekt filtern…');
+    filterInput.style.borderRadius = '999px';
+    reposDiv.insertBefore(filterInput, reposDiv.firstChild);
+    filterInput.addEventListener('input', function() {
+      var term = filterInput.value.toLowerCase();
+      cards.forEach(function(c) {
+        var name = (c.querySelector('.ba-repo-name') || c).textContent.toLowerCase();
+        var path = (c.querySelector('.ba-repo-path') || c).textContent.toLowerCase();
+        c.style.display = (!term || name.indexOf(term) >= 0 || path.indexOf(term) >= 0) ? '' : 'none';
+      });
+    });
+    filterInput.addEventListener('keydown', function(e) {
+      if ((e.key === 'Escape' || e.key === 'Esc') && filterInput.value) {
+        filterInput.value = '';
+        filterInput.dispatchEvent(new Event('input', { bubbles: true }));
+      }
+    });
+  }
+
+  function baSelectGithub(configId, repoName, preferredAnalysisId) {
+    baCurrentRepoId      = null;
+    baCurrentRepoName    = repoName;
+    baGitlabConfigId     = null;
+    baGitlabProjectId    = null;
+    baGitlabProjectPath  = null;
+    baGithubRepoConfigId = configId;
+    baGithubRepoName     = repoName;
+    baCurrentAnalysisId  = null;
+    window._ba.analysisId = baCurrentAnalysisId;
+    baSaveState();
+    ++_baPollVersion;
+    if (baPollTimer) { clearInterval(baPollTimer); baPollTimer = null; }
+    _baStepLog = [];
+    _baHighWaterIteration = 0;
+
+    var _bsGithubSaved = window._baFixPrs && window._baFixPrs['github:' + configId];
+    _baFixRestoreState(_bsGithubSaved && _bsGithubSaved.details);
+    document.querySelectorAll('.ba-repo-card').forEach(function(c) {
+      c.classList.toggle('selected', c.dataset.githubRepoId == configId);
+    });
+    var _ck = 'github:' + configId;
+    var _cached = _baViewCache[_ck];
+    if (_cached && _cached.status !== 'RUNNING' && _cached.status !== 'PENDING') {
+      baCurrentAnalysisId = _cached.analysisId;
+      window._ba.analysisId = baCurrentAnalysisId;
+            if (typeof baInitTokenUsageBar === 'function') baInitTokenUsageBar();
+      document.getElementById('baMainArea').innerHTML = _cached.html;
+      _baApplyI18n();
+      _baUpdateFixPrBadge();
+    } else {
+      document.getElementById('baMainArea').innerHTML =
+        '<div class="ba-empty" style="height:60%;"><i class="bi bi-hourglass-split" style="opacity:.25;font-size:1.4rem;"></i></div>';
+
+      _baUpdateFixPrBadge();
+    }
+    var gen = ++_baStartGen;
+    fetch('/api/bug-analysis/all')
+      .then(function(r) { return r.json(); })
+      .then(function(all) {
+        if (gen !== _baStartGen) return;
+        var matching = (all || []).filter(function(a) { return a.githubRepoConfigId == configId; })
+                                  .sort(function(a,b) { return b.id - a.id; });
+        var preferred = preferredAnalysisId && matching.find(function(a) { return a.id == preferredAnalysisId; });
+        var latest    = preferred || matching[0];
+        if (latest) {
+          if (_cached && _cached.analysisId === latest.id && _cached.status === latest.status &&
+              latest.status !== 'RUNNING' && latest.status !== 'PENDING') {
+            if (!baCurrentAnalysisId) { baCurrentAnalysisId = latest.id;
+            if (typeof baInitTokenUsageBar === 'function') baInitTokenUsageBar(); baSaveState(); }
+            baSetCardStatus(baCardStatusType(latest.status));
+            _baUpdateFixPrBadge();
+            return;
+          }
+          baCurrentAnalysisId = latest.id;
+          window._ba.analysisId = baCurrentAnalysisId;
+            if (typeof baInitTokenUsageBar === 'function') baInitTokenUsageBar();
+          baSaveState();
+          baSetCardStatus(baCardStatusType(latest.status));
+          if (latest.status === 'RUNNING' || latest.status === 'PENDING') {
+            baShowRunning(repoName, latest.currentIteration || 1, latest.totalIterations || 3, null, latest.createdAt);
+            baStartPoll(latest.id);
+          } else {
+            baRenderResult(latest);
+          }
+        } else {
+          delete _baViewCache[_ck];
+          baShowEmpty(repoName);
+        }
+      });
+  }
+
+  function baStartGithubAnalysis(configId, repoName) {
+    _baStepLog = [];
+    _baHighWaterIteration = 0;
+    ++_baStartGen;
+    ++_baPollVersion;
+    if (baPollTimer) { clearInterval(baPollTimer); baPollTimer = null; }
+    baShowRunning(repoName || baGithubRepoName, 1, 3);
+    baSetCardStatus('running');
+    fetch('/api/bug-analysis/start-github', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ githubRepoConfigId: parseInt(configId), iterations: 3 })
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      baCurrentAnalysisId = d.analysisId;
+      window._ba.analysisId = baCurrentAnalysisId;
+      baSaveState();
+      baStartPoll(d.analysisId);
+    })
+    .catch(function(e) { baShowError(e.toString()); });
+  }
+
+  function baSetCardBusy(card, busy) {
+    if (!card) return;
+    var btnRow = card.querySelector('.ba-btn-row');
+    if (!btnRow) return;
+    btnRow.querySelectorAll('.ba-btn-xs-success, .ba-btn-xs-outline').forEach(function(btn) {
+      btn.disabled = !!busy;
+      btn.style.opacity = busy ? '0.5' : '';
+      btn.style.cursor  = busy ? 'not-allowed' : '';
+    });
+    btnRow.querySelectorAll('.ba-btn-xs-cancel').forEach(function(btn) {
+      btn.disabled = !busy;
+      btn.style.opacity = busy ? '' : '0.4';
+      btn.style.cursor  = busy ? '' : 'not-allowed';
+    });
+  }
+
+  function baSetCardStatus(type) {
+    var card = null;
+    if (baCurrentRepoId) {
+      card = document.getElementById('baRepoCard-' + baCurrentRepoId);
+    } else if (baGitlabConfigId != null) {
+      card = document.querySelector('[data-cfg-id="' + baGitlabConfigId + '"][data-project-id="' + baGitlabProjectId + '"]');
+    } else if (baGithubRepoConfigId != null) {
+      card = document.querySelector('[data-github-repo-id="' + baGithubRepoConfigId + '"]');
+    }
+    if (!card) return;
+    var statusEl = card.querySelector('.ba-card-status');
+    if (!statusEl) return;
+    statusEl.innerHTML = baCardStatusPill(type);
+    baSetCardBusy(card, type === 'running');
+  }
+
+  (function() {
+    if (document.getElementById('baGitlabConfigList')) {
+      if (window.SLScroll) {
+        SLScroll(
+          document.getElementById('baRepoScrollContent'),
+          document.getElementById('baRepoScrollTrack'),
+          document.getElementById('baRepoScrollThumb')
+        );
+      }
+      baLoadGitlabConfigs();
+      baRestoreState();
+    }
+  })();
+</script>
+</th:block>
+</body>
+</html>

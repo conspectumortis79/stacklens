@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" lang="de">
+<body>
+<th:block th:fragment="scripts-export-save-browser">
+<script>
+var _gaDashExportJson = '';
+
+function openDashboardExportOverlay() {
+  const raw = (rebuiltDashboardData && rebuiltDashboardData.dashboardJson)
+    ? rebuiltDashboardData.dashboardJson
+    : _getCurrentDashboardJsonString();
+  let text = raw;
+  try { text = JSON.stringify(JSON.parse(raw), null, 2); } catch (_) {}
+  _gaDashExportJson = text;
+  const overlay = document.getElementById('gaDashExportOverlay');
+  const code    = document.getElementById('dashExportCode');
+  const info    = document.getElementById('dashExportInfo');
+  if (!overlay) return;
+  let title = 'dashboard';
+  try {
+    const obj = JSON.parse(raw);
+    title = obj.title || obj.dashboard?.title || 'dashboard';
+  } catch (_) {}
+  if (info) info.textContent = title;
+  if (code) code.textContent = text;
+  _gaHideBackgroundScrollbars();
+  overlay.style.display = 'flex';
+}
+
+function closeDashboardExportOverlay() {
+  const overlay = document.getElementById('gaDashExportOverlay');
+  if (overlay) overlay.style.display = 'none';
+  _gaRestoreBackgroundScrollbars();
+}
+
+async function copyDashboardExportContent() {
+  const text = document.getElementById('dashExportCode')?.textContent || '';
+  try {
+    await navigator.clipboard.writeText(text);
+    showAlert(window.i18n ? window.i18n.t('grafana_analysis.copied') : 'In Zwischenablage kopiert.', 'success');
+  } catch (_) { showAlert(_t('grafana_analysis.js_copy_error'), 'warning'); }
+}
+
+function gaDashboardFilename() {
+  var filename = 'grafana-dashboard.json';
+  try {
+    var obj = JSON.parse(_gaDashExportJson);
+    var title = obj.title || (obj.dashboard && obj.dashboard.title) || 'grafana-dashboard';
+    filename = String(title).replace(/[^a-zA-Z0-9_-]/g, '_') + '.json';
+  } catch (_) {}
+  return filename;
+}
+
+function gaLoadSaveDirectoryEntries(path) {
+  return window.slHelpers.browseDirectoriesByPath('/api/grafana-analyse/files/browse', path);
+}
+
+function gaSaveDashboardTo(dir) {
+  var payload = { content: _gaDashExportJson, path: dir, filename: gaDashboardFilename() };
+  fetch('/api/grafana-analyse/save-dashboard-json', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  }).then(function (r) {
+    return r.json().then(function (data) { return { ok: r.ok, data: data }; });
+  }).then(function (res) {
+    if (!res.ok || res.data.error) {
+      showAlert(res.data.error || (window.i18n ? window.i18n.t('common.error_save') : 'Fehler beim Speichern.'), 'danger');
+      return;
+    }
+    showAlert((window.i18n ? window.i18n.t('grafana_analysis.js_saved_dashboard') : 'Dashboard-JSON gespeichert: ') + res.data.savedPath, 'success');
+  }).catch(function (e) {
+    showAlert((window.i18n ? window.i18n.t('common.network_error') : 'Netzwerkfehler: ') + e.message, 'danger');
+  });
+}
+
+function openGaDashSaveOverlay() {
+  _gaHideBackgroundScrollbars();
+  var exportCode = document.getElementById('dashExportCode');
+  if (exportCode) exportCode.style.overflowY = 'hidden';
+  __kiChatOpenDirBrowser(function (dir) {
+    if (exportCode) exportCode.style.overflowY = '';
+    if (dir) gaSaveDashboardTo(dir);
+  }, {
+    titleKey: 'common.save_location',
+    titleFallback: 'Speicherort wählen',
+    load: gaLoadSaveDirectoryEntries,
+  });
+}
+
+</script>
+</th:block>
+</body>
+</html>

@@ -1,0 +1,522 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" lang="de">
+<body>
+<th:block th:fragment="panes-settings">
+<div id="tab-ki" class="cf-tab-pane">
+  <div class="card border-0 shadow-sm cf-card">
+    <div class="card-header bg-white py-3 d-flex align-items-center justify-content-between">
+      <h5 class="mb-0 fw-semibold"><i class="bi bi-robot text-success me-2"></i><span data-i18n="config.ai.section">KI-Konfiguration</span></h5>
+      <span th:if="${aiConfig != null and ((aiConfig.githubToken != null and !#strings.isEmpty(aiConfig.githubToken)) or (aiConfig.openAiApiKey != null and !#strings.isEmpty(aiConfig.openAiApiKey)))}"
+            class="badge bg-success"><i class="bi bi-check-circle me-1"></i><span data-i18n="config.ai.token_set">Token gesetzt</span></span>
+      <span th:unless="${aiConfig != null and ((aiConfig.githubToken != null and !#strings.isEmpty(aiConfig.githubToken)) or (aiConfig.openAiApiKey != null and !#strings.isEmpty(aiConfig.openAiApiKey)))}"
+            class="badge bg-secondary"><i class="bi bi-key me-1"></i><span data-i18n="config.ai.no_token">Kein Token</span></span>
+    </div>
+    <div class="ai-banner-stack">
+    <div id="aiInfoBannerCopilot" class="alert alert-info mb-0 d-flex align-items-start gap-2 rounded-0 border-0 border-bottom" style="font-size:13px;padding:10px 20px;background:#e8f4fd;border-bottom:1px solid #bee5eb !important;">
+      <i class="bi bi-info-circle-fill text-info flex-shrink-0 mt-1"></i>
+      <span data-i18n="config.ai.token_usage_hint">Die Nutzung dieser Applikation verbraucht Token in Ihrem GitHub Copilot Account. Überprüfen Sie deshalb den Verbrauch Ihrer Token bitte in Ihrem GitHub Copilot Account.</span>
+      <a href="https://github.com/settings/billing/summary" target="_blank" rel="noopener" class="ms-auto btn btn-sm btn-outline-info" style="font-size:11px;padding:2px 8px;white-space:nowrap;"><i class="bi bi-box-arrow-up-right me-1"></i>Verbrauch anzeigen</a>
+    </div>
+    <div id="aiInfoBannerOpenAi" class="alert alert-info mb-0 d-flex align-items-start gap-2 rounded-0 border-0 border-bottom" style="font-size:13px;padding:10px 20px;background:#e8f4fd;border-bottom:1px solid #bee5eb !important;visibility:hidden;">
+      <i class="bi bi-info-circle-fill text-info flex-shrink-0 mt-1"></i>
+      <span data-i18n="config.ai.openai_usage_hint">Die Nutzung der OpenAI API verbraucht Credits in Ihrem OpenAI Account.</span>
+      <a href="https://platform.openai.com/usage" target="_blank" rel="noopener" class="ms-auto btn btn-sm btn-outline-info" style="font-size:11px;padding:2px 8px;white-space:nowrap;"><i class="bi bi-box-arrow-up-right me-1"></i>Verbrauch anzeigen</a>
+    </div>
+    <div id="aiInfoBannerOllama" class="alert alert-info mb-0 d-flex align-items-start gap-2 rounded-0 border-0 border-bottom" style="font-size:13px;padding:10px 20px;background:#e8f4fd;border-bottom:1px solid #bee5eb !important;visibility:hidden;">
+      <i class="bi bi-info-circle-fill text-info flex-shrink-0 mt-1"></i>
+      <span data-i18n="config.ai.ollama_usage_hint">Ollama läuft lokal auf Ihrem Gerät. Es werden keine Daten an externe Dienste gesendet.</span>
+      <a href="#" class="ms-auto btn btn-sm btn-outline-info" style="font-size:11px;padding:2px 8px;white-space:nowrap;visibility:hidden;" aria-hidden="true" tabindex="-1"><i class="bi bi-box-arrow-up-right me-1"></i>Verbrauch anzeigen</a>
+    </div>
+    <div id="aiInfoBannerLmStudio" class="alert alert-info mb-0 d-flex align-items-start gap-2 rounded-0 border-0 border-bottom" style="font-size:13px;padding:10px 20px;background:#e8f4fd;border-bottom:1px solid #bee5eb !important;visibility:hidden;">
+      <i class="bi bi-info-circle-fill text-info flex-shrink-0 mt-1"></i>
+      <span data-i18n="config.ai.lmstudio_usage_hint">LM Studio läuft lokal auf Ihrem Gerät. Es werden keine Daten an externe Dienste gesendet.</span>
+      <a href="#" class="ms-auto btn btn-sm btn-outline-info" style="font-size:11px;padding:2px 8px;white-space:nowrap;visibility:hidden;" aria-hidden="true" tabindex="-1"><i class="bi bi-box-arrow-up-right me-1"></i>Verbrauch anzeigen</a>
+    </div>
+    <div id="aiInfoBannerOpenRouter" class="alert alert-info mb-0 d-flex align-items-start gap-2 rounded-0 border-0 border-bottom" style="font-size:13px;padding:10px 20px;background:#e8f4fd;border-bottom:1px solid #bee5eb !important;visibility:hidden;">
+      <i class="bi bi-info-circle-fill text-info flex-shrink-0 mt-1"></i>
+      <span data-i18n="config.ai.openrouter_usage_hint">OpenRouter bietet Zugang zu Hunderten von KI-Modellen verschiedener Anbieter über eine einheitliche API.</span>
+      <a href="https://openrouter.ai/credits" target="_blank" rel="noopener" class="ms-auto btn btn-sm btn-outline-info" style="font-size:11px;padding:2px 8px;white-space:nowrap;"><i class="bi bi-box-arrow-up-right me-1"></i>Verbrauch anzeigen</a>
+    </div>
+    <div id="aiInfoBannerClaudeCode" class="alert alert-info mb-0 d-flex align-items-start gap-2 rounded-0 border-0 border-bottom" style="font-size:13px;padding:10px 20px;background:#e8f4fd;border-bottom:1px solid #bee5eb !important;visibility:hidden;">
+      <i class="bi bi-info-circle-fill text-info flex-shrink-0 mt-1"></i>
+      <span data-i18n="config.ai.claudecode_usage_hint">Claude Code nutzt die Anthropic Messages API. Erstellen Sie ein langlebiges Token mit <code>claude setup-token</code> oder <code>claude login</code>.</span>
+      <a href="https://docs.claude.com/en/docs/claude-code" target="_blank" rel="noopener" class="ms-auto btn btn-sm btn-outline-info" style="font-size:11px;padding:2px 8px;white-space:nowrap;"><i class="bi bi-box-arrow-up-right me-1"></i>Doku öffnen</a>
+    </div>
+    <div id="aiInfoBannerCompatible" class="alert alert-info mb-0 d-flex align-items-start gap-2 rounded-0 border-0 border-bottom" style="font-size:13px;padding:10px 20px;background:#e8f4fd;border-bottom:1px solid #bee5eb !important;visibility:hidden;">
+      <i class="bi bi-plug-fill text-info flex-shrink-0 mt-1"></i>
+      <span data-i18n="config.ai.compatible_usage_hint">Es funktioniert jeder Dienst, der die OpenAI Chat-Completions-API spricht: QwenCloud, DeepSeek, Groq, vLLM, llama.cpp und viele weitere.</span>
+      <a href="https://docs.qwencloud.com/api-reference/preparation/api-key" target="_blank" rel="noopener" class="ms-auto btn btn-sm btn-outline-info" style="font-size:11px;padding:2px 8px;white-space:nowrap;"><i class="bi bi-box-arrow-up-right me-1"></i>Doku öffnen</a>
+    </div>
+    </div>
+    <div class="card-body">
+      <div class="row g-3 align-items-end mb-2">
+        <div class="col-12">
+          <label class="form-label fw-semibold mb-1" data-i18n="config.ai.provider_label">KI-Anbieter</label>
+          <div class="ai-provider-grid">
+            <div class="form-check" id="aiProviderCheckCopilot">
+              <input class="form-check-input" type="radio" name="aiProvider" id="aiProviderCopilot" value="copilot"
+                     th:checked="${aiConfig == null or aiConfig.aiProvider == null or aiConfig.aiProvider == 'copilot'}"
+                     onchange="onAiProviderChange()">
+              <label class="form-check-label" for="aiProviderCopilot">
+                <i class="bi bi-github me-1"></i><span data-i18n="config.ai.provider_copilot">GitHub Copilot</span>
+                <span id="aiActiveBadgeCopilot" class="ki-provider-active-badge"><i class="bi bi-check-circle-fill"></i>Aktiv</span>
+              </label>
+            </div>
+            <div class="form-check" id="aiProviderCheckOpenAi">
+              <input class="form-check-input" type="radio" name="aiProvider" id="aiProviderOpenAi" value="openai"
+                     th:checked="${aiConfig != null and aiConfig.aiProvider == 'openai'}"
+                     onchange="onAiProviderChange()">
+              <label class="form-check-label" for="aiProviderOpenAi">
+                <i class="bi bi-stars me-1"></i><span data-i18n="config.ai.provider_openai">OpenAI GPT</span>
+                <span id="aiActiveBadgeOpenAi" class="ki-provider-active-badge"><i class="bi bi-check-circle-fill"></i>Aktiv</span>
+              </label>
+            </div>
+            <div class="form-check" id="aiProviderCheckOllama">
+              <input class="form-check-input" type="radio" name="aiProvider" id="aiProviderOllama" value="ollama"
+                     th:checked="${aiConfig != null and aiConfig.aiProvider == 'ollama'}"
+                     onchange="onAiProviderChange()">
+              <label class="form-check-label" for="aiProviderOllama">
+                <i class="bi bi-cpu me-1"></i><span data-i18n="config.ai.provider_ollama">Ollama (lokal)</span>
+                <span id="aiActiveBadgeOllama" class="ki-provider-active-badge"><i class="bi bi-check-circle-fill"></i>Aktiv</span>
+              </label>
+            </div>
+            <div class="form-check" id="aiProviderCheckLmStudio">
+              <input class="form-check-input" type="radio" name="aiProvider" id="aiProviderLmStudio" value="lmstudio"
+                     th:checked="${aiConfig != null and aiConfig.aiProvider == 'lmstudio'}"
+                     onchange="onAiProviderChange()">
+              <label class="form-check-label" for="aiProviderLmStudio">
+                <i class="bi bi-layout-text-sidebar-reverse me-1"></i><span data-i18n="config.ai.provider_lmstudio">LM Studio (lokal)</span>
+                <span id="aiActiveBadgeLmStudio" class="ki-provider-active-badge"><i class="bi bi-check-circle-fill"></i>Aktiv</span>
+              </label>
+            </div>
+            <div class="form-check" id="aiProviderCheckOpenRouter">
+              <input class="form-check-input" type="radio" name="aiProvider" id="aiProviderOpenRouter" value="openrouter"
+                     th:checked="${aiConfig != null and aiConfig.aiProvider == 'openrouter'}"
+                     onchange="onAiProviderChange()">
+              <label class="form-check-label" for="aiProviderOpenRouter">
+                <i class="bi bi-globe me-1"></i><span data-i18n="config.ai.provider_openrouter">OpenRouter</span>
+                <span id="aiActiveBadgeOpenRouter" class="ki-provider-active-badge"><i class="bi bi-check-circle-fill"></i>Aktiv</span>
+              </label>
+            </div>
+            <div class="form-check" id="aiProviderCheckClaudeCode">
+              <input class="form-check-input" type="radio" name="aiProvider" id="aiProviderClaudeCode" value="claudecode"
+                     th:checked="${aiConfig != null and aiConfig.aiProvider == 'claudecode'}"
+                     onchange="onAiProviderChange()">
+              <label class="form-check-label" for="aiProviderClaudeCode">
+                <i class="bi bi-braces me-1"></i><span data-i18n="config.ai.provider_claudecode">Claude Code</span>
+                <span id="aiActiveBadgeClaudeCode" class="ki-provider-active-badge"><i class="bi bi-check-circle-fill"></i>Aktiv</span>
+              </label>
+            </div>
+            <div class="form-check" id="aiProviderCheckCompatible">
+              <input class="form-check-input" type="radio" name="aiProvider" id="aiProviderCompatible" value="compatible"
+                     th:checked="${aiConfig != null and aiConfig.aiProvider == 'compatible'}"
+                     onchange="onAiProviderChange()">
+              <label class="form-check-label" for="aiProviderCompatible">
+                <i class="bi bi-plug me-1"></i><span data-i18n="config.ai.provider_compatible">OpenAI-kompatibel</span>
+                <span id="aiActiveBadgeCompatible" class="ki-provider-active-badge"><i class="bi bi-check-circle-fill"></i>Aktiv</span>
+              </label>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="row g-3 align-items-end">
+        <div class="col-md-5" id="aiTokenSection">
+          <label class="form-label fw-semibold mb-1" data-i18n="config.ai.token_label">GitHub-Token
+            <span class="text-muted small fw-normal ms-1">(COPILOT_GITHUB_TOKEN)</span>
+          </label>
+          <div class="input-group">
+            <input class="form-control" id="aiGithubToken" type="password"
+                   th:attr="data-i18n-placeholder=${aiConfig != null and aiConfig.githubToken != null and !#strings.isEmpty(aiConfig.githubToken)} ? 'config.ai.token_placeholder_set' : 'config.ai.token_placeholder_empty'"/>
+            <button class="btn btn-outline-secondary" type="button" onclick="togglePw('aiGithubToken')"><i class="bi bi-eye"></i></button>
+          </div>
+        </div>
+        <div class="col-md-5 d-none" id="aiOpenAiKeySection">
+          <label class="form-label fw-semibold mb-1" data-i18n="config.ai.openai_key_label">OpenAI API-Key
+            <span class="text-muted small fw-normal ms-1">(OPENAI_API_KEY)</span>
+          </label>
+          <div class="input-group">
+            <input class="form-control" id="aiOpenAiApiKey" type="password"
+                   th:attr="data-i18n-placeholder=${aiConfig != null and aiConfig.openAiApiKey != null and !#strings.isEmpty(aiConfig.openAiApiKey)} ? 'config.ai.openai_key_placeholder_set' : 'config.ai.openai_key_placeholder_empty'"/>
+            <button class="btn btn-outline-secondary" type="button" onclick="togglePw('aiOpenAiApiKey')"><i class="bi bi-eye"></i></button>
+          </div>
+        </div>
+        <div class="col-md-5 d-none" id="aiOllamaUrlSection">
+          <label class="form-label fw-semibold mb-1" data-i18n="config.ai.ollama_url_label">Ollama URL</label>
+          <input class="form-control" id="aiOllamaUrl" type="text"
+                 th:value="${aiConfig != null and aiConfig.ollamaUrl != null} ? ${aiConfig.ollamaUrl} : 'http://localhost:11434'"
+                 placeholder="http://localhost:11434"/>
+        </div>
+        <div class="col-md-5 d-none" id="aiLmStudioUrlSection">
+          <label class="form-label fw-semibold mb-1" data-i18n="config.ai.lmstudio_url_label">LM Studio URL</label>
+          <input class="form-control" id="aiLmStudioUrl" type="text"
+                 th:value="${aiConfig != null and aiConfig.lmStudioUrl != null} ? ${aiConfig.lmStudioUrl} : 'http://localhost:1234'"
+                 placeholder="http://localhost:1234"/>
+        </div>
+        <div class="col-md-5 d-none" id="aiOpenRouterKeySection">
+          <label class="form-label fw-semibold mb-1" data-i18n="config.ai.openrouter_key_label">OpenRouter API-Key
+            <span class="text-muted small fw-normal ms-1">(OPENROUTER_API_KEY)</span>
+          </label>
+          <div class="input-group">
+            <input class="form-control" id="aiOpenRouterApiKey" type="password"
+                   th:attr="data-i18n-placeholder=${aiConfig != null and aiConfig.openRouterApiKey != null and !#strings.isEmpty(aiConfig.openRouterApiKey)} ? 'config.ai.openrouter_key_placeholder_set' : 'config.ai.openrouter_key_placeholder_empty'"/>
+            <button class="btn btn-outline-secondary" type="button" onclick="togglePw('aiOpenRouterApiKey')"><i class="bi bi-eye"></i></button>
+          </div>
+        </div>
+        <div class="col-md-5 d-none" id="aiClaudeCodeKeySection">
+          <label class="form-label fw-semibold mb-1" data-i18n="config.ai.claudecode_key_label">Claude Code API-Key
+            <span class="text-muted small fw-normal ms-1">(ANTHROPIC_API_KEY / <code>claude setup-token</code>)</span>
+          </label>
+          <div class="input-group">
+            <input class="form-control" id="aiClaudeCodeApiKey" type="password"
+                   th:attr="data-i18n-placeholder=${aiConfig != null and aiConfig.claudeCodeApiKey != null and !#strings.isEmpty(aiConfig.claudeCodeApiKey)} ? 'config.ai.claudecode_key_placeholder_set' : 'config.ai.claudecode_key_placeholder_empty'"/>
+            <button class="btn btn-outline-secondary" type="button" onclick="togglePw('aiClaudeCodeApiKey')"><i class="bi bi-eye"></i></button>
+          </div>
+        </div>
+        <div class="col-md-5 d-none" id="aiCompatibleUrlSection">
+          <label class="form-label fw-semibold mb-1" data-i18n="config.ai.compatible_preset_label">Vorgabe</label>
+          <select class="form-select" id="aiCompatiblePreset" onchange="applyCompatiblePreset()">
+            <option value="" data-i18n="config.ai.compatible_preset_custom">Eigener / anderer Server</option>
+            <option value="https://dashscope-intl.aliyuncs.com/compatible-mode/v1">QwenCloud · Pay-as-you-go</option>
+            <option value="https://dashscope.aliyuncs.com/compatible-mode/v1">QwenCloud · Festland-China</option>
+            <option value="https://token-plan.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1">QwenCloud · Token Plan</option>
+            <option value="https://coding-intl.dashscope.aliyuncs.com/v1">QwenCloud · Coding Plan</option>
+            <option value="https://api.deepseek.com/v1">DeepSeek</option>
+            <option value="https://api.groq.com/openai/v1">Groq</option>
+            <option value="https://api.openai.com/v1">OpenAI</option>
+          </select>
+          <label class="form-label fw-semibold mb-1 mt-2" data-i18n="config.ai.compatible_url_label">Basis-URL</label>
+          <input class="form-control" id="aiCompatibleUrl" type="text"
+                 th:value="${aiConfig != null and aiConfig.compatibleBaseUrl != null and !#strings.isEmpty(aiConfig.compatibleBaseUrl)} ? ${aiConfig.compatibleBaseUrl} : 'https://dashscope-intl.aliyuncs.com/compatible-mode/v1'"
+                 placeholder="https://dashscope-intl.aliyuncs.com/compatible-mode/v1"
+                 oninput="_onCompatibleUrlInput()" onchange="_onCompatibleUrlChange()"/>
+        </div>
+        <div class="col-md-5 d-none" id="aiCompatibleKeySection">
+          <label class="form-label fw-semibold mb-1" data-i18n="config.ai.compatible_key_label">API-Key
+            <span class="text-muted small fw-normal ms-1">(OPENAI_COMPATIBLE_API_KEY)</span>
+          </label>
+          <div class="input-group">
+            <input class="form-control" id="aiCompatibleApiKey" type="password"
+                   th:attr="data-i18n-placeholder=${aiConfig != null and aiConfig.compatibleApiKey != null and !#strings.isEmpty(aiConfig.compatibleApiKey)} ? 'config.ai.compatible_key_placeholder_set' : 'config.ai.compatible_key_placeholder_empty'"/>
+            <button class="btn btn-outline-secondary" type="button" onclick="togglePw('aiCompatibleApiKey')"><i class="bi bi-eye"></i></button>
+          </div>
+        </div>
+        <div class="col-md-4 d-none" id="aiCompatibleModelSection"
+             th:with="savedCompatibleModel=${(aiConfig != null and aiConfig.aiProvider == 'compatible' and !#strings.isEmpty(aiConfig.model)) ? aiConfig.model : ''}">
+          <label class="form-label fw-semibold mb-1" for="aiCompatibleModel" data-i18n="config.ai.compatible_model_label">Modell</label>
+          <select class="form-select" id="aiCompatibleModel" onchange="_onCompatibleModelChange()">
+            <option th:if="${not #strings.isEmpty(savedCompatibleModel)}" th:value="${savedCompatibleModel}"
+                  selected="selected" th:text="${savedCompatibleModel}">qwen3.8-flash</option>
+            <option th:unless="${not #strings.isEmpty(savedCompatibleModel)}" value=""
+                  data-i18n="config.ai.compatible_model_loading">Modelle werden geladen…</option>
+          </select>
+          <div class="d-none" id="aiCompatibleModelManualSection">
+            <input class="form-control" id="aiCompatibleModelManual" type="text" autocomplete="off"
+                   th:value="${savedCompatibleModel}" placeholder="qwen3.8-flash"
+                   oninput="_onCompatibleModelManualInput()"/>
+            <div class="form-text" data-i18n="config.ai.compatible_model_hint">Dieser Endpunkt veröffentlicht keine Modellliste — bitte Modell-ID manuell eingeben.</div>
+          </div>
+        </div>
+        <div class="col-md-4" id="aiModelSelectSection">
+          <label class="form-label fw-semibold mb-1" data-i18n="config.ai.model_label">Modell</label>
+          <select class="form-select" id="aiModel">
+            <optgroup label="GitHub Copilot" class="ai-copilot-models" id="aiCopilotModelsGroup">
+              <option th:if="${aiConfig != null and (aiConfig.aiProvider == null or aiConfig.aiProvider == '' or aiConfig.aiProvider == 'copilot') and aiConfig.model != null and !#strings.isEmpty(aiConfig.model)}"
+                      th:value="${aiConfig.model}" selected="selected" th:text="${aiConfig.model}">claude-sonnet-4-5</option>
+            </optgroup>
+            <optgroup label="OpenAI GPT" class="ai-openai-models" id="aiOpenAiModelsGroup">
+              <option th:if="${aiConfig != null and aiConfig.aiProvider == 'openai' and aiConfig.model != null and !#strings.isEmpty(aiConfig.model)}"
+                      th:value="${aiConfig.model}" selected="selected" th:text="${aiConfig.model}">gpt-5.2</option>
+              <option th:unless="${aiConfig != null and aiConfig.aiProvider == 'openai' and aiConfig.model == 'gpt-5.2'}"
+                      value="gpt-5.2">GPT-5.2</option>
+              <option th:unless="${aiConfig != null and aiConfig.aiProvider == 'openai' and aiConfig.model == 'gpt-5-mini'}"
+                      value="gpt-5-mini">GPT-5 mini</option>
+              <option th:unless="${aiConfig != null and aiConfig.aiProvider == 'openai' and aiConfig.model == 'gpt-4.1'}"
+                      value="gpt-4.1">GPT-4.1</option>
+            </optgroup>
+            <optgroup label="Ollama (lokal)" class="ai-ollama-models" id="aiOllamaModelsGroup">
+              <option th:if="${aiConfig != null and aiConfig.aiProvider == 'ollama' and aiConfig.model != null and !#strings.isEmpty(aiConfig.model)}"
+                      th:value="${aiConfig.model}" selected="selected" th:text="${aiConfig.model}">qwen3-coder:30b-a3b-q4_k_m</option>
+              <option th:unless="${aiConfig != null and aiConfig.aiProvider == 'ollama' and aiConfig.model == 'qwen3-coder:30b-a3b-q4_k_m'}"
+                      value="qwen3-coder:30b-a3b-q4_k_m">Qwen3 Coder 30B (Q4_K_M)</option>
+              <option th:unless="${aiConfig != null and aiConfig.aiProvider == 'ollama' and aiConfig.model == 'qwen3.6:latest'}"
+                      value="qwen3.6:latest">Qwen3.6 (latest)</option>
+              <option th:unless="${aiConfig != null and aiConfig.aiProvider == 'ollama' and aiConfig.model == 'gemma4:31b'}"
+                      value="gemma4:31b">Gemma 4 31B</option>
+              <option th:unless="${aiConfig != null and aiConfig.aiProvider == 'ollama' and aiConfig.model == 'deepseek-r1:8b'}"
+                      value="deepseek-r1:8b">DeepSeek R1 8B</option>
+            </optgroup>
+            <optgroup label="LM Studio (lokal)" class="ai-lmstudio-models" id="aiLmStudioModelsGroup">
+              <option th:if="${aiConfig != null and aiConfig.aiProvider == 'lmstudio' and aiConfig.model != null and !#strings.isEmpty(aiConfig.model)}"
+                      th:value="${aiConfig.model}" selected="selected" th:text="${aiConfig.model}">local-model</option>
+              <option th:unless="${aiConfig != null and aiConfig.aiProvider == 'lmstudio' and aiConfig.model == 'local-model'}"
+                      value="local-model">local-model</option>
+            </optgroup>
+            <optgroup label="OpenRouter" class="ai-openrouter-models" id="aiOpenRouterModelsGroup">
+              <option th:if="${aiConfig != null and aiConfig.aiProvider == 'openrouter' and aiConfig.model != null and !#strings.isEmpty(aiConfig.model)}"
+                      th:value="${aiConfig.model}" selected="selected" th:text="${aiConfig.model}">openai/gpt-4.1</option>
+              <option th:unless="${aiConfig != null and aiConfig.aiProvider == 'openrouter' and aiConfig.model == 'openai/gpt-4.1'}"
+                      value="openai/gpt-4.1">OpenAI GPT-4.1</option>
+              <option th:unless="${aiConfig != null and aiConfig.aiProvider == 'openrouter' and aiConfig.model == 'anthropic/claude-3.5-sonnet'}"
+                      value="anthropic/claude-3.5-sonnet">Anthropic Claude 3.5 Sonnet</option>
+              <option th:unless="${aiConfig != null and aiConfig.aiProvider == 'openrouter' and aiConfig.model == 'google/gemini-2.0-flash'}"
+                      value="google/gemini-2.0-flash">Google Gemini 2.0 Flash</option>
+              <option th:unless="${aiConfig != null and aiConfig.aiProvider == 'openrouter' and aiConfig.model == 'deepseek/deepseek-chat-v3'}"
+                      value="deepseek/deepseek-chat-v3">DeepSeek Chat V3</option>
+            </optgroup>
+            <optgroup label="Claude Code" class="ai-claudecode-models" id="aiClaudeCodeModelsGroup">
+              <option th:if="${aiConfig != null and aiConfig.aiProvider == 'claudecode' and aiConfig.model != null and !#strings.isEmpty(aiConfig.model)}"
+                      th:value="${aiConfig.model}" selected="selected" th:text="${aiConfig.model}">claude-sonnet-4-5</option>
+              <option th:unless="${aiConfig != null and aiConfig.aiProvider == 'claudecode' and aiConfig.model == 'claude-sonnet-4-5'}"
+                      value="claude-sonnet-4-5">Claude Sonnet 4.5</option>
+              <option th:unless="${aiConfig != null and aiConfig.aiProvider == 'claudecode' and aiConfig.model == 'claude-opus-4-5'}"
+                      value="claude-opus-4-5">Claude Opus 4.5</option>
+              <option th:unless="${aiConfig != null and aiConfig.aiProvider == 'claudecode' and aiConfig.model == 'claude-haiku-4-5'}"
+                      value="claude-haiku-4-5">Claude Haiku 4.5</option>
+              <option th:unless="${aiConfig != null and aiConfig.aiProvider == 'claudecode' and aiConfig.model == 'claude-sonnet-4-0'}"
+                      value="claude-sonnet-4-0">Claude Sonnet 4.0</option>
+            </optgroup>
+          </select>
+          <div id="aiModelGroupsPool" aria-hidden="true" style="display:none"></div>
+        </div>
+        <div class="col-md-3 ms-auto">
+          <button class="btn btn-primary btn-sm w-100" style="white-space:nowrap;" onclick="saveAiConfig()">
+            <i class="bi bi-save me-1"></i><span data-i18n="config.ai.save">Speichern</span>
+          </button>
+        </div>
+      </div>
+      <div class="row g-3 mt-2">
+        <div class="col-md-3 offset-md-9 d-flex flex-column gap-2">
+          <button class="btn btn-outline-secondary btn-sm w-100 ai-copilot-btn" style="white-space:nowrap;" onclick="testCopilotModel()" id="aiTestModelBtn">
+            <i class="bi bi-cpu me-1"></i><span data-i18n="config.ai.test_model">Modell testen</span>
+          </button>
+          <button class="btn btn-outline-primary btn-sm w-100" style="white-space:nowrap;" onclick="testAiToken()" id="aiTestTokenBtn">
+            <i class="bi bi-check2-circle me-1"></i><span data-i18n="config.ai.test_token">Token testen</span>
+          </button>
+          <button class="btn btn-outline-secondary btn-sm w-100 d-none" style="white-space:nowrap;" onclick="testOpenAiConnection()" id="aiTestOpenAiBtn">
+            <i class="bi bi-plug me-1"></i><span data-i18n="config.ai.test_openai">OpenAI testen</span>
+          </button>
+          <button class="btn btn-outline-secondary btn-sm w-100 d-none" style="white-space:nowrap;" onclick="testOllamaConnection()" id="aiTestOllamaBtn">
+            <i class="bi bi-plug me-1"></i><span data-i18n="config.ai.test_ollama">Ollama testen</span>
+          </button>
+          <button class="btn btn-outline-secondary btn-sm w-100 d-none" style="white-space:nowrap;" onclick="testLmStudioConnection()" id="aiTestLmStudioBtn">
+            <i class="bi bi-plug me-1"></i><span data-i18n="config.ai.test_lmstudio">LM Studio testen</span>
+          </button>
+          <button class="btn btn-outline-secondary btn-sm w-100 d-none" style="white-space:nowrap;" onclick="testOpenRouterConnection()" id="aiTestOpenRouterBtn">
+            <i class="bi bi-plug me-1"></i><span data-i18n="config.ai.test_openrouter">OpenRouter testen</span>
+          </button>
+          <button class="btn btn-outline-secondary btn-sm w-100 d-none" style="white-space:nowrap;" onclick="testCompatibleConnection()" id="aiTestCompatibleBtn">
+            <i class="bi bi-plug me-1"></i><span data-i18n="config.ai.test_compatible">Verbindung testen</span>
+          </button>
+          <button class="btn btn-outline-secondary btn-sm w-100 d-none" style="white-space:nowrap;" onclick="testClaudeCodeConnection()" id="aiTestClaudeCodeBtn">
+            <i class="bi bi-plug me-1"></i><span data-i18n="config.ai.test_claudecode">Claude Code testen</span>
+          </button>
+        </div>
+      </div>
+      <div class="row g-3 mt-2 d-none" id="aiOllamaNumCtxSection">
+        <div class="col-md-4">
+          <label class="form-label fw-semibold mb-1" data-i18n="config.ai.ollama_num_ctx_label">Kontext (num_ctx)</label>
+          <input class="form-control" id="aiOllamaNumCtx" type="number" min="512" max="131072" step="512"
+                 th:value="${aiConfig != null} ? ${aiConfig.ollamaNumCtx} : 32768"
+                 placeholder="32768"/>
+          <div class="form-text" id="aiOllamaNumCtxHint" data-i18n="config.ai.ollama_num_ctx_hint">Token-Kontextgröße. Standard: <code>32768</code></div>
+        </div>
+      </div>
+      <div class="row g-3 mt-2 d-none" id="aiOpenAiReasoningSection">
+        <div class="col-md-4">
+          <label class="form-label fw-semibold mb-1" for="aiOpenAiReasoningEffort" data-i18n="config.ai.openai_reasoning_label">Tempo / Intelligenz</label>
+          <select class="form-select" id="aiOpenAiReasoningEffort">
+            <option value="low"
+                    th:selected="${aiConfig != null and aiConfig.openAiReasoningEffort == 'low'}"
+                    data-i18n="config.ai.openai_reasoning_fast">Schnell</option>
+            <option value="medium"
+                    th:selected="${aiConfig == null or aiConfig.openAiReasoningEffort == null or aiConfig.openAiReasoningEffort == '' or aiConfig.openAiReasoningEffort == 'medium'}"
+                    data-i18n="config.ai.openai_reasoning_balanced">Ausgewogen</option>
+            <option value="high"
+                    th:selected="${aiConfig != null and aiConfig.openAiReasoningEffort == 'high'}"
+                    data-i18n="config.ai.openai_reasoning_smart">Intelligent</option>
+          </select>
+          <div class="form-text" data-i18n="config.ai.openai_reasoning_hint">Niedrig ist schneller, hoch ist gründlicher. Die Unterstützung ist modellabhängig.</div>
+        </div>
+      </div>
+      <div class="row mt-1">
+        <div class="col-md-5" id="aiTokenHint">
+          <div class="form-text" data-i18n="config.ai.token_keep_hint">Leer lassen um den gesetzten Token zu behalten. Env-Var-Fallback: <code>COPILOT_GITHUB_TOKEN</code> → <code>GH_TOKEN</code> → <code>GITHUB_TOKEN</code></div>
+        </div>
+        <div class="col-md-5 d-none" id="aiOpenAiKeyHint">
+          <div class="form-text" data-i18n="config.ai.openai_key_hint">OpenAI API-Key aus platform.openai.com. Leer lassen um den gesetzten Key zu behalten. Env-Var-Fallback: <code>OPENAI_API_KEY</code></div>
+        </div>
+        <div class="col-md-5 d-none" id="aiOllamaUrlHint">
+          <div class="form-text" data-i18n="config.ai.ollama_url_hint">Basis-URL der lokalen Ollama-Instanz. Standard: <code>http://localhost:11434</code></div>
+        </div>
+        <div class="col-md-5 d-none" id="aiLmStudioUrlHint">
+          <div class="form-text" data-i18n="config.ai.lmstudio_url_hint">Basis-URL der lokalen LM Studio Instanz. Standard: <code>http://localhost:1234</code></div>
+        </div>
+        <div class="col-md-5 d-none" id="aiOpenRouterKeyHint">
+          <div class="form-text" data-i18n="config.ai.openrouter_key_hint">OpenRouter API-Key aus openrouter.ai. Leer lassen um den gesetzten Key zu behalten. Env-Var-Fallback: <code>OPENROUTER_API_KEY</code></div>
+        </div>
+        <div class="col-md-5 d-none" id="aiCompatibleUrlHint">
+          <div class="form-text" data-i18n="config.ai.compatible_url_hint">Ohne angehängtes <code>/chat/completions</code>, z. B. <code>https://dashscope-intl.aliyuncs.com/compatible-mode/v1</code></div>
+        </div>
+        <div class="col-md-5 d-none" id="aiCompatibleKeyHint">
+          <div class="form-text" data-i18n="config.ai.compatible_key_hint">API-Key des Endpunkts. Leer lassen um den gesetzten Key zu behalten. Env-Var-Fallback: <code>OPENAI_COMPATIBLE_API_KEY</code></div>
+        </div>
+        <div class="col-md-5 d-none" id="aiClaudeCodeKeyHint">
+          <div class="form-text" data-i18n="config.ai.claudecode_key_hint">Anthropic API-Key aus <code>claude setup-token</code> oder <code>claude login</code>. Leer lassen um den gesetzten Key zu behalten. Env-Var-Fallback: <code>ANTHROPIC_API_KEY</code></div>
+        </div>
+        <div class="col-md-4">
+          <div class="form-text" data-i18n="config.ai.model_hint">Modell für den ausgewählten KI-Anbieter.</div>
+        </div>
+      </div>
+      <div class="row mt-2">
+        <div class="col-12">
+          <span id="aiTestStatus" class="small d-none"></span>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="tab-lang" class="cf-tab-pane">
+  <div class="card border-0 shadow-sm cf-card">
+    <div class="card-header bg-white py-3">
+      <h5 class="mb-0 fw-semibold">
+        <i class="bi bi-translate text-primary me-2"></i><span data-i18n="config.language_section">Spracheinstellung</span>
+      </h5>
+    </div>
+    <div class="card-body">
+      <p class="text-muted small mb-3" data-i18n="config.language_hint">Die Spracheinstellung wird gespeichert und bleibt nach einem Neustart erhalten.</p>
+      <div class="d-flex gap-3 flex-wrap">
+        <button class="btn btn-outline-secondary" data-lang-btn="en" onclick="window.i18n.setLanguage('en')">
+          🇬🇧 <span data-i18n="config.language_en">English</span>
+        </button>
+        <button class="btn btn-outline-secondary" data-lang-btn="de" onclick="window.i18n.setLanguage('de')">
+          🇩🇪 <span data-i18n="config.language_de">Deutsch</span>
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+<div id="tab-theme" class="cf-tab-pane">
+  <div class="card border-0 shadow-sm cf-card">
+    <div class="card-header bg-white py-3">
+      <h5 class="mb-0 fw-semibold">
+        <i class="bi bi-palette text-primary me-2"></i><span data-i18n="config.theme.section">Theme</span>
+      </h5>
+    </div>
+    <div class="card-body">
+      <p class="text-muted small mb-4" data-i18n="config.theme.hint">Wähle zwischen Modern (Cream + Lila), Klassisch (Teal) und Dark (Nacht-Lila). Der Wechsel wird gespeichert und sofort wirksam.</p>
+      <div class="d-flex gap-3 flex-wrap" id="cfThemeChoices">
+        <button type="button" class="cf-theme-card" data-theme-choice="modern" onclick="cfSetTheme('modern')">
+          <div class="cf-theme-preview cf-theme-preview-modern">
+            <div class="cf-theme-preview-side"></div>
+            <div class="cf-theme-preview-main">
+              <div class="cf-theme-preview-card"></div>
+              <div class="cf-theme-preview-btn"></div>
+            </div>
+          </div>
+          <div class="cf-theme-meta">
+            <div class="cf-theme-name" data-i18n="config.theme.modern_name">Modern</div>
+            <div class="cf-theme-desc" data-i18n="config.theme.modern_desc">Cream-Hintergrund, Lila/Blau-Akzente, lila Sidebar-Verlauf.</div>
+          </div>
+        </button>
+        <button type="button" class="cf-theme-card" data-theme-choice="legacy" onclick="cfSetTheme('legacy')">
+          <div class="cf-theme-preview cf-theme-preview-legacy">
+            <div class="cf-theme-preview-side"></div>
+            <div class="cf-theme-preview-main">
+              <div class="cf-theme-preview-card"></div>
+              <div class="cf-theme-preview-btn"></div>
+            </div>
+          </div>
+          <div class="cf-theme-meta">
+            <div class="cf-theme-name" data-i18n="config.theme.legacy_name">Klassisch</div>
+            <div class="cf-theme-desc" data-i18n="config.theme.legacy_desc">Gelbes StackLens-Logo, dunkle Sidebar, Teal-Buttons (vorheriger Stil).</div>
+          </div>
+        </button>
+        <button type="button" class="cf-theme-card" data-theme-choice="dark" onclick="cfSetTheme('dark')">
+          <div class="cf-theme-preview cf-theme-preview-dark">
+            <div class="cf-theme-preview-side"></div>
+            <div class="cf-theme-preview-main">
+              <div class="cf-theme-preview-card"></div>
+              <div class="cf-theme-preview-btn"></div>
+            </div>
+          </div>
+          <div class="cf-theme-meta">
+            <div class="cf-theme-name" data-i18n="config.theme.dark_name">Dark</div>
+            <div class="cf-theme-desc" data-i18n="config.theme.dark_desc">Tiefes Nacht-Lila, Lila/Blau-Akzente, komplett dunkle Oberflächen.</div>
+          </div>
+        </button>
+        <button type="button" class="cf-theme-card" data-theme-choice="popos" onclick="cfSetTheme('popos')">
+          <div class="cf-theme-preview cf-theme-preview-popos">
+            <div class="cf-theme-preview-side"></div>
+            <div class="cf-theme-preview-main">
+              <div class="cf-theme-preview-card"></div>
+              <div class="cf-theme-preview-btn"></div>
+            </div>
+          </div>
+          <div class="cf-theme-meta">
+            <div class="cf-theme-name" data-i18n="config.theme.popos_name">Pop!_OS 24.04</div>
+            <div class="cf-theme-desc" data-i18n="config.theme.popos_desc">COSMIC-Dark-Shell, Pop Orange + Teal Akzente, dunkle Oberflächen.</div>
+          </div>
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+<div id="tab-autostart" class="cf-tab-pane">
+  <div class="card border-0 shadow-sm cf-card">
+    <div class="card-header bg-white py-3">
+      <h5 class="mb-0 fw-semibold">
+        <i class="bi bi-power me-2" style="color:var(--ns-accent);"></i><span data-i18n="config.autostart.section">Autostart</span>
+      </h5>
+    </div>
+    <div class="card-body">
+      <p class="text-muted small mb-4" data-i18n="config.autostart.hint">Startet StackLens automatisch beim Anmelden am Betriebssystem.</p>
+      <div id="autostartUnsupported" style="display:none;">
+        <div class="alert alert-secondary d-flex gap-2 align-items-start">
+          <i class="bi bi-info-circle-fill flex-shrink-0 mt-1"></i>
+          <span data-i18n="config.autostart.unsupported">Autostart wird auf diesem System nicht unterstützt.</span>
+        </div>
+      </div>
+      <div id="autostartSupported">
+        <div class="d-flex align-items-center justify-content-between py-3">
+          <div>
+            <div class="fw-semibold" data-i18n="config.autostart.launch_at_login">Beim Anmelden automatisch starten</div>
+            <div class="text-muted small mt-1" id="autostartPlatformHint"></div>
+          </div>
+          <div class="form-check form-switch ms-4 flex-shrink-0">
+            <input class="form-check-input" type="checkbox" id="autostartToggle" style="cursor:pointer;"
+                   onchange="cfToggleAutostart(this.checked)">
+          </div>
+        </div>
+        <div id="autostartModeBox" style="display:none;border-top:1px solid var(--ns-line);padding-top:12px;margin-top:6px;">
+          <div class="fw-semibold mb-2" data-i18n="config.autostart.mode_label">Modus</div>
+          <div class="form-check">
+            <input class="form-check-input" type="radio" name="autostartMode" id="autostartModeDesktop" value="desktop"
+                   onchange="cfSetAutostartMode('desktop')">
+            <label class="form-check-label" for="autostartModeDesktop">
+              <span class="fw-semibold" data-i18n="config.autostart.mode_desktop">Desktop-App</span>
+              <div class="text-muted small" data-i18n="config.autostart.mode_desktop_hint">Startet StackLens mit Fenster (klassischer Desktop-Modus).</div>
+            </label>
+          </div>
+          <div class="form-check mt-2">
+            <input class="form-check-input" type="radio" name="autostartMode" id="autostartModeServer" value="server"
+                   onchange="cfSetAutostartMode('server')">
+            <label class="form-check-label" for="autostartModeServer">
+              <span class="fw-semibold" data-i18n="config.autostart.mode_server">Hintergrund-Server (Browser)</span>
+              <div class="text-muted small">
+                <span data-i18n="config.autostart.mode_server_hint">Startet StackLens ohne Fenster und macht es im Browser unter</span>
+                <code id="autostartServerUrl">http://localhost:8090</code>
+                <span data-i18n="config.autostart.mode_server_hint_2">erreichbar.</span>
+              </div>
+            </label>
+          </div>
+        </div>
+        <div id="autostartErrorMsg" class="alert alert-danger mt-3" style="display:none;"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+</th:block>
+</body>
+</html>

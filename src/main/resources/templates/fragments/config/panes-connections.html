@@ -1,0 +1,411 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" lang="de">
+<body>
+<th:block th:fragment="panes-connections">
+<div id="tab-gitlab" class="cf-tab-pane active">
+  <div class="card border-0 shadow-sm cf-card">
+    <div class="card-header bg-white py-3 d-flex align-items-center justify-content-between">
+      <h5 class="mb-0 fw-semibold"><i class="bi bi-gitlab text-warning me-2"></i><span data-i18n="config.gitlab.section">GitLab</span></h5>
+      <button class="btn btn-success btn-sm" onclick="__openGitlabModal()">
+        <i class="bi bi-plus-lg me-1"></i><span data-i18n="common.new_connection">Neue Verbindung</span>
+      </button>
+    </div>
+    <div class="card-body p-0">
+      <table class="table table-hover align-middle mb-0">
+        <thead class="table-light">
+          <tr><th data-i18n="config.gitlab.col_name">Name</th><th data-i18n="config.gitlab.col_url">URL</th><th data-i18n="config.gitlab.col_group">Gruppe</th><th data-i18n="config.gitlab.col_repos">Repositories</th><th data-i18n="config.gitlab.col_status">Status</th><th data-i18n="config.gitlab.col_actions">Aktionen</th></tr>
+        </thead>
+        <tbody>
+          <tr th:each="c : ${gitlabConfigs}"
+              th:data-conn-kind="'gitlab'"
+              th:data-conn-id="${c.id}"
+              th:data-conn-active="${c.active}"
+              th:data-conn-consecutive="${c.consecutiveFailures}">
+            <td class="fw-semibold" th:text="${c.name}"></td>
+            <td class="small"><a th:href="${c.baseUrl}" th:text="${c.baseUrl}" class="sl-link"></a></td>
+            <td class="small text-muted" th:text="${c.groupId ?: '—'}"></td>
+            <td class="small text-muted" th:text="${c.projectIds ?: 'Alle'}"></td>
+            <td>
+              <div class="d-flex flex-column gap-1">
+                <span th:class="${c.active ? 'badge bg-success' : 'badge bg-secondary'}" th:text="${c.active ? 'Aktiv' : 'Inaktiv'}"></span>
+              </div>
+            </td>
+            <td>
+              <div class="d-flex gap-1">
+                <button class="btn btn-sm btn-outline-info sl-conn-probe-btn"
+                        th:onclick="'probeConn(\'gitlab\', ' + ${c.id} + ', this)'"
+                        th:attr="title=#{health.probe_again}" data-i18n-title="health.probe_again"><i class="bi bi-broadcast"></i></button>
+                <button class="btn btn-sm btn-outline-primary" th:onclick="'editGitlab(' + ${c.id} + ')'"><i class="bi bi-pencil"></i></button>
+                <button class="btn btn-sm btn-outline-danger" th:onclick="'deleteGitlab(' + ${c.id} + ')'"><i class="bi bi-trash"></i></button>
+              </div>
+            </td>
+          </tr>
+          <tr th:if="${gitlabConfigs.empty}">
+            <td colspan="6" class="text-center text-muted py-4"><i class="bi bi-inbox fs-2 d-block mb-2"></i>Noch keine Konfiguration.</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<div id="tab-db" class="cf-tab-pane">
+  <div class="card border-0 shadow-sm cf-card">
+    <div class="card-header bg-white py-3 d-flex align-items-center justify-content-between">
+      <h5 class="mb-0 fw-semibold"><i class="bi bi-database text-info me-2"></i><span data-i18n="config.database.section">Datenbank</span></h5>
+      <div class="d-flex gap-2">
+        <button class="btn btn-outline-secondary btn-sm" onclick="__openKeepassImportModal()">
+          <i class="bi bi-file-earmark-arrow-up me-1"></i>KeePassX importieren
+        </button>
+        <button class="btn btn-success btn-sm" onclick="__openDbModal()">
+          <i class="bi bi-plus-lg me-1"></i><span data-i18n="common.new_connection">Neue Verbindung</span>
+        </button>
+      </div>
+    </div>
+    <div class="card-body p-0">
+      <table class="table table-hover align-middle mb-0">
+        <thead class="table-light">
+          <tr><th data-i18n="config.database.col_name">Name</th><th data-i18n="config.database.col_type">Typ</th><th data-i18n="config.database.col_host">Host:Port</th><th data-i18n="config.database.col_database">Datenbank</th><th data-i18n="config.database.col_schemas">Schemata</th><th data-i18n="config.database.col_status">Status</th><th data-i18n="config.database.col_actions">Aktionen</th></tr>
+        </thead>
+        <tbody>
+          <tr th:each="c : ${dbConfigs}"
+              th:data-conn-kind="'database'"
+              th:data-conn-id="${c.id}"
+              th:data-conn-active="${c.active}"
+              th:data-conn-consecutive="${c.consecutiveFailures}">
+            <td class="fw-semibold" th:text="${c.name}"></td>
+            <td><span class="badge bg-info text-dark" th:text="${c.dbType}"></span></td>
+            <td class="small text-muted" th:text="${c.host + ':' + c.port}"></td>
+            <td class="small" th:text="${c.databaseName}"></td>
+            <td class="small text-muted" th:text="${c.schemas ?: 'Alle'}"></td>
+            <td>
+              <div class="d-flex flex-column gap-1">
+                <span th:class="${c.active ? 'badge bg-success' : 'badge bg-secondary'}" th:text="${c.active ? 'Aktiv' : 'Inaktiv'}"></span>
+              </div>
+            </td>
+            <td>
+              <div class="d-flex gap-1">
+                <button class="btn btn-sm btn-outline-info sl-conn-probe-btn"
+                        th:onclick="'probeConn(\'database\', ' + ${c.id} + ', this)'"
+                        th:attr="title=#{health.probe_again}" data-i18n-title="health.probe_again"><i class="bi bi-broadcast"></i></button>
+                <button class="btn btn-sm btn-outline-primary" th:onclick="'editDb(' + ${c.id} + ')'"><i class="bi bi-pencil"></i></button>
+                <button class="btn btn-sm btn-outline-danger" th:onclick="'deleteDb(' + ${c.id} + ')'"><i class="bi bi-trash"></i></button>
+              </div>
+            </td>
+          </tr>
+          <tr th:if="${dbConfigs.empty}">
+            <td colspan="7" class="text-center text-muted py-4"><i class="bi bi-inbox fs-2 d-block mb-2"></i>Noch keine Konfiguration.</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<div id="tab-confluence" class="cf-tab-pane">
+  <div class="card border-0 shadow-sm cf-card">
+    <div class="card-header bg-white py-3 d-flex align-items-center justify-content-between">
+      <h5 class="mb-0 fw-semibold"><i class="bi bi-book text-primary me-2"></i><span data-i18n="config.confluence.section">Confluence</span></h5>
+      <button class="btn btn-success btn-sm" onclick="__openConfluenceModal()">
+        <i class="bi bi-plus-lg me-1"></i><span data-i18n="common.new_connection">Neue Verbindung</span>
+      </button>
+    </div>
+    <div class="card-body p-0">
+      <table class="table table-hover align-middle mb-0">
+        <thead class="table-light">
+          <tr><th data-i18n="config.confluence.col_name">Name</th><th data-i18n="config.confluence.col_url">URL</th><th data-i18n="config.confluence.col_mode">Modus</th><th data-i18n="config.confluence.col_user">Benutzer</th><th data-i18n="config.confluence.col_status">Status</th><th data-i18n="config.confluence.col_actions">Aktionen</th></tr>
+        </thead>
+        <tbody>
+          <tr th:each="c : ${confluenceConfigs}"
+              th:data-conn-kind="'confluence'"
+              th:data-conn-id="${c.id}"
+              th:data-conn-active="${c.active}"
+              th:data-conn-consecutive="${c.consecutiveFailures}">
+            <td class="fw-semibold" th:text="${c.name}"></td>
+            <td class="small"><a th:href="${c.baseUrl}" th:text="${c.baseUrl}" class="sl-link"></a></td>
+            <td>
+              <span th:if="${c.cloudMode}"  class="badge bg-primary">Cloud</span>
+              <span th:if="${!c.cloudMode}" class="badge bg-secondary">Server/DC</span>
+            </td>
+            <td class="small text-muted cf-user-cell" th:text="${c.username}" th:title="${c.username}"></td>
+            <td>
+              <div class="d-flex flex-column gap-1">
+                <span th:class="${c.active ? 'badge bg-success' : 'badge bg-secondary'}" th:text="${c.active ? 'Aktiv' : 'Inaktiv'}"></span>
+              </div>
+            </td>
+            <td>
+              <div class="d-flex gap-1">
+                <button class="btn btn-sm btn-outline-info sl-conn-probe-btn"
+                        th:onclick="'probeConn(\'confluence\', ' + ${c.id} + ', this)'"
+                        th:attr="title=#{health.probe_again}" data-i18n-title="health.probe_again"><i class="bi bi-broadcast"></i></button>
+                <button class="btn btn-sm btn-outline-primary" th:onclick="'editConfluence(' + ${c.id} + ')'" ><i class="bi bi-pencil"></i></button>
+                <button class="btn btn-sm btn-outline-danger" th:onclick="'deleteConfluence(' + ${c.id} + ')'"><i class="bi bi-trash"></i></button>
+              </div>
+            </td>
+          </tr>
+          <tr th:if="${confluenceConfigs.empty}">
+            <td colspan="6" class="text-center text-muted py-4"><i class="bi bi-inbox fs-2 d-block mb-2"></i>Noch keine Konfiguration.</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<div id="tab-grafana" class="cf-tab-pane">
+  <div class="card border-0 shadow-sm cf-card">
+    <div class="card-header bg-white py-3 d-flex align-items-center justify-content-between">
+      <h5 class="mb-0 fw-semibold"><i class="bi bi-speedometer2 text-danger me-2"></i><span data-i18n="config.grafana.section">Grafana</span></h5>
+      <button class="btn btn-success btn-sm" onclick="__openGrafanaModal()">
+        <i class="bi bi-plus-lg me-1"></i><span data-i18n="common.new_connection">Neue Verbindung</span>
+      </button>
+    </div>
+    <div class="card-body p-0">
+      <table class="table table-hover align-middle mb-0">
+        <thead class="table-light">
+          <tr><th data-i18n="config.grafana.col_name">Name</th><th data-i18n="config.grafana.col_url">URL</th><th data-i18n="config.grafana.col_org">Org-ID</th><th data-i18n="config.grafana.col_panels">Panel-Queries</th><th data-i18n="config.grafana.col_status">Status</th><th data-i18n="config.grafana.col_actions">Aktionen</th></tr>
+        </thead>
+        <tbody>
+          <tr th:each="c : ${grafanaConfigs}"
+              th:data-conn-kind="'grafana'"
+              th:data-conn-id="${c.id}"
+              th:data-conn-active="${c.active}"
+              th:data-conn-consecutive="${c.consecutiveFailures}">
+            <td class="fw-semibold" th:text="${c.name}"></td>
+            <td class="small"><a th:href="${c.baseUrl}" th:text="${c.baseUrl}" class="sl-link"></a></td>
+            <td class="small text-muted" th:text="${c.orgId}"></td>
+            <td>
+              <span th:if="${c.scanPanelQueries}"  class="badge bg-success">Ja</span>
+              <span th:if="${!c.scanPanelQueries}" class="badge bg-secondary">Nein</span>
+            </td>
+            <td>
+              <div class="d-flex flex-column gap-1">
+                <span th:class="${c.active ? 'badge bg-success' : 'badge bg-secondary'}" th:text="${c.active ? 'Aktiv' : 'Inaktiv'}"></span>
+              </div>
+            </td>
+            <td>
+              <div class="d-flex gap-1">
+                <button class="btn btn-sm btn-outline-info sl-conn-probe-btn"
+                        th:onclick="'probeConn(\'grafana\', ' + ${c.id} + ', this)'"
+                        th:attr="title=#{health.probe_again}" data-i18n-title="health.probe_again"><i class="bi bi-broadcast"></i></button>
+                <button class="btn btn-sm btn-outline-primary" th:onclick="'editGrafana(' + ${c.id} + ')'"><i class="bi bi-pencil"></i></button>
+                <button class="btn btn-sm btn-outline-danger" th:onclick="'deleteGrafana(' + ${c.id} + ')'"><i class="bi bi-trash"></i></button>
+              </div>
+            </td>
+          </tr>
+          <tr th:if="${grafanaConfigs.empty}">
+            <td colspan="6" class="text-center text-muted py-4"><i class="bi bi-inbox fs-2 d-block mb-2"></i>Noch keine Konfiguration.</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<div id="tab-jira" class="cf-tab-pane">
+  <div class="card border-0 shadow-sm cf-card">
+    <div class="card-header bg-white py-3 d-flex align-items-center justify-content-between">
+      <h5 class="mb-0 fw-semibold"><i class="bi bi-kanban text-info me-2"></i><span data-i18n="config.jira.section">Jira</span></h5>
+      <button class="btn btn-success btn-sm" onclick="__openJiraModal()">
+        <i class="bi bi-plus-lg me-1"></i><span data-i18n="common.new_connection">Neue Verbindung</span>
+      </button>
+    </div>
+    <div class="card-body p-0">
+      <table class="table table-hover align-middle mb-0">
+        <thead class="table-light">
+          <tr><th data-i18n="config.jira.col_name">Name</th><th data-i18n="config.jira.col_url">URL</th><th data-i18n="config.jira.col_mode">Modus</th><th data-i18n="config.jira.col_user">Benutzer</th><th data-i18n="config.jira.col_status">Status</th><th data-i18n="config.jira.col_actions">Aktionen</th></tr>
+        </thead>
+        <tbody>
+          <tr th:each="c : ${jiraConfigs}"
+              th:data-conn-kind="'jira'"
+              th:data-conn-id="${c.id}"
+              th:data-conn-active="${c.active}"
+              th:data-conn-consecutive="${c.consecutiveFailures}">
+            <td class="fw-semibold" th:text="${c.name}"></td>
+            <td class="small"><a th:href="${c.baseUrl}" th:text="${c.baseUrl}" class="sl-link"></a></td>
+            <td>
+              <span th:if="${c.cloudMode}"  class="badge bg-primary">Cloud</span>
+              <span th:if="${!c.cloudMode}" class="badge bg-secondary">Server/DC</span>
+            </td>
+            <td class="small text-muted cf-user-cell" th:text="${c.username}" th:title="${c.username}"></td>
+            <td>
+              <div class="d-flex flex-column gap-1">
+                <span th:class="${c.active ? 'badge bg-success' : 'badge bg-secondary'}" th:text="${c.active ? 'Aktiv' : 'Inaktiv'}"></span>
+              </div>
+            </td>
+            <td>
+              <div class="d-flex gap-1">
+                <button class="btn btn-sm btn-outline-info sl-conn-probe-btn"
+                        th:onclick="'probeConn(\'jira\', ' + ${c.id} + ', this)'"
+                        th:attr="title=#{health.probe_again}" data-i18n-title="health.probe_again"><i class="bi bi-broadcast"></i></button>
+                <button class="btn btn-sm btn-outline-primary" th:onclick="'editJira(' + ${c.id} + ')'"><i class="bi bi-pencil"></i></button>
+                <button class="btn btn-sm btn-outline-danger" th:onclick="'deleteJira(' + ${c.id} + ')'"><i class="bi bi-trash"></i></button>
+              </div>
+            </td>
+          </tr>
+          <tr th:if="${jiraConfigs.empty}">
+            <td colspan="6" class="text-center text-muted py-4"><i class="bi bi-inbox fs-2 d-block mb-2"></i>Noch keine Konfiguration.</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<div id="tab-github" class="cf-tab-pane">
+  <div class="card border-0 shadow-sm cf-card">
+    <div class="card-header bg-white py-3 d-flex align-items-center justify-content-between">
+      <h5 class="mb-0 fw-semibold"><i class="bi bi-github me-2" style="color:#24292e"></i>GitHub-Repositories</h5>
+      <button class="btn btn-success btn-sm" onclick="openGithubRepoModal()">
+        <i class="bi bi-plus-lg me-1"></i>Neue Verbindung
+      </button>
+    </div>
+    <div class="card-body p-0">
+      <table class="table table-hover align-middle mb-0">
+        <thead class="table-light">
+          <tr><th>Name</th><th>Owner / Repository</th><th>Branch</th><th>Token</th><th>Status</th><th>Aktionen</th></tr>
+        </thead>
+        <tbody>
+          <tr th:each="c : ${githubRepoConfigs}"
+              th:data-conn-kind="'github'"
+              th:data-conn-id="${c.id}"
+              th:data-conn-active="${c.active}"
+              th:data-conn-consecutive="${c.consecutiveFailures}">
+            <td class="fw-semibold" th:text="${c.name}"></td>
+            <td class="small text-muted" th:text="${c.owner + '/' + c.repo}"></td>
+            <td class="small text-muted" th:text="${c.branch ?: '(Standard)'}"></td>
+            <td>
+              <span th:if="${c.accessToken != null and !#strings.isEmpty(c.accessToken)}" class="badge bg-success"><i class="bi bi-key me-1"></i>Gesetzt</span>
+              <span th:unless="${c.accessToken != null and !#strings.isEmpty(c.accessToken)}" class="badge bg-secondary">Kein Token</span>
+            </td>
+            <td>
+              <div class="d-flex flex-column gap-1">
+                <span th:class="${c.active ? 'badge bg-success' : 'badge bg-secondary'}" th:text="${c.active ? 'Aktiv' : 'Inaktiv'}"></span>
+              </div>
+            </td>
+            <td>
+              <div class="d-flex gap-1">
+                <button class="btn btn-sm btn-outline-info sl-conn-probe-btn"
+                        th:onclick="'probeConn(\'github\', ' + ${c.id} + ', this)'"
+                        th:attr="title=#{health.probe_again}" data-i18n-title="health.probe_again"><i class="bi bi-broadcast"></i></button>
+                <button class="btn btn-sm btn-outline-primary" th:onclick="'editGithubRepo(' + ${c.id} + ')'" ><i class="bi bi-pencil"></i></button>
+                <button class="btn btn-sm btn-outline-danger"  th:onclick="'deleteGithubRepo(' + ${c.id} + ')'"><i class="bi bi-trash"></i></button>
+              </div>
+            </td>
+          </tr>
+          <tr th:if="${githubRepoConfigs.empty}">
+            <td colspan="6" class="text-center text-muted py-4"><i class="bi bi-inbox fs-2 d-block mb-2"></i>Noch keine GitHub-Konfiguration.</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<div id="tab-mcp" class="cf-tab-pane">
+  <div class="card border-0 shadow-sm cf-card">
+    <div class="card-header bg-white py-3 d-flex align-items-center justify-content-between">
+      <h5 class="mb-0 fw-semibold"><i class="bi bi-hdd-network text-success me-2"></i>MCP-Server</h5>
+      <div class="d-flex gap-2">
+        <button class="btn btn-outline-secondary btn-sm" onclick="mcpSyncFromStacklens()" data-i18n-title="config.mcp_sync_title" title="Aktuelle Jira/Confluence/GitLab/GitHub-Verbindungen in eine MCP-Konfiguration übernehmen">
+          <i class="bi bi-arrow-repeat me-1"></i>Aus StackLens übernehmen
+        </button>
+        <button class="btn btn-success btn-sm" onclick="mcpOpenModal()">
+          <i class="bi bi-plus-lg me-1"></i>Neuer MCP-Server
+        </button>
+      </div>
+    </div>
+    <div class="card-body p-0">
+      <div class="alert alert-info m-3 small mb-0">
+        <i class="bi bi-info-circle me-1"></i>
+        Wenn ein MCP-Server <strong>aktiv</strong> ist, leitet StackLens alle Jira-, Confluence-, GitLab- und GitHub-Abfragen
+        &uuml;ber diesen Server. Der Server l&auml;uft als eigenst&auml;ndiger Sidecar
+        (siehe <code>mcp-server/</code>).
+      </div>
+      <table class="table table-hover align-middle mb-0">
+        <thead class="table-light">
+          <tr><th>Name</th><th>URL</th><th>Routing</th><th>Auth</th><th>Status</th><th>Aktionen</th></tr>
+        </thead>
+        <tbody>
+          <tr th:each="c : ${mcpServerConfigs}"
+              th:data-mcp-config-id="${c.id}"
+              th:data-mcp-config-active="${c.active}"
+              th:data-conn-kind="'mcp'"
+              th:data-conn-id="${c.id}"
+              th:data-conn-active="${c.active}"
+              th:data-conn-consecutive="${c.consecutiveFailures}">
+            <td class="fw-semibold" th:text="${c.name}"></td>
+            <td class="small"><code th:text="${c.baseUrl}"></code></td>
+            <td class="small">
+              <span th:if="${c.routeJira}"       class="badge bg-light text-dark me-1" data-mcp-route="jira">Jira</span>
+              <span th:if="${c.routeConfluence}" class="badge bg-light text-dark me-1" data-mcp-route="confluence">Confluence</span>
+              <span th:if="${c.routeGitlab}"     class="badge bg-light text-dark me-1" data-mcp-route="gitlab">GitLab</span>
+              <span th:if="${c.routeGithub}"     class="badge bg-light text-dark me-1" data-mcp-route="github">GitHub</span>
+              <span th:if="${c.routeGrafana}"    class="badge bg-light text-dark me-1" data-mcp-route="grafana">Grafana</span>
+              <span th:if="${c.routeDatabase}"   class="badge bg-light text-dark me-1" data-mcp-route="database">DB</span>
+            </td>
+            <td>
+              <span th:if="${!#strings.isEmpty(c.authToken)}" class="badge bg-success"><i class="bi bi-key me-1"></i>Token</span>
+              <span th:unless="${!#strings.isEmpty(c.authToken)}" class="badge bg-secondary">Kein Token</span>
+            </td>
+            <td>
+              <div class="d-flex flex-column gap-1">
+                <span th:class="${c.active ? 'badge bg-success' : 'badge bg-secondary'}" th:text="${c.active ? 'Aktiv' : 'Inaktiv'}"></span>
+              </div>
+            </td>
+            <td>
+              <div class="d-flex gap-1">
+                <button class="btn btn-sm btn-outline-info sl-conn-probe-btn"
+                        th:onclick="'probeConn(\'mcp\', ' + ${c.id} + ', this)'"
+                        th:attr="title=#{health.probe_again}" data-i18n-title="health.probe_again"><i class="bi bi-broadcast"></i></button>
+                <button class="btn btn-sm btn-outline-info" th:onclick="'mcpTest(' + ${c.id} + ')'" title="Verbindung testen"><i class="bi bi-plug"></i></button>
+                <button class="btn btn-sm btn-outline-primary" th:onclick="'mcpEdit(' + ${c.id} + ')'"><i class="bi bi-pencil"></i></button>
+                <button class="btn btn-sm btn-outline-danger" th:onclick="'mcpDelete(' + ${c.id} + ')'"><i class="bi bi-trash"></i></button>
+              </div>
+            </td>
+          </tr>
+          <tr th:if="${mcpServerConfigs == null or mcpServerConfigs.empty}">
+            <td colspan="6" class="text-center text-muted py-4">
+              <i class="bi bi-inbox fs-2 d-block mb-2"></i>
+              Noch kein MCP-Server konfiguriert.
+            </td>
+          </tr>
+        </tbody>
+      </table>
+      <div id="mcpTestResult" class="m-3" style="display:none;"></div>
+    </div>
+  </div>
+
+  <div class="card border-0 shadow-sm cf-card mt-3">
+    <div class="card-header bg-white py-3 d-flex align-items-center justify-content-between flex-wrap gap-2">
+      <h5 class="mb-0 fw-semibold">
+        <i class="bi bi-cpu text-primary me-2"></i>Lokaler MCP-Server-Prozess
+        <span id="mcpProcessBadge" class="badge bg-secondary ms-2">unbekannt</span>
+      </h5>
+      <div class="d-flex gap-2">
+        <button type="button" class="btn btn-success btn-sm" onclick="mcpProcessStart()">
+          <i class="bi bi-play-fill me-1"></i>Starten
+        </button>
+        <button type="button" class="btn btn-outline-danger btn-sm" onclick="mcpProcessStop()">
+          <i class="bi bi-stop-fill me-1"></i>Stoppen
+        </button>
+        <button type="button" class="btn btn-outline-warning btn-sm" onclick="mcpProcessRestart()">
+          <i class="bi bi-arrow-counterclockwise me-1"></i>Neustart
+        </button>
+        <button type="button" class="btn btn-outline-secondary btn-sm" onclick="mcpProcessRefresh()" title="Aktualisieren">
+          <i class="bi bi-arrow-clockwise"></i>
+        </button>
+      </div>
+    </div>
+    <div class="card-body">
+      <div id="mcpProcessMeta" class="small text-muted mb-2">&mdash;</div>
+      <pre id="mcpProcessLog" class="mb-0 p-2 small"
+           style="background:#0b1020;color:#cfe7ff;border-radius:6px;max-height:280px;overflow:auto;font-family:ui-monospace,Menlo,monospace;"></pre>
+    </div>
+  </div>
+</div>
+
+
+</th:block>
+</body>
+</html>

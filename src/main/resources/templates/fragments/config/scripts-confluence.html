@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" lang="de">
+<body>
+<th:block th:fragment="scripts-confluence">
+<script th:inline="none">
+function openConfluenceModal(cfg) {
+  resetForm(['cfId','cfName','cfUrl','cfUser','cfToken']);
+
+  const cfId = document.getElementById('cfId');
+  const cfName = document.getElementById('cfName');
+  const cfUrl = document.getElementById('cfUrl');
+  const cfUser = document.getElementById('cfUser');
+  const cfToken = document.getElementById('cfToken');
+  const cfCloud = document.getElementById('cfCloud');
+  const cfServer = document.getElementById('cfServer');
+  const cfActive = document.getElementById('cfActive');
+  const cfModalTitle = document.getElementById('cfModalTitle');
+
+  if (cfCloud) cfCloud.checked = true;
+  if (cfActive) cfActive.checked = true;
+  if (cfModalTitle) cfModalTitle.textContent = cfg ? _t('config.confluence.edit') : _t('config.confluence.new');
+
+  if (cfg) {
+    if (cfId) cfId.value = cfg.id;
+    if (cfName) cfName.value = cfg.name;
+    if (cfUrl) cfUrl.value = cfg.baseUrl;
+    if (cfUser) cfUser.value = cfg.username;
+    if (cfToken) cfToken.value = cfg.apiToken;
+    if (cfg.cloudMode) {
+      if (cfCloud) cfCloud.checked = true;
+    } else {
+      if (cfServer) cfServer.checked = true;
+    }
+    if (cfActive) cfActive.checked = cfg.active;
+  }
+
+    showModalById('confluenceModal');
+}
+function editConfluence(id) { openConfluenceModal(confluenceConfigs[id]); }
+async function testConfluenceConnection() {
+  await window.slHelpers.testConnection({ idElement: 'cfId', resultElement: 'cfTestResult', buttonElement: 'cfTestBtn', successElement: 'cfTestKeywordRow', endpoint: '/api/config/confluence/{id}/test', networkErrorKey: 'config.confluence.network_error', networkErrorIcon: false });
+}
+async function testConfluenceSearch() {
+  const id = +document.getElementById('cfId').value || null;
+  if (!id) return;
+  const keyword = document.getElementById('cfTestKeyword').value.trim();
+  if (!keyword) return;
+  const resultDiv = document.getElementById('cfSearchResult');
+  resultDiv.style.display = 'none';
+  try {
+    const res = await fetch(`/api/config/confluence/${id}/test?keyword=${encodeURIComponent(keyword)}`, { method: 'POST' });
+    const data = await res.json();
+    resultDiv.style.display = '';
+    if (data.success && data.keywordSearch) {
+      const ks = data.keywordSearch;
+      if (ks.count === 0) {
+        resultDiv.innerHTML = `<div class="alert alert-warning py-2 mb-0"><i class="bi bi-exclamation-circle me-1"></i>${_t('config.confluence.search_0_pages')} <strong>${escHtml(keyword)}</strong>.<br><small class="text-muted">CQL: ${escHtml(ks.cql)}</small></div>`;
+      } else {
+        const examples = (ks.examples||[]).map(e=>`<li>${escHtml(e)}</li>`).join('');
+        resultDiv.innerHTML = `<div class="alert alert-success py-2 mb-0"><i class="bi bi-check-circle me-1"></i><strong>${ks.count}</strong> ${_t('config.confluence.search_n_pages')} <strong>${escHtml(keyword)}</strong>.<ul class="mb-0 mt-1 ps-3">${examples}</ul><small class="text-muted">CQL: ${escHtml(ks.cql)}</small></div>`;
+      }
+    } else if (!data.success) {
+      resultDiv.innerHTML = `<div class="alert alert-danger py-2 mb-0" style="white-space:pre-line"><i class="bi bi-x-circle me-1"></i>${escHtml(data.message)}</div>`;
+    }
+  } catch(e) {
+    resultDiv.style.display = '';
+    resultDiv.innerHTML = `<div class="alert alert-danger py-2 mb-0">${_t('config.confluence.network_error')}${escHtml(e.message)}</div>`;
+  }
+}
+async function saveConfluence() {
+  const cfId = document.getElementById('cfId');
+  const cfName = document.getElementById('cfName');
+  const cfUrl = document.getElementById('cfUrl');
+  const cfUser = document.getElementById('cfUser');
+  const cfToken = document.getElementById('cfToken');
+  const cfCloud = document.getElementById('cfCloud');
+  const cfActive = document.getElementById('cfActive');
+
+  const p = {
+    id: +((cfId && cfId.value) || '') || null,
+    name: (((cfName && cfName.value) || '') + '').trim(),
+    baseUrl: (((cfUrl && cfUrl.value) || '') + '').trim(),
+    username: (((cfUser && cfUser.value) || '') + '').trim(),
+    apiToken: (cfToken && cfToken.value) || '',
+    spaceKeys: null,
+    cloudMode: cfCloud ? cfCloud.checked : true,
+    searchRootUrl: null,
+    active: cfActive ? cfActive.checked : true
+  };
+  if (!p.name||!p.baseUrl||!p.username||!p.apiToken) { showAlert(_t('config.fill_required'),'danger'); return; }
+    const res = await fetch('/api/config/confluence', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(p) });
+    if (res.ok) { showAlert(_t('config.confluence.saved'),'success'); location.reload(); } else showAlert(_t('config.error_save'),'danger');
+}
+function deleteConfluence(id) { showConfirm(_t('config.confluence.delete_confirm'), _t('config.confluence.delete_title'), async function() { const res=await fetch(`/api/config/confluence/${id}`,{method:'DELETE'}); if(res.ok){showAlert(_t('config.deleted'),'success');location.reload();}else showAlert(_t('config.error_delete'),'danger'); }); }
+</script>
+</th:block>
+</body>
+</html>

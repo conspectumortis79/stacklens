@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="de" xmlns:th="http://www.thymeleaf.org">
+<head>
+<meta charset="utf-8">
+<title th:text="${title + ' – Simulated Pull Request'}">Pull Request</title>
+<style>
+  :root { --bg:#f6f8fa; --card:#fff; --line:#d0d7de; --muted:#57606a; --add:#dafbe1; --addText:#1a7f37; --del:#ffebe9; --delText:#cf222e; --header:#24292f; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--header); font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif; }
+  header { background:var(--card); border-bottom:1px solid var(--line); padding:18px 24px; position:sticky; top:0; z-index:10; }
+  header h1 { margin:0 0 4px; font-size:20px; }
+  header .meta { color:var(--muted); font-size:13px; }
+  .pill { display:inline-block; padding:2px 8px; border-radius:999px; font-size:12px; font-weight:600; margin-right:6px; }
+  .pill-add { background:var(--add); color:var(--addText); }
+  .pill-mod { background:#fff8c5; color:#9a6700; }
+  .pill-del { background:var(--del); color:var(--delText); }
+  .pill-unchanged { background:#eaeef2; color:var(--muted); }
+  main { max-width:1100px; margin:0 auto; padding:18px 24px 60px; }
+  .toc { background:var(--card); border:1px solid var(--line); border-radius:6px; padding:10px 14px; margin-bottom:18px; }
+  .toc a { display:block; color:#0969da; text-decoration:none; padding:3px 0; font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:13px; }
+  .toc a:hover { text-decoration:underline; }
+  .file { background:var(--card); border:1px solid var(--line); border-radius:6px; margin-bottom:16px; overflow:hidden; }
+  .file-head { padding:8px 14px; border-bottom:1px solid var(--line); display:flex; align-items:center; gap:10px; flex-wrap:wrap; background:#f6f8fa; }
+  .file-path { font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:13px; font-weight:600; word-break:break-all; }
+  .file-stats { margin-left:auto; font-size:12px; color:var(--muted); }
+  .file-stats .add { color:var(--addText); font-weight:600; }
+  .file-stats .del { color:var(--delText); font-weight:600; }
+  table.diff { width:100%; border-collapse:collapse; font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:12px; }
+  table.diff td { padding:0 10px; vertical-align:top; white-space:pre-wrap; word-break:break-word; }
+  table.diff tr.line-add td { background:var(--add); }
+  table.diff tr.line-add td.sign { color:var(--addText); }
+  table.diff tr.line-del td { background:var(--del); }
+  table.diff tr.line-del td.sign { color:var(--delText); }
+  table.diff tr.line-ctx td { background:#fff; color:var(--muted); }
+  table.diff tr.line-hunk td { background:#ddf4ff; color:#0550ae; font-style:italic; font-family:-apple-system,sans-serif; font-size:11px; }
+  td.sign { width:18px; text-align:center; user-select:none; font-weight:600; }
+  td.lineno { width:48px; text-align:right; color:var(--muted); user-select:none; border-right:1px solid var(--line); }
+  .empty { color:var(--muted); padding:14px; text-align:center; font-style:italic; }
+  .banner { background:#fff8c5; border:1px solid #d4a72c; border-radius:6px; padding:10px 14px; margin-bottom:14px; font-size:13px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>🔀 <span th:text="${title}">Title</span></h1>
+  <div class="meta">
+    Branch: <code th:text="${branch}"></code><th:block th:if="${baseBranch != null}"> ← <code th:text="${baseBranch}"></code></th:block>
+    <th:block th:if="${repoPath != null}"> · Repo: <code th:text="${repoPath}"></code></th:block>
+    <br>
+    <span class="pill pill-add">+ <span th:text="${added}"></span> added</span>
+    <span class="pill pill-mod">~ <span th:text="${modified}"></span> changed</span>
+    <span class="pill pill-del" th:if="${deleted > 0}">− <span th:text="${deleted}"></span> deleted</span>
+  </div>
+</header>
+<main>
+  <div class="banner">⚠️ <strong>Simulated Pull Request</strong> — this preview shows the
+    exact state of the feature branch compared to <code th:text="${baseLabel}"></code>
+    (committed + uncommitted working tree changes).</div>
+  <div class="banner" th:if="${!gitAvailable}" style="background:#ffebe9;border-color:#cf222e;">
+    ❌ No Git repository found under <code th:text="${repoPathLabel}"></code> —
+    a real diff cannot be rendered.</div>
+
+  <div class="file" th:if="${#lists.isEmpty(diffs)}">
+    <div class="empty" th:text="${noChangesMsg}"></div>
+  </div>
+
+  <th:block th:if="${not #lists.isEmpty(diffs)}">
+    <div class="toc">
+      <a th:each="diff, diffStat : ${diffs}"
+         th:href="'#f' + ${diffStat.index}">
+        <span th:class="'pill ' + ${diff.pillClass}" th:text="${diff.pillLabelShort}"></span>
+        <span th:text="${diff.path}"></span>
+      </a>
+    </div>
+
+    <div th:each="diff, diffStat : ${diffs}"
+         class="file"
+         th:id="'f' + ${diffStat.index}">
+      <div class="file-head">
+        <span th:class="'pill ' + ${diff.pillClass}" th:text="${diff.pillLabelLong}"></span>
+        <span class="file-path" th:text="${diff.path}"></span>
+        <span class="file-stats">
+          <span class="add" th:text="'+' + ${diff.additions}"></span> ·
+          <span class="del" th:text="'-' + ${diff.deletions}"></span>
+        </span>
+      </div>
+      <div class="empty" th:if="${diff.unchanged}">Keine Änderungen gegenüber dem Repository-Stand.</div>
+      <table class="diff" th:if="${!diff.unchanged}">
+        <tbody>
+          <tr th:each="line : ${diff.lines}" th:class="${line.rowClass}">
+            <td th:if="${line.hunk}" class="lineno" colspan="3"
+                style="text-align:left;border:none;" th:text="${line.text}"></td>
+            <td th:unless="${line.hunk}" class="lineno" th:text="${line.lineNo}"></td>
+            <td th:unless="${line.hunk}" class="sign" th:text="${line.sign}"></td>
+            <td th:unless="${line.hunk}" th:text="${line.text}"></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </th:block>
+</main>
+</body>
+</html>

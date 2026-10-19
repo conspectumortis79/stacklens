@@ -1,0 +1,435 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" lang="de">
+<body>
+<th:block th:fragment="scripts">
+<script th:inline="none">
+
+
+window._ie = window._ie || {};
+window._ie.file = null;
+window._ie.serverPath = null;
+window._ie.serverName = null;
+window._ie.saveServerPath = null;
+window._ie.currentAbort = null;
+window._ie.currentHistoryId = null;
+window._ie.lastExtractedText = '';
+window._ie.lastFileName = '';
+
+function ieSetLoading(on) {
+  var loadEl = document.getElementById('ieLoading');
+  var loadText = document.getElementById('ieLoadingText');
+  var doneEl = document.getElementById('ieDone');
+  var btn = document.getElementById('ieBtnExtract');
+  var cancelBtn = document.getElementById('ieBtnCancel');
+  if (loadEl) loadEl.classList.toggle('visible', on);
+  if (loadText) {
+    var engine = ieGetSelectedEngine();
+    var key = engine === 'tesseract' ? 'image_extraction.tesseract_extracting' : 'image_extraction.ai_extracting';
+    loadText.textContent = window.i18n ? window.i18n.t(key) : (engine === 'tesseract' ? 'Tesseract liest das Bild…' : 'KI liest das Bild…');
+  }
+  if (doneEl) doneEl.classList.remove('visible');
+  if (btn) btn.disabled = on || !(window._ie.file || window._ie.serverPath);
+  if (cancelBtn) cancelBtn.style.display = on ? '' : 'none';
+}
+
+function ieShowError(msg) {
+  var card = document.getElementById('ieErrorCard');
+  var msgEl = document.getElementById('ieErrorMessage');
+  if (msgEl) msgEl.textContent = msg;
+  if (card) card.style.display = '';
+  ieSetLoading(false);
+  ieUpdateLiveHistoryRow('FAILED');
+}
+
+function ieClearError() {
+  var card = document.getElementById('ieErrorCard');
+  if (card) card.style.display = 'none';
+}
+
+function ieRenderChip() {
+  var chip = document.getElementById('ieFileChip');
+  var nameEl = document.getElementById('ieFileChipName');
+  var metaEl = document.getElementById('ieFileChipMeta');
+  var btn = document.getElementById('ieBtnExtract');
+  if (!chip || !nameEl || !metaEl) return;
+  var ie = window._ie;
+  var label = ie.serverName || (ie.file && ie.file.name);
+  if (label) {
+    nameEl.textContent = label;
+    var mime = (ie.file && ie.file.type) || (ie.serverPath ? detectMimeFromName(ie.serverName) : '');
+    var size = ie.file ? ie.file.size : (ie.fileSize || 0);
+    metaEl.textContent = mime + ' · ' + ieHumanSize(size);
+    chip.style.display = '';
+    if (btn) btn.disabled = false;
+  } else {
+    nameEl.textContent = '';
+    metaEl.textContent = '';
+    chip.style.display = 'none';
+    if (btn) btn.disabled = true;
+  }
+}
+
+function ieHumanSize(bytes) {
+  if (!bytes) return '0 B';
+  var units = ['B', 'KB', 'MB', 'GB'];
+  var i = 0; var v = bytes;
+  while (v >= 1024 && i < units.length - 1) { v /= 1024; i++; }
+  return v.toFixed(v >= 100 || i === 0 ? 0 : 1) + ' ' + units[i];
+}
+
+function detectMimeFromName(name) {
+  if (!name) return '';
+  var ext = (name.split('.').pop() || '').toLowerCase();
+  if (ext === 'png') return 'image/png';
+  if (ext === 'jpg' || ext === 'jpeg') return 'image/jpeg';
+  if (ext === 'tif' || ext === 'tiff') return 'image/tiff';
+  return 'application/octet-stream';
+}
+
+function ieFileSelected(file) {
+  if (!file) return;
+  var lower = (file.name || '').toLowerCase();
+  var okExt = /\.(tiff?|png|jpe?g)$/.test(lower);
+  if (!okExt) {
+    showAlert(window.i18n.t('image_extraction.be_unsupported_type'), 'danger');
+    return;
+  }
+  if (file.size > 20 * 1024 * 1024) {
+    showAlert(window.i18n.t('image_extraction.alert_file_too_large'), 'danger');
+    return;
+  }
+  window._ie.file = file;
+  window._ie.fileSize = file.size;
+  window._ie.serverPath = null;
+  window._ie.serverName = file.name;
+  window._ie.currentHistoryId = null;
+  ieRenderChip();
+  ieClearError();
+  var resultCard = document.getElementById('ieResultCard');
+  if (resultCard) resultCard.style.display = 'none';
+}
+
+function ieClearFile(event) {
+  if (event) event.stopPropagation();
+  window._ie.file = null;
+  window._ie.fileSize = 0;
+  window._ie.serverPath = null;
+  window._ie.serverName = '';
+  window._ie.currentHistoryId = null;
+  var input = document.getElementById('ieFileInput');
+  if (input) input.value = '';
+  ieRenderChip();
+}
+
+(function initDropzone() {
+  function onOver(e) {
+    e.preventDefault(); e.stopPropagation();
+    var dz = document.getElementById('ieDropzone');
+    if (dz) dz.classList.add('ie-drag-over');
+  }
+  function onLeave(e) {
+    e.preventDefault(); e.stopPropagation();
+    var dz = document.getElementById('ieDropzone');
+    if (dz) dz.classList.remove('ie-drag-over');
+  }
+  function onDrop(e) {
+    e.preventDefault(); e.stopPropagation();
+    var dz = document.getElementById('ieDropzone');
+    if (dz) dz.classList.remove('ie-drag-over');
+    var dt = e.dataTransfer;
+    if (!dt || !dt.files || !dt.files.length) { ieOpenBrowser(); return; }
+    ieFileSelected(dt.files[0]);
+  }
+  function onClick() { ieOpenBrowser(); }
+  function onKey(e) { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); ieOpenBrowser(); } }
+  var dz = document.getElementById('ieDropzone');
+  if (dz) {
+    dz.addEventListener('dragover', onOver);
+    dz.addEventListener('dragenter', onOver);
+    dz.addEventListener('dragleave', onLeave);
+    dz.addEventListener('drop', onDrop);
+    dz.addEventListener('click', onClick);
+    dz.addEventListener('keydown', onKey);
+  }
+  var input = document.getElementById('ieFileInput');
+  if (input) {
+    input.addEventListener('change', function() {
+      if (input.files && input.files[0]) ieFileSelected(input.files[0]);
+    });
+  }
+})();
+
+(function initGlobalFileDropGuard() {
+  if (!document.getElementById('ieDropzone')) return;
+  function hasFilePayload(e) {
+    if (!e.dataTransfer) return false;
+    var types = e.dataTransfer.types;
+    if (types) {
+      for (var i = 0; i < types.length; i++) {
+        if (types[i] === 'Files') return true;
+      }
+    }
+    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) return true;
+    return false;
+  }
+  function isInDropzone(e) {
+    var t = e.target;
+    while (t && t !== document.body) {
+      if (t.id === 'ieDropzone') return true;
+      t = t.parentNode;
+    }
+    return false;
+  }
+  function guard(e) {
+    if (hasFilePayload(e) && !isInDropzone(e)) {
+      e.preventDefault();
+      e.stopPropagation();
+      if (e.type === 'drop') {
+        var dz = document.getElementById('ieDropzone');
+        if (dz) {
+          dz.classList.add('ie-drop-rejected');
+          setTimeout(function() { dz.classList.remove('ie-drop-rejected'); }, 350);
+        }
+      }
+    }
+  }
+  window.addEventListener('dragover', guard);
+  window.addEventListener('drop', guard);
+})();
+
+function ieGetSelectedEngine() {
+  var el = document.querySelector('input[name="ieOcrEngine"]:checked');
+  return el ? el.value : 'tesseract';
+}
+
+function doImageExtract() {
+  var ie = window._ie;
+  if (!ie.file && !ie.serverPath) {
+    showAlert(window.i18n.t('image_extraction.alert_no_file'), 'warning');
+    return;
+  }
+  ieClearError();
+  ieSetLoading(true);
+  var savePath = (document.getElementById('ieSavePath') || {}).value || '';
+  var engine = ieGetSelectedEngine();
+  var label = ie.serverName || (ie.file && ie.file.name) || '';
+  ieShowLiveHistoryRow(label);
+  ie.currentAbort = new AbortController();
+  var signal = ie.currentAbort.signal;
+  if (ie.file) {
+    var fd = new FormData();
+    fd.append('file', ie.file, ie.file.name);
+    if (savePath.trim()) fd.append('saveToServerPath', savePath.trim());
+    var uploadUrl = '/api/image-extraction/extract-upload?engine=' + encodeURIComponent(engine);
+    fetch(uploadUrl, { method: 'POST', body: fd, signal: signal })
+      .then(function(r) { return r.json().then(function(d) { return { ok: r.ok, data: d }; }); })
+      .then(function(res) { ieHandleResult(res, label); })
+      .catch(function(e) {
+        if (e && e.name === 'AbortError') return;
+        ieShowError(window.i18n.t('image_extraction.alert_network_error') + (e.message || ''));
+      });
+  } else {
+    var mime = detectMimeFromName(ie.serverName);
+    fetch('/api/image-extraction/extract', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        sourcePath: ie.serverPath,
+        originalFileName: ie.serverName,
+        mimeType: mime,
+        fileSizeBytes: ie.fileSize || 0,
+        saveToServerPath: savePath.trim() || null,
+        ocrEngine: engine
+      }),
+      signal: signal
+    })
+      .then(function(r) { return r.json().then(function(d) { return { ok: r.ok, data: d }; }); })
+      .then(function(res) { ieHandleResult(res, label); })
+      .catch(function(e) {
+        if (e && e.name === 'AbortError') return;
+        ieShowError(window.i18n.t('image_extraction.alert_network_error') + (e.message || ''));
+      });
+  }
+}
+
+function ieHandleResult(res, label) {
+  var d = res.data || {};
+  if (!res.ok || d.error) {
+    ieShowError(d.error || window.i18n.t('image_extraction.alert_extract_failed'));
+    return;
+  }
+  ieSetLoading(false);
+  window._ie.currentHistoryId = d.recordId || null;
+  window._ie.lastExtractedText = d.extractedText || '';
+  window._ie.lastFileName = label;
+  var doneEl = document.getElementById('ieDone');
+  if (doneEl) doneEl.classList.add('visible');
+  ieDropLiveHistoryRow();
+  ieRenderResult(d, label);
+  ieLoadServerHistory();
+  if (typeof ieInitTokenUsageBar === 'function') ieInitTokenUsageBar();
+}
+
+function cancelImageExtract() {
+  var ie = window._ie;
+  if (ie.currentAbort) { try { ie.currentAbort.abort(); } catch (_) {} ie.currentAbort = null; }
+  ieSetLoading(false);
+  ieUpdateLiveHistoryRow('CANCELLED');
+}
+
+function ieRenderResult(d, label) {
+  var card = document.getElementById('ieResultCard');
+  var meta = document.getElementById('ieResultMeta');
+  var text = document.getElementById('ieResultText');
+  if (!card || !meta || !text) return;
+  card.style.display = '';
+  var rows = [
+    [window.i18n.t('image_extraction.label_file_name'), label || '—'],
+    [window.i18n.t('image_extraction.label_mime_type'), d && d.outputFilePath ? 'image/…' : (window._ie.file ? window._ie.file.type : detectMimeFromName(label))]
+  ];
+  if (d && d.outputFilePath) {
+    rows.push([window.i18n.t('image_extraction.label_output_path'), d.outputFilePath]);
+  }
+  meta.innerHTML = rows.map(function(r) {
+    return '<div class="ie-meta-item"><div class="ie-meta-label">' + ieEsc(r[0]) + '</div>' +
+      '<div class="ie-meta-value">' + ieEsc(r[1]) + '</div></div>';
+  }).join('');
+  text.value = d.extractedText || '';
+  card.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  ieInitResultScroll(text);
+}
+
+function ieInitResultScroll(text) {
+  if (!text || typeof window.SLScroll !== 'function') return;
+  if (text.__ieResultScroll) {
+    text.__ieResultScroll.update();
+    return;
+  }
+  var track = document.getElementById('ieResultScrollTrack');
+  var thumb = document.getElementById('ieResultScrollThumb');
+  if (!track || !thumb) return;
+  text.__ieResultScroll = window.SLScroll(text, track, thumb);
+}
+
+function ieCopyResult() {
+  var text = (document.getElementById('ieResultText') || {}).value || '';
+  if (!text) { showAlert(window.i18n.t('image_extraction.extraction_empty'), 'warning'); return; }
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(text).then(function() {
+      showAlert(window.i18n.t('sql_analysis.copied'), 'success');
+    });
+  } else {
+    var ta = document.createElement('textarea');
+    ta.value = text; document.body.appendChild(ta); ta.select();
+    document.execCommand('copy'); document.body.removeChild(ta);
+    showAlert(window.i18n.t('sql_analysis.copied'), 'success');
+  }
+}
+
+function ieDownloadResult() {
+  var text = (document.getElementById('ieResultText') || {}).value || '';
+  if (!text) { showAlert(window.i18n.t('image_extraction.extraction_empty'), 'warning'); return; }
+  var name = window._ie.lastFileName || 'extracted';
+  var base = name.replace(/\.[^.]+$/, '');
+  var filename = base + '.txt';
+  var blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
+  if (window.desktopApp && typeof window.desktopApp.saveFile === 'function') {
+    var reader = new FileReader();
+    reader.onload = function() {
+      var b64 = String(reader.result).split(',')[1];
+      try { window.desktopApp.saveFile(filename, b64); } catch (_) {}
+    };
+    reader.readAsDataURL(blob);
+    return;
+  }
+  var url = URL.createObjectURL(blob);
+  var a = document.createElement('a');
+  a.href = url; a.download = filename; document.body.appendChild(a); a.click();
+  document.body.removeChild(a); URL.revokeObjectURL(url);
+}
+
+
+
+window._ieBrowserSelected = { path: null, name: null, size: 0, currentPath: null };
+window._ieSavePathBrowser = { currentPath: null };
+
+var IE_IMAGE_EXTS = 'tif,tiff,png,jpg,jpeg';
+var _ieFileSizeByPath = {};
+
+function ieBrowseEntries(url) {
+  return fetch(url).then(function (r) {
+    return r.json().then(function (data) {
+      if (!r.ok || data.error) throw new Error(data.error || ('HTTP ' + r.status));
+      var items = data.items || [];
+      items.forEach(function (i) {
+        if (i.type !== 'directory' && typeof i.size === 'number') _ieFileSizeByPath[i.path] = i.size;
+      });
+      return {
+        current: data.currentPath || '',
+        parent: data.parentPath || null,
+        directories: items.filter(function (i) { return i.type === 'directory'; }),
+        files: items.filter(function (i) { return i.type !== 'directory'; }),
+      };
+    });
+  });
+}
+
+function ieLoadImageEntries(path) {
+  return ieBrowseEntries('/api/image-extraction/files/browse?fileExtensions=' + IE_IMAGE_EXTS
+    + (path ? '&path=' + encodeURIComponent(path) : ''));
+}
+
+function ieLoadSavePathEntries(path) {
+  return ieBrowseEntries('/api/image-extraction/files/browse?directoriesOnly=true'
+    + (path ? '&path=' + encodeURIComponent(path) : ''));
+}
+
+function ieApplyServerFile(path) {
+  var name = String(path).replace(/\\/g, '/').split('/').filter(Boolean).pop() || path;
+  window._ie = window._ie || {};
+  window._ie.file = null;
+  window._ie.serverPath = path;
+  window._ie.serverName = name;
+  window._ie.fileSize = _ieFileSizeByPath[path] || 0;
+  ieRenderChip();
+}
+
+function ieOpenBrowser() {
+  __kiChatOpenDirBrowser(function (path) {
+    if (path) ieApplyServerFile(path);
+  }, {
+    files: IE_IMAGE_EXTS.split(','),
+    acceptHint: 'TIFF, PNG, JPG, JPEG',
+    storageKey: 'stacklens.fb.last.image',
+    titleKey: 'common.choose_file',
+    titleFallback: 'Datei auswählen',
+    load: ieLoadImageEntries,
+  });
+}
+
+function ieOpenSavePathBrowser() {
+  __kiChatOpenDirBrowser(function (dir) {
+    if (dir) document.getElementById('ieSavePath').value = dir;
+  }, {
+    titleKey: 'image_extraction.btn_browse_save_path',
+    titleFallback: 'Zielordner wählen',
+    load: ieLoadSavePathEntries,
+  });
+}
+
+
+document.addEventListener('DOMContentLoaded', function() {
+  ieLoadServerHistory();
+});
+
+if (window._ieNavigateHandler) document.removeEventListener('app:navigate', window._ieNavigateHandler);
+window._ieNavigateHandler = function() {
+  if (!document.getElementById('hxCard-image-extraction')) return;
+  ieLoadServerHistory();
+  ieRenderChip();
+};
+document.addEventListener('app:navigate', window._ieNavigateHandler);
+</script>
+</th:block>
+</body>
+</html>

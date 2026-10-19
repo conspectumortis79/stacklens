@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.ultraq.net.nz/thymeleaf/layout" lang="de">
+<body>
+<th:block th:fragment="add-source-modals">
+    <div class="modal" id="kbAddManualModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title"><i class="bi bi-pencil me-2"></i><span data-i18n="knowledge.add.manual_title">Manuellen Text hinzufügen</span></h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="mb-2">
+                        <label class="form-label fw-semibold" data-i18n="knowledge.add.target">Wissensdatenbank</label>
+                        <select class="form-select" id="kbManualBase"></select>
+                    </div>
+                    <div class="mb-2">
+                        <label class="form-label fw-semibold" data-i18n="knowledge.add.name">Titel</label>
+                        <input class="form-control" id="kbManualName"/>
+                    </div>
+                    <div class="mb-2">
+                        <label class="form-label fw-semibold" data-i18n="knowledge.add.text">Text</label>
+                        <textarea class="form-control" id="kbManualText" rows="10"></textarea>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-sm btn-outline-secondary" data-bs-dismiss="modal" data-i18n="common.cancel">Abbrechen</button>
+                    <button class="btn btn-sm btn-primary" onclick="kbSubmitManual()">
+                        <i class="bi bi-save me-1"></i><span data-i18n="knowledge.add.save">Speichern und vektorisieren</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal" id="kbAddFileModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title"><i class="bi bi-upload me-2"></i><span data-i18n="knowledge.add.file_title">Datei hochladen und vektorisieren</span></h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <p class="text-muted small" data-i18n="knowledge.add.file_hint">Unterstützte Formate: PDF, DOC, DOCX, TXT, MD. Maximale Größe: 50 MB.</p>
+                    <div class="mb-2">
+                        <label class="form-label fw-semibold" data-i18n="knowledge.add.target">Wissensdatenbank</label>
+                        <select class="form-select" id="kbFileBase"></select>
+                    </div>
+                    <div class="mb-2">
+                        <label class="form-label fw-semibold" data-i18n="knowledge.add.file_label">Datei</label>
+                        <div class="d-flex align-items-center gap-2">
+                            <button type="button" class="btn btn-sm btn-outline-primary" onclick="kbOpenFilePicker()">
+                                <i class="bi bi-folder2-open me-1"></i><span data-i18n="knowledge.add.file_picker.title">Datei auswählen</span>
+                            </button>
+                            <span id="kbFileSelectedName" class="text-muted small" style="word-break:break-all;"></span>
+                            <input type="hidden" id="kbFileCurrentPath" />
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-sm btn-outline-secondary" data-bs-dismiss="modal" data-i18n="common.cancel">Abbrechen</button>
+                    <button id="kbAddFileModalSave" class="btn btn-sm btn-primary" onclick="kbSubmitFile()">
+                        <i class="bi bi-save me-1"></i><span data-i18n="knowledge.add.save">Speichern und vektorisieren</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal" id="kbAddConfluenceModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title"><i class="bi bi-book me-2"></i><span data-i18n="knowledge.add.confluence_title">Confluence-Seite hinzufügen</span></h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="mb-2">
+                        <label class="form-label fw-semibold" data-i18n="knowledge.add.target">Wissensdatenbank</label>
+                        <select class="form-select" id="kbConfluenceBase"></select>
+                    </div>
+                    <div class="mb-2">
+                        <label class="form-label fw-semibold" data-i18n="knowledge.add.confluence_config">Confluence-Verbindung</label>
+                        <select class="form-select" id="kbConfluenceConfig"></select>
+                    </div>
+                    <div class="mb-2">
+                        <label class="form-label fw-semibold" data-i18n="knowledge.add.confluence_url">Startseiten-URL</label>
+                        <input class="form-control" id="kbConfluenceUrl" placeholder="https://company.atlassian.net/wiki/spaces/DEV/pages/123456/..."/>
+                    </div>
+                    <div class="form-check mb-2">
+                        <input class="form-check-input" type="checkbox" id="kbConfluenceChildren" checked/>
+                        <label class="form-check-label" for="kbConfluenceChildren" data-i18n="knowledge.add.include_children">Unterseiten einbeziehen</label>
+                    </div>
+                    <div class="mb-2">
+                        <label class="form-label fw-semibold" data-i18n="knowledge.add.max_depth">Maximale Tiefe</label>
+                        <input class="form-control" type="number" id="kbConfluenceDepth" value="10" min="0" max="50"/>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-sm btn-outline-secondary" data-bs-dismiss="modal" data-i18n="common.cancel">Abbrechen</button>
+                    <button class="btn btn-sm btn-primary" onclick="kbSubmitConfluence()">
+                        <i class="bi bi-save me-1"></i><span data-i18n="knowledge.add.save">Speichern und vektorisieren</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal" id="kbAddJiraModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title"><i class="bi bi-list-check me-2"></i><span data-i18n="knowledge.add.jira_title">Jira-Ticket hinzufügen</span></h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="mb-2">
+                        <label class="form-label fw-semibold" data-i18n="knowledge.add.target">Wissensdatenbank</label>
+                        <select class="form-select" id="kbJiraBase"></select>
+                    </div>
+                    <div class="mb-2">
+                        <label class="form-label fw-semibold" data-i18n="knowledge.add.jira_config">Jira-Verbindung</label>
+                        <select class="form-select" id="kbJiraConfig"></select>
+                    </div>
+                    <div class="mb-2">
+                        <label class="form-label fw-semibold" data-i18n="knowledge.add.jira_key">Root-Ticket-Key oder URL</label>
+                        <input class="form-control" id="kbJiraKey" placeholder="PROJ-123 oder https://company.atlassian.net/browse/PROJ-123"/>
+                    </div>
+                    <div class="form-check mb-2">
+                        <input class="form-check-input" type="checkbox" id="kbJiraChildren" checked/>
+                        <label class="form-check-label" for="kbJiraChildren" data-i18n="knowledge.add.include_children">Untertickets einbeziehen</label>
+                    </div>
+                    <div class="form-check mb-2">
+                        <input class="form-check-input" type="checkbox" id="kbJiraComments" checked/>
+                        <label class="form-check-label" for="kbJiraComments" data-i18n="knowledge.add.include_comments">Kommentare einbeziehen</label>
+                    </div>
+                    <div class="mb-2">
+                        <label class="form-label fw-semibold" data-i18n="knowledge.add.max_depth">Maximale Tiefe</label>
+                        <input class="form-control" type="number" id="kbJiraDepth" value="10" min="0" max="50"/>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-sm btn-outline-secondary" data-bs-dismiss="modal" data-i18n="common.cancel">Abbrechen</button>
+                    <button class="btn btn-sm btn-primary" onclick="kbSubmitJira()">
+                        <i class="bi bi-save me-1"></i><span data-i18n="knowledge.add.save">Speichern und vektorisieren</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal" id="kbAddJiraSprintModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title"><i class="bi bi-flag me-2"></i><span data-i18n="knowledge.add.jira_sprint_title">Jira-Sprint hinzufügen</span></h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="mb-2">
+                        <label class="form-label fw-semibold" data-i18n="knowledge.add.target">Wissensdatenbank</label>
+                        <select class="form-select" id="kbJiraSprintBase"></select>
+                    </div>
+                    <div class="mb-2">
+                        <label class="form-label fw-semibold" data-i18n="knowledge.add.jira_config">Jira-Verbindung</label>
+                        <select class="form-select" id="kbJiraSprintConfig"></select>
+                    </div>
+                    <div class="mb-2">
+                        <label class="form-label fw-semibold" data-i18n="knowledge.add.jira_sprint_ref">Sprint-Name oder Sprint-ID</label>
+                        <input class="form-control" id="kbJiraSprintRef" placeholder="Sprint 42 oder 1234"/>
+                        <div class="form-text" data-i18n="knowledge.add.jira_sprint_hint">
+                            Es werden alle Top-Level-Tickets des Sprints importiert (Technical Task, Bug, Support, Story usw.).
+                            Subtasks der Tickets werden übernommen, sofern „Untertickets einbeziehen“ aktiv ist.
+                        </div>
+                    </div>
+                    <div class="form-check mb-2">
+                        <input class="form-check-input" type="checkbox" id="kbJiraSprintChildren" checked/>
+                        <label class="form-check-label" for="kbJiraSprintChildren" data-i18n="knowledge.add.include_children">Untertickets einbeziehen</label>
+                    </div>
+                    <div class="form-check mb-2">
+                        <input class="form-check-input" type="checkbox" id="kbJiraSprintComments" checked/>
+                        <label class="form-check-label" for="kbJiraSprintComments" data-i18n="knowledge.add.include_comments">Kommentare einbeziehen</label>
+                    </div>
+                    <div class="mb-2">
+                        <label class="form-label fw-semibold" data-i18n="knowledge.add.max_depth">Maximale Tiefe</label>
+                        <input class="form-control" type="number" id="kbJiraSprintDepth" value="1" min="0" max="50"/>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-sm btn-outline-secondary" data-bs-dismiss="modal" data-i18n="common.cancel">Abbrechen</button>
+                    <button class="btn btn-sm btn-primary" onclick="kbSubmitJiraSprint()">
+                        <i class="bi bi-save me-1"></i><span data-i18n="knowledge.add.save">Speichern und vektorisieren</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+</th:block>
+</body>
+</html>

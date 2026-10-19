@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org"
+      xmlns:layout="http://www.ultraq.net.nz/thymeleaf/layout"
+      layout:decorate="~{layout}" lang="de">
+<head><title>Ticket-Aufbereitung</title>
+<meta name="mcp-sources" content="jira">
+</head>
+<body>
+
+<th:block layout:fragment="page-title">
+  <span data-i18n="page_titles.ticket_refinement">Ticket-Aufbereitung</span>
+</th:block>
+
+<th:block layout:fragment="page-subtitle">
+  <p class="page-subtitle">
+    <span data-i18n="page_subtitles.ticket_refinement">Bereitet einen Sprint vor: lädt das übergeordnete Jira-Ticket, ermittelt alle verlinkten Tickets und lässt die KI für jedes Ticket eine verbesserte Beschreibung sowie offene Punkte erstellen.</span>
+  </p>
+</th:block>
+
+<th:block layout:fragment="page-actions">
+  <div style="display:flex;gap:8px;align-items:center;">
+    <button class="btn btn-sm btn-outline-secondary" style="border-color:#ddd7cb;color:#5b564d;"
+            data-prompt-prefix="ticketrefinement" disabled
+            onclick="openPromptEditorForPrefix('ticketrefinement', 'Ticket-Aufbereitung', null, 'ticketrefinement.improve_ticket', null)">
+      <i class="bi bi-cpu me-1"></i><span>KI-Prompt</span>
+    </button>
+    <button class="btn btn-sm" style="background:linear-gradient(135deg,#7c5cbf,#5b8ef0);color:#fff;border:none;"
+            onclick="kiChatToggle()" data-i18n-title="ticket_refinement.ki_chat_title"
+            title="KI Chat – kontext-sensitive Hilfe für die Ticket-Aufbereitung">
+      <i class="bi bi-chat-dots-fill me-1"></i><span data-i18n="common.ki_chat_btn">KI Chat</span>
+    </button>
+  </div>
+</th:block>
+
+<th:block layout:fragment="head-extra">
+<script th:inline="javascript">
+/*<![CDATA[*/
+window.kiChatConfig = {
+  tabId: 'ticket-refinement',
+  tabLabel: 'Ticket-Aufbereitung',
+  tabLabelKey: 'ki_chat.ticket_refinement.tab_label',
+  introMessage: 'Hi! Ich helfe dir bei der Ticket-Aufbereitung. Wähle ein Eltern-Ticket und ich verbessere die Beschreibungen aller verlinkten Tickets, prüfe Template-Konformität, AKs, Abhängigkeiten und Vorbedingungen.',
+  introMessageKey: 'ki_chat.ticket_refinement.intro',
+  suggestionsKey: 'ki_chat.ticket_refinement.suggestions',
+  suggestions: [
+    'Welche Akzeptanzkriterien fehlen typischerweise in unseren Tickets?',
+    'Wie formuliere ich ein gutes Ziel (Goal) für ein Sprint-Ticket?',
+    'Mache aus diesem AC einen Given/When/Then',
+    'Erkenne fehlende Abhängigkeiten in einer Ticket-Beschreibung',
+    'Welche Vorbedingungen sollte ich vor Sprint-Start klären?',
+    'Bewerte die Template-Konformität dieses Tickets'
+  ],
+  systemHint: 'You are a senior product engineer focused on sprint readiness. Your reviews check: template compliance, a clear single-sentence Goal, complete and verifiable Acceptance Criteria, explicit dependencies, and explicit preconditions. Be concrete and actionable; never invent missing facts — surface them as open points instead.',
+  contextProvider: function(){
+    var parts = [];
+    try {
+      var parent = (document.getElementById('spParentKey') || {}).value || '';
+      if (parent) parts.push('Aktuelles Eltern-Ticket: ' + parent.trim());
+      var status = document.getElementById('spStatus');
+      if (status && status.textContent.trim()) parts.push('Status: ' + status.textContent.trim());
+    } catch(e){}
+    return parts.join('\n');
+  }
+};
+/*]]>*/
+</script>
+</th:block>
+
+<div layout:fragment="content">
+  <th:block th:replace="~{fragments/ticket-refinement/styles :: styles}"></th:block>
+<th:block th:replace="~{fragments/shared/token-usage :: styles}"></th:block>
+
+  <div class="sp-page" data-cf-token-usage-anchor="">
+    <section class="sp-card sp-form-card">
+      <h3 class="sp-card-title" data-i18n="ticket_refinement.title">Ticket-Aufbereitung</h3>
+      <form id="spForm" class="sp-form" autocomplete="off" onsubmit="return false;">
+        <div class="sp-row">
+          <label class="sp-label" data-i18n="ticket_refinement.form_parent_label">Übergeordnetes Ticket</label>
+          <input id="spParentKey" type="text" class="sp-input"
+                 data-i18n-placeholder="ticket_refinement.form_parent_placeholder"
+                 placeholder="z. B. PROJ-123"/>
+        </div>
+        <div class="sp-row">
+          <label class="sp-label sp-checkbox-label" for="spSingleOnly">
+            <input id="spSingleOnly" type="checkbox" checked="checked"/>
+            <span data-i18n="ticket_refinement.form_single_only_label">Nur dieses Ticket analysieren (verlinkte Tickets ignorieren)</span>
+          </label>
+          <small class="sp-hint" data-i18n="ticket_refinement.form_single_only_help">
+            Spart KI-Tokens, wenn du nur ein einzelnes Ticket (neu) analysieren willst.
+          </small>
+        </div>
+        <div class="sp-row">
+          <label class="sp-label" data-i18n="ticket_refinement.form_jira_config">Jira-Konfiguration</label>
+          <select id="spJiraConfig" class="sp-input"></select>
+        </div>
+        <div class="sp-row" style="border-top:1px solid var(--sp-line);padding-top:12px;">
+          <div style="display:flex;align-items:center;gap:6px;margin-bottom:6px;">
+            <div style="font-size:13px;font-weight:700;color:var(--sp-muted);text-transform:uppercase;letter-spacing:.04em;" data-i18n="ticket_refinement.form_repos_label">Lokale Repositories</div>
+            <span class="sp-info-icon" tabindex="0"
+                  data-i18n-title="ticket_refinement.form_repos_help"
+                  title="Ausgewählte Repositories werden pro Ticket auf Auswirkungen, Abhängigkeiten und Vorarbeiten geprüft.">
+              <i class="bi bi-info-circle-fill"></i>
+            </span>
+            <button type="button" onclick="spRepoFbOpen()" title="Repository hinzufügen" data-i18n-title="ticket_refinement.repo_add_title"
+                    style="background:var(--sp-accent);color:#fff;border:none;border-radius:8px;padding:4px 10px 4px 7px;display:inline-flex;align-items:center;gap:4px;cursor:pointer;font-size:12px;font-weight:600;flex-shrink:0;line-height:1.4;">
+              <i class="bi bi-plus" style="font-size:15px;"></i>
+              <span data-i18n="ticket_refinement.add_inline">Hinzufügen</span>
+            </button>
+          </div>
+          <div id="spRepoList" style="display:flex;flex-direction:column;gap:5px;">
+            <div id="spNoRepoHint" class="sp-repo-empty" style="font-size:12px;color:var(--sp-muted);padding:6px 2px;">
+              <i class="bi bi-info-circle me-1"></i>
+              <span data-i18n="ticket_refinement.form_repos_none">Keine lokalen Repositories konfiguriert.</span>
+            </div>
+          </div>
+        </div>
+        <div class="sp-row" style="border-top:1px solid var(--sp-line);padding-top:12px;">
+          <div style="display:flex;align-items:center;gap:6px;margin-bottom:6px;">
+            <div style="font-size:13px;font-weight:700;color:var(--sp-muted);text-transform:uppercase;letter-spacing:.04em;" data-i18n="ticket_refinement.db_schema_title">Datenbank (optional)</div>
+            <span class="sp-info-icon" tabindex="0"
+                  data-i18n-title="ticket_refinement.db_schema_tooltip">
+              <i class="bi bi-info-circle-fill"></i>
+            </span>
+          </div>
+          <div id="spDatabaseMultiSelect" style="display:flex;flex-wrap:wrap;gap:6px;"></div>
+          <div id="spNoDbHint" style="display:none;font-size:11px;color:var(--sp-muted);margin-top:4px;">
+            <i class="bi bi-info-circle me-1"></i><span data-i18n="ticket_refinement.db_none_configured">Keine Datenbanken konfiguriert – unter Konfiguration hinzufügen.</span>
+          </div>
+        </div>
+        <div class="sp-row">
+          <label class="sp-label">
+            <span data-i18n="ticket_refinement.form_template_label">Prompt-Template (optional)</span>
+            <button type="button" id="spShowDefault" class="sp-link"
+                    data-i18n="ticket_refinement.form_template_show_default">Standard anzeigen</button>
+          </label>
+          <textarea id="spTemplate" class="sp-input sp-textarea" rows="6"
+                    data-i18n-placeholder="ticket_refinement.form_template_placeholder"
+                    placeholder="Leer lassen, um das Standard-Template zu verwenden."></textarea>
+        </div>
+        <div class="sp-row sp-actions">
+          <button id="spCancel" type="button" class="sp-btn sp-btn-cancel" disabled
+                  data-i18n="common.cancel">Abbrechen</button>
+          <button id="spStart" type="submit" class="sp-btn sp-btn-primary"
+                  data-i18n="ticket_refinement.btn_start">Vorbereitung starten</button>
+        </div>
+      </form>
+    </section>
+
+    <section id="spProgressCard" class="sp-card sp-progress-card" style="display:none;">
+      <div class="sp-progress-header">
+        <i class="bi bi-arrow-clockwise sp-progress-spin"></i>
+        <span data-i18n="ticket_refinement.progress_title">Aufbereitung läuft…</span>
+      </div>
+      <div id="spProgressStep" class="sp-progress-step"></div>
+    </section>
+
+    <section id="spResultsCard" class="sp-card sp-results-card" style="display:none;">
+      <h3 class="sp-card-title" data-i18n="ticket_refinement.results_heading">Ergebnisse</h3>
+      <div id="spStatus" class="sp-status"></div>
+      <div id="spResults" class="sp-results"></div>
+    </section>
+
+    <th:block th:replace="~{fragments/shared/history :: card('ticket-refinement', '')}"></th:block>
+  </div>
+
+  <div id="spCtxMenu" class="sp-ctx-menu" style="display:none;" role="menu">
+    <div id="spCtxCopy" class="sp-ctx-item sp-ctx-disabled" role="menuitem">
+      <i class="bi bi-clipboard"></i><span data-i18n="common.copy">Kopieren</span>
+    </div>
+    <div class="sp-ctx-sep"></div>
+    <div id="spCtxSelectBlock" class="sp-ctx-item" role="menuitem">
+      <i class="bi bi-textarea-t"></i><span data-i18n="ticket_refinement.ctx_select_block">Abschnitt markieren</span>
+    </div>
+    <div id="spCtxSelectAll" class="sp-ctx-item" role="menuitem">
+      <i class="bi bi-check2-all"></i><span data-i18n="ticket_refinement.ctx_select_all">Alle Ergebnisse markieren</span>
+    </div>
+  </div>
+
+  <th:block th:replace="~{fragments/ticket-refinement/scripts :: scripts}"></th:block>
+<th:block th:replace="~{fragments/shared/token-usage :: scripts}"></th:block>
+
+<script>
+  if (window.slTokenUsagePage) window.slTokenUsagePage({
+        kind: 'ticket_refinement',
+        anchor: document.querySelector('.sl-page-header'),
+        resolveId: function () { return (window._sp.runningId || window._sp.lastOpenId); }
+    });
+function spInitTokenUsageBar() {
+  if (window.slTokenUsageRebind) window.slTokenUsageRebind('ticket_refinement');
+}
+</script>
+</div>
+
+</body>
+</html>

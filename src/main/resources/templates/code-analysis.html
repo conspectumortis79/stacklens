@@ -1,0 +1,335 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org"
+      xmlns:layout="http://www.ultraq.net.nz/thymeleaf/layout"
+      layout:decorate="~{layout}" lang="de">
+<head><title>Code-Analyse</title>
+<meta name="mcp-sources" content="gitlab,github">
+</head>
+<body>
+
+<th:block layout:fragment="page-title"><span data-i18n="page_titles.code_analysis">Code-Analyse</span></th:block>
+
+<th:block layout:fragment="page-subtitle"><p class="page-subtitle"><span data-i18n="page_subtitles.code_analysis">Prüft Quellcode auf Qualität, Sicherheitslücken und Optimierungspotenzial per KI. Datei oder Verzeichnis auswählen und Analyse starten.</span></p></th:block>
+
+<th:block layout:fragment="page-actions">
+  <div style="display:flex;gap:8px;align-items:center;">
+    <button class="btn btn-sm btn-outline-secondary" style="border-color:#ddd7cb;color:#5b564d;"
+            data-prompt-prefix="codeanalysis" disabled
+            onclick="openPromptEditorForPrefix('codeanalysis', 'Code-Analyse', 'de', 'codeanalysis.analysisPrompt', function(){ caStartAnalysis(); })">
+      <i class="bi bi-cpu me-1"></i><span>KI-Prompt</span>
+    </button>
+    <button class="btn btn-sm" style="background:linear-gradient(135deg,#7c5cbf,#5b8ef0);color:#fff;border:none;"
+            onclick="kiChatToggle()" data-i18n-title="common.ki_chat_context_title" title="KI Chat – kontext-sensitive Hilfe für diesen Reiter">
+      <i class="bi bi-chat-dots-fill me-1"></i><span data-i18n="common.ki_chat_btn">KI Chat</span>
+    </button>
+  </div>
+</th:block>
+
+<th:block layout:fragment="head-extra">
+<script th:inline="javascript">
+window.kiChatConfig = {
+  tabId: 'code-analysis',
+  tabLabel: 'Code-Analyse',
+  tabLabelKey: 'ki_chat.code_analysis.tab_label',
+  introMessage: 'Hi! Ich bin dein PHP/Kotlin-Code-Reviewer. Wähle links eine Datei und ich gebe konkrete Hinweise zu Sicherheit, Performance, Lesbarkeit und SOLID.',
+  introMessageKey: 'ki_chat.code_analysis.intro',
+  suggestionsKey: 'ki_chat.code_analysis.suggestions',
+  suggestions: [
+    'Reviewe die aktuell ausgewählte Datei (Sicherheit + Lesbarkeit)',
+    'Welche SOLID-Prinzipien werden in dieser Datei verletzt?',
+    'Schlage 5 Unit-Tests für die ausgewählte Datei vor',
+    'Refactor-Vorschläge: kleinere Funktionen + bessere Namen',
+    'Finde Code-Smells (Duplikate, lange Methoden, magische Werte)',
+    'PHP-Sicherheit: typische Lücken in dieser Datei',
+    'Schreibe einen Doc-Block für die wichtigsten Funktionen',
+    'Komplexitätsanalyse: welche Funktion ist zu komplex?'
+  ],
+  systemHint: 'You are a senior PHP+Kotlin code reviewer (security, performance, SOLID, testability). Always reference the currently selected file from context. Give actionable, concrete advice with concrete code snippets, not generic platitudes.',
+  contextProvider: function(){
+    var parts = [];
+    try {
+      var sel = document.querySelector('.tree-item.selected, [data-selected-file]');
+      if (sel) parts.push('Aktuell ausgewählte Datei: ' + (sel.getAttribute('data-path') || sel.textContent || '').trim());
+    } catch(e){}
+    return parts.join('\n');
+  }
+};
+</script>
+</th:block>
+
+<div layout:fragment="content">
+<th:block th:replace="~{fragments/code-analysis/styles :: styles}"></th:block>
+<th:block th:replace="~{fragments/shared/token-usage :: styles}"></th:block>
+
+<th:block th:replace="~{fragments/code-analysis/modals :: modals}"></th:block>
+
+<div class="ca-page" data-cf-token-usage-anchor="">
+  <div class="ca-layout">
+
+    <aside class="ca-panel">
+      <div class="ca-list-top">
+        <h2 style="display:flex;align-items:center;justify-content:space-between;">
+          <span><i class="bi bi-folder2 me-1" style="color:#eab308;"></i>Repositories</span>
+          <button onclick="openFileBrowserForNewRepo()" data-i18n-title="code_analysis.repo_add_title" title="Repository hinzufügen"
+                  style="background:var(--ca-accent);color:#fff;border:none;border-radius:8px;width:26px;height:26px;display:inline-flex;align-items:center;justify-content:center;cursor:pointer;font-size:18px;line-height:1;padding:0;flex-shrink:0;">
+            <i class="bi bi-plus"></i>
+          </button>
+        </h2>
+      </div>
+
+      <div class="ca-repo-scroll">
+        <div class="ca-repo-scroll-content" id="caRepoScrollContent">
+          <div id="repoList">
+          <div th:each="r : ${localRepoConfigs}" class="ca-repo-card"
+               th:id="'repoCard-' + ${r.id}"
+               th:data-repo-id="${r.id}"
+               th:data-repo-name="${r.name}"
+               th:data-repo-path="${r.path}"
+               th:data-repo-active="${r.active}"
+               th:classappend="${!r.active} ? ' ca-repo-inactive'">
+            <div class="ca-repo-row1">
+              <div class="ca-repo-name" th:text="${r.name}"></div>
+            </div>
+            <div class="ca-repo-path" th:text="${r.path}"></div>
+            <div class="ca-card-status"></div>
+            <div class="ca-btn-row">
+              <button class="ca-btn-xs ca-btn-xs-success" data-action="play"><i class="bi bi-play-fill"></i> <span data-i18n="code_analysis.btn_start">Starten</span></button>
+              <button class="ca-btn-xs ca-btn-xs-cancel"  data-action="cancel"><i class="bi bi-x-circle"></i></button>
+              <button class="ca-btn-xs ca-btn-xs-outline" data-action="edit"><i class="bi bi-pencil"></i></button>
+              <button class="ca-btn-xs ca-btn-xs-outline" data-action="delete"><i class="bi bi-trash"></i></button>
+            </div>
+          </div>
+        </div>
+
+        <div id="gitlabRepoSection">
+          <div id="gitlabConfigList">
+            <div class="text-muted small text-center py-2">Wird geladen…</div>
+          </div>
+        </div>
+
+        <div th:if="${githubRepoConfigs != null and !githubRepoConfigs.empty}" id="githubRepoSection">
+          <div class="mb-2">
+            <div class="d-flex align-items-center gap-2 p-2 rounded ca-gh-accordion-header"
+                 style="border:1px solid var(--ca-line);cursor:pointer;"
+                 onclick="caToggleGithubAccordion(this)">
+              <i class="bi bi-github" style="color:#24292e;"></i>
+              <span class="fw-bold flex-grow-1" style="font-size:13px;word-break:break-all;" data-i18n="code_analysis.github_repos">GitHub</span>
+              <i class="bi bi-chevron-down small text-muted ca-gh-chevron"></i>
+            </div>
+            <div class="ca-github-repos d-none" id="caGithubRepoList">
+              <div th:each="gh : ${githubRepoConfigs}"
+                   class="ca-repo-card"
+                   th:id="'caGhCard-' + ${gh.id}"
+                   th:attr="data-github-repo-id=${gh.id},data-github-repo-name=${gh.owner + '/' + gh.repo}"
+                   onclick="caSelectGithub(+this.dataset.githubRepoId, this.dataset.githubRepoName)"
+                   style="cursor:pointer;">
+                <div class="ca-repo-row1">
+                  <div class="ca-repo-name">
+                    <span th:text="${gh.name}"></span>
+                  </div>
+                </div>
+                <div class="ca-repo-path" th:text="${gh.owner + '/' + gh.repo}"></div>
+                <div class="ca-card-status"></div>
+                <div class="ca-btn-row">
+                  <button class="ca-btn-xs ca-btn-xs-success" data-action="gh-play">
+                    <i class="bi bi-play-fill"></i> <span data-i18n="code_analysis.btn_start">Starten</span>
+                  </button>
+                  <button class="ca-btn-xs ca-btn-xs-cancel" data-action="gh-cancel" title="Abbrechen">
+                    <i class="bi bi-x-circle"></i>
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        
+        </div>
+        <div class="sl-scroll-track" id="caRepoScrollTrack"><div class="sl-scroll-thumb" id="caRepoScrollThumb"></div></div>
+      </div>
+    </aside>
+
+    <div class="ca-result-panel" id="analysisPanel">
+
+      <div class="ca-result-sticky-top">
+      <div class="ca-result-header" id="analysisHeader">
+        <div class="ca-empty" style="padding:20px;flex:1;min-height:auto;justify-content:flex-start;flex-direction:row;gap:10px;">
+          <i class="bi bi-arrow-left"></i>
+          <span class="text-muted" style="font-size:14px;" data-i18n="code_analysis.select_hint">Wähle ein Repository und starte eine Code-Analyse.</span>
+        </div>
+      </div>
+
+      <div class="ca-tabs d-none" id="analysisTabs">
+        <button class="ca-tab-btn active" onclick="caSwitch('tabSummary', this)">
+          <i class="bi bi-bar-chart me-1"></i><span data-i18n="code_analysis.tab_summary">Zusammenfassung</span>
+        </button>
+        <button class="ca-tab-btn" onclick="caSwitch('tabDuplicate', this)">
+          <i class="bi bi-files me-1"></i><span data-i18n="code_analysis.tab_duplicate">Duplizierter Code</span>
+        </button>
+        <button class="ca-tab-btn" onclick="caSwitch('tabHexagonal', this)">
+          <i class="bi bi-hexagon me-1"></i><span data-i18n="code_analysis.tab_hexagonal">Hexagonal</span>
+        </button>
+        <button class="ca-tab-btn" onclick="caSwitch('tabUnused', this)">
+          <i class="bi bi-slash-circle me-1"></i><span data-i18n="code_analysis.tab_unused">Ungenutzt</span>
+        </button>
+        <button class="ca-tab-btn" onclick="caSwitch('tabAll', this)">
+          <i class="bi bi-list-ul me-1"></i><span data-i18n="code_analysis.tab_all">Alle Befunde</span>
+        </button>
+        <button class="ca-tab-btn" onclick="caSwitch('tabChanges', this)">
+          <i class="bi bi-file-diff me-1"></i><span data-i18n="code_analysis.tab_changes">Änderungen</span>
+        </button>
+        <button class="ca-tab-btn" onclick="caSwitch('tabMermaid', this)" id="tabMermaidBtn">
+          <i class="bi bi-diagram-3 me-1"></i>Mermaid
+        </button>
+        <button class="ca-tab-btn" onclick="caSwitch('tabDrawio', this)" id="tabDrawioBtn">
+          <i class="bi bi-bounding-box-circles me-1"></i>Draw.io
+        </button>
+      </div>
+      </div>
+
+      <div class="ca-tab-panel active" id="tabSummary">
+        <div class="ca-empty" id="caEmptyState">
+          <i class="bi bi-robot"></i>
+          <span data-i18n="code_analysis.no_analysis">Keine Analyse vorhanden. Klicke auf "Code analysieren" um zu starten.</span>
+        </div>
+
+        <div id="caRunning" class="ca-empty d-none">
+          <span class="spinner-border" style="width:2.4rem;height:2.4rem;border-width:3px;color:var(--ca-muted);"></span>
+          <div class="mt-3 fw-medium" style="font-size:1.05rem;" data-i18n="code_analysis.analyzing">KI analysiert den Code …</div>
+          <div class="text-muted small mt-1" data-i18n="code_analysis.analyzing_hint">Das kann 1–5 Minuten dauern.</div>
+        </div>
+
+        <div id="caAborted" class="ca-empty d-none">
+          <i class="bi bi-x-circle" style="font-size:2.4rem;"></i>
+          <div class="mt-2 fw-medium" style="font-size:1.05rem;" data-i18n="code_analysis.aborted">Analyse abgebrochen.</div>
+          <div class="text-muted small mt-1" data-i18n="code_analysis.aborted_hint">Starte eine neue Analyse, um Ergebnisse zu sehen.</div>
+        </div>
+
+        <div id="caError" class="d-none alert alert-danger"></div>
+        <div id="caSummaryContent" class="ca-prose d-none"></div>
+        <div id="caMrBanner" class="d-none mt-3 p-3 rounded-3" style="background:#fff7ed;border:1.5px solid #f59e0b;">
+          <div class="d-flex align-items-center gap-3 flex-wrap">
+            <i class="bi bi-git fs-5" style="color:#fc6d26;flex-shrink:0;"></i>
+            <div style="flex:1;min-width:0;">
+              <strong id="caMrBannerText"></strong>
+              <div class="text-muted small">Als GitLab Merge Request anwenden, um die Verbesserungen direkt einzuspielen.</div>
+            </div>
+            <div class="d-flex gap-2 flex-shrink-0">
+              <button class="btn btn-sm btn-outline-secondary" style="font-size:12px;" onclick="caSwitch('tabChanges', document.querySelector('.ca-tab-btn:last-child'))">
+                <i class="bi bi-file-diff me-1"></i><span data-i18n="code_analysis.tab_changes">Änderungen</span>
+              </button>
+              <button class="btn btn-sm" style="background:#fc6d26;color:#fff;border-radius:999px;font-size:12px;" onclick="caOpenMrDialog()">
+                <i class="bi bi-git me-1"></i>MR erstellen
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="ca-tab-panel" id="tabDuplicate">
+        <div id="caDuplicateContent">
+          <div class="ca-empty"><i class="bi bi-files"></i><span data-i18n="code_analysis.no_duplicates">Keine Duplikate gefunden. Starte erst eine Analyse.</span></div>
+        </div>
+      </div>
+
+      <div class="ca-tab-panel" id="tabHexagonal">
+        <div id="caHexContent">
+          <div class="ca-empty"><i class="bi bi-hexagon"></i><span data-i18n="code_analysis.no_arch">Keine Architektur-Befunde. Starte erst eine Analyse.</span></div>
+        </div>
+      </div>
+
+      <div class="ca-tab-panel" id="tabUnused">
+        <div id="caUnusedContent">
+          <div class="ca-empty"><i class="bi bi-slash-circle"></i><span data-i18n="code_analysis.no_unused">Keine ungenutzten Symbole gefunden. Starte erst eine Analyse.</span></div>
+        </div>
+      </div>
+
+      <div class="ca-tab-panel" id="tabAll">
+        <div id="caAllContent">
+          <div class="ca-empty"><i class="bi bi-list-ul"></i><span data-i18n="code_analysis.no_findings">Keine Befunde. Starte erst eine Analyse.</span></div>
+        </div>
+      </div>
+
+      <div class="ca-tab-panel" id="tabChanges">
+        <div id="caChangesContent">
+          <div class="ca-empty"><i class="bi bi-file-diff"></i><span data-i18n="code_analysis.no_changes">Keine Dateiänderungen vorgeschlagen. Starte erst eine Analyse.</span></div>
+        </div>
+        <div id="caMrSection" class="d-none mt-4 p-4" style="border-top:1px solid var(--ca-line);">
+          <div class="d-flex align-items-center gap-3 flex-wrap">
+            <div>
+              <div class="fw-bold"><i class="bi bi-git me-1"></i>GitLab Merge Request erstellen</div>
+              <div class="text-muted small" data-i18n="code_analysis.mr_branch_hint">Erstellt automatisch einen Branch mit den Änderungsvorschlägen.</div>
+            </div>
+            <button class="btn btn-sm ms-auto" style="background:#fc6d26;color:#fff;border-radius:999px;"
+                    onclick="caOpenMrDialog()">
+              <i class="bi bi-git me-1"></i>MR erstellen
+            </button>
+          </div>
+          <div id="caMrResult" class="mt-3 d-none">
+            <div class="alert alert-success d-flex align-items-center gap-2 mb-0">
+              <i class="bi bi-check-circle-fill"></i>
+              <div>MR erfolgreich erstellt: <a id="caMrLink" href="#" class="sl-link"></a></div>
+            </div>
+          </div>
+          <div id="caMrError" class="mt-3 d-none alert alert-danger"></div>
+        </div>
+      </div>
+
+      <div class="ca-tab-panel" id="tabMermaid">
+        <div id="caMermaidEmpty" class="ca-empty">
+          <i class="bi bi-diagram-3"></i>
+          <span data-i18n="code_analysis.mermaid_unavailable">Kein Mermaid-Diagramm verfügbar.</span><br>
+          <span class="text-muted small" data-i18n="code_analysis.arch_run_hint">Starte eine Analyse, um das Architekturdiagramm zu generieren.</span>
+        </div>
+        <div id="caMermaidContainer" class="d-none ca-diagram-bg" style="width:100%;min-height:320px;height:320px;cursor:pointer;border-radius:12px;overflow:hidden;"></div>
+        <div id="caMermaidActions" class="d-none d-flex gap-2 mt-3 flex-wrap">
+          <button class="btn btn-sm btn-outline-secondary" style="border-radius:999px;font-size:12px;" onclick="openCaMermaidFullscreen()">
+            <i class="bi bi-fullscreen me-1"></i>Vollbild
+          </button>
+          <button class="btn btn-sm btn-outline-secondary" style="border-radius:999px;font-size:12px;" onclick="caDownloadMermaid()">
+            <i class="bi bi-floppy me-1"></i>Speichern (.mmd)
+          </button>
+        </div>
+      </div>
+
+      <div class="ca-tab-panel" id="tabDrawio">
+        <div id="caDrawioEmpty" class="ca-empty">
+          <i class="bi bi-bounding-box-circles"></i>
+          <span data-i18n="code_analysis.drawio_unavailable">Kein Draw.io-Diagramm verfügbar.</span><br>
+          <span class="text-muted small" data-i18n="code_analysis.arch_run_hint">Starte eine Analyse, um das Architekturdiagramm zu generieren.</span>
+        </div>
+        <div id="caDrawioContainer" class="d-none ca-diagram-bg" style="width:100%;min-height:420px;border-radius:12px;overflow:hidden;"></div>
+        <div id="caDrawioActions" class="d-none d-flex gap-2 mt-3 flex-wrap">
+          <button class="btn btn-sm btn-outline-secondary" style="border-radius:999px;font-size:12px;" onclick="openCaDrawioFullscreen()">
+            <i class="bi bi-fullscreen me-1"></i>Vollbild
+          </button>
+          <button class="btn btn-sm btn-outline-secondary" style="border-radius:999px;font-size:12px;" onclick="caOpenInDrawio()">
+            <i class="bi bi-box-arrow-up-right me-1"></i><span data-i18n="code_analysis.drawio_open">In Draw.io öffnen</span>
+          </button>
+          <button class="btn btn-sm btn-outline-secondary" style="border-radius:999px;font-size:12px;" onclick="caDownloadDrawio()">
+            <i class="bi bi-floppy me-1"></i>Speichern (.drawio)
+          </button>
+        </div>
+      </div>
+
+      <th:block th:replace="~{fragments/shared/history :: card('code-analysis', 'hx-card--gutter')}"></th:block>
+
+    </div>
+  </div>
+</div>
+
+</div>
+
+<th:block layout:fragment="scripts">
+<th:block th:replace="~{fragments/code-analysis/scripts :: scripts}"></th:block>
+<th:block th:replace="~{fragments/shared/token-usage :: scripts}"></th:block>
+<script>
+  if (window.slTokenUsagePage) window.slTokenUsagePage({
+        kind: 'code',
+        anchor: document.querySelector('.sl-page-header'),
+        resolveId: function () { return caCurrentAnalysisId; },
+        initWhenUnresolved: true
+    });
+</script>
+</th:block>
+</body>
+</html>

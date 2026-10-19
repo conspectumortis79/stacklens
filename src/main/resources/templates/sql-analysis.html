@@ -1,0 +1,381 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org"
+      xmlns:layout="http://www.ultraq.net.nz/thymeleaf/layout"
+      layout:decorate="~{layout}" lang="de">
+<head><title>SQL-Analyse</title></head>
+<body>
+
+<th:block layout:fragment="page-title">
+  <span data-i18n="page_titles.sql_analysis">SQL-Analyse</span>
+</th:block>
+
+<th:block layout:fragment="page-subtitle"><p class="page-subtitle"><span data-i18n="page_subtitles.sql_analysis">Analysiert SQL-Queries auf Syntaxfehler, Performance-Schwächen und fehlende Indizes – unterstützt MySQL &amp; MariaDB. Query einfügen, optional DDL ergänzen und "Analysieren" klicken.</span></p></th:block>
+
+<th:block layout:fragment="page-actions">
+  <div style="display:flex;gap:8px;align-items:center;">
+  <button class="btn btn-sm btn-outline-secondary" style="border-color:#ddd7cb;color:#5b564d;"
+          data-prompt-prefix="sql" disabled
+          onclick="openPromptEditorForPrefix('sql', 'SQL-Analyse', 'de', 'sql.analyzeQuery', function(){ doAnalyze(); })">
+    <i class="bi bi-cpu me-1"></i><span>KI-Prompt</span>
+  </button>
+  <button class="btn btn-sm" style="background:linear-gradient(135deg,#7c5cbf,#5b8ef0);color:#fff;border:none;"
+          onclick="kiChatToggle()" title="KI Chat">
+    <i class="bi bi-chat-dots-fill me-1"></i><span data-i18n="common.ki_chat_btn">KI Chat</span>
+  </button>
+  </div>
+</th:block>
+
+<th:block layout:fragment="head-extra">
+<meta name="mcp-sources" content="database">
+<script th:inline="javascript">
+/*<![CDATA[*/
+window.kiChatConfig = {
+  tabId: 'sql-analysis',
+  tabLabel: 'SQL-Analyse',
+  tabLabelKey: 'ki_chat.sql_analysis.tab_label',
+  introMessage: 'Hi! Ich helfe bei SQL-Optimierung, Index-Design und Query-Plan-Lesen (MySQL/MariaDB). Schreibe deine Query in das Eingabefeld — ich beziehe mich darauf in meinen Antworten.',
+  introMessageKey: 'ki_chat.sql_analysis.intro',
+  suggestionsKey: 'ki_chat.sql_analysis.suggestions',
+  suggestions: [
+    'Erkläre den EXPLAIN-Plan meiner Query',
+    'Schlage einen passenden Index für meine Query vor',
+    'Wie erkenne ich N+1-Probleme in einem ORM (Eloquent / Doctrine)?',
+    'Refaktoriere meine Query auf bessere Lesbarkeit + Performance',
+    'JOIN vs Subquery vs CTE — wann was?',
+    'Wie wirken sich Composite-Indexe auf ORDER BY aus?',
+    'Slow-Query-Log auswerten: typische Muster',
+    'SARGability: warum macht WHERE DATE(col) = ... meinen Index kaputt?'
+  ],
+  systemHint: 'You are a senior database engineer (MySQL/MariaDB, indexing, query plans, ORM pitfalls). Give concrete SQL examples and explain trade-offs, not just rules.',
+  contextProvider: function(){
+    var parts = [];
+    try {
+      var ta = document.querySelector('textarea');
+      if (ta && ta.value) parts.push('Aktuelle Query:\n' + ta.value.slice(0,4000));
+    } catch(e){}
+    return parts.join('\n');
+  }
+};
+/*]]>*/
+</script>
+</th:block>
+
+<div layout:fragment="content">
+<th:block th:replace="~{fragments/sql-analysis/styles :: styles}"></th:block>
+<th:block th:replace="~{fragments/shared/token-usage :: styles}"></th:block>
+
+<div class="sa-page" data-cf-token-usage-anchor="">
+
+  <div class="sa-page-tabs" style="border-bottom: 2px solid var(--sa-line); margin-bottom: 24px; display: flex; gap: 4px; flex-wrap: wrap;">
+    <button class="sa-tab active" id="tabBtnAnalyze" onclick="saSwitch('panelAnalyze', this)">
+      <i class="bi bi-search me-1"></i><span data-i18n="sql_analysis.tab_analyze">Query analysieren</span>
+    </button>
+    <button class="sa-tab" id="tabBtnData" onclick="saSwitch('panelData', this)">
+      <i class="bi bi-table me-1"></i><span data-i18n="sql_analysis.tab_data">Testdaten generieren</span>
+    </button>
+    <button class="sa-tab" id="tabBtnGenerate" onclick="saSwitch('panelGenerate', this)">
+      <i class="bi bi-stars me-1"></i><span data-i18n="sql_analysis.tab_generate">Query erstellen</span>
+    </button>
+  </div>
+
+  <div id="panelAnalyze" class="sa-tab-pane active">
+    <div class="sa-card">
+      <h2><i class="bi bi-search me-2" style="color:var(--sa-accent)"></i><span data-i18n="sql_analysis.tab_analyze">Query analysieren</span></h2>
+
+      <div class="mb-3">
+        <div class="sa-label" data-i18n="sql_analysis.label_sql">SQL-Query (MySQL / MariaDB)</div>
+        <textarea id="analyzeSql" class="sa-textarea" rows="6"
+                  placeholder="SELECT u.id, u.name FROM users u WHERE u.active = 1;"
+                  onkeydown="if(event.ctrlKey&&event.key==='Enter')doAnalyze()"
+                  oninput="saResetTestState()"></textarea>
+      </div>
+
+      <button class="sa-collapse-btn" onclick="saToggle('analyzeDdlWrap', this)">
+        <i class="bi bi-chevron-right" id="analyzeDdlChevron"></i>
+        <span data-i18n="sql_analysis.label_ddl">Tabellenstruktur / DDL (optional)</span>
+      </button>
+      <div id="analyzeDdlWrap" class="sa-collapsible mb-3">
+        <textarea id="analyzeDdl" class="sa-textarea" rows="5"
+                  placeholder="CREATE TABLE users (id INT PRIMARY KEY AUTO_INCREMENT, name VARCHAR(100) NOT NULL);"></textarea>
+      </div>
+
+      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:4px;">
+        <button id="btnAnalyze" class="sa-btn" onclick="doAnalyze()">
+          <i class="bi bi-play-circle me-1"></i><span data-i18n="sql_analysis.btn_analyze">Analysieren</span>
+        </button>
+        <button id="btnCancelAnalyze" class="sa-btn-danger" type="button" onclick="cancelSqlAnalyze()">
+          <i class="bi bi-x-circle me-1"></i><span data-i18n="common.cancel">Abbrechen</span>
+        </button>
+        <button id="btnRunTest" class="sa-btn-test" disabled onclick="doRunTest()" title="Query auf generierten Testdaten ausführen" data-i18n-title="sql_analysis.run_test_title">
+          <i class="bi bi-play-fill"></i><span data-i18n="sql_analysis.btn_run_test">Query testen</span>
+        </button>
+        <div id="analyzeLoading" class="sa-status-pill sa-status-analyzing">
+          <span class="spinner-border spinner-border-sm"></span>
+          <span data-i18n="sql_analysis.ai_analyzing">KI analysiert SQL…</span>
+        </div>
+        <div id="analyzeDataPending" class="sa-status-pill sa-status-data">
+          <span class="spinner-border spinner-border-sm"></span>
+          <span data-i18n="sql_analysis.data_generating">Analyse erfolgreich – Testdaten werden generiert…</span>
+        </div>
+        <div id="analyzeDone" class="sa-status-pill sa-status-done">
+          <i class="bi bi-check-circle-fill"></i>
+          <span data-i18n="sql_analysis.both_done">Analyse &amp; Testdaten erfolgreich abgeschlossen</span>
+        </div>
+      </div>
+    </div>
+
+    <div id="analyzeNeedDataHint" class="sa-card"
+         style="display:none; border-left:4px solid var(--sa-accent2); background:rgba(99,102,241,0.06); margin-bottom:16px;">
+      <div style="display:flex; align-items:flex-start; gap:12px; flex-wrap:wrap;">
+        <i class="bi bi-info-circle-fill" style="color:var(--sa-accent2); font-size:20px; flex-shrink:0;"></i>
+        <div style="flex:1; min-width:240px;">
+          <div style="font-weight:600; margin-bottom:4px;"
+               data-i18n="sql_analysis.test_need_data">Zum Testen der Query werden zunächst Testdaten benötigt.</div>
+          <div style="font-size:13px; color:var(--sa-muted);"
+               data-i18n="sql_analysis.test_need_data_hint">Klicke unten auf „Testdaten generieren“, um passende Testdaten für deine SQL-Query zu erzeugen. Danach wird „Query testen“ automatisch aktiv.</div>
+        </div>
+        <div style="display:flex; gap:8px; flex-wrap:wrap; align-self:center;">
+          <button class="sa-btn" onclick="saSwitchToGenerateData()">
+            <i class="bi bi-magic me-1"></i>
+            <span data-i18n="sql_analysis.btn_generate_data">Testdaten generieren</span>
+          </button>
+          <button class="sa-btn-secondary" onclick="saSwitch('panelData', document.getElementById('tabBtnData'))">
+            <i class="bi bi-arrow-right me-1"></i>
+            <span data-i18n="sql_analysis.tab_data">Testdaten generieren</span>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <div class="sa-card" id="analyzeHistoryCard" style="display:none; pointer-events:none; opacity:0; position:absolute; top:-9999px;">
+      <div id="analyzeHistoryList"></div>
+    </div>
+
+    <div id="analyzeError" class="sa-error"></div>
+
+    <div id="analyzeResult" class="sa-result">
+
+      <div class="sa-card">
+        <h2 data-i18n="sql_analysis.section_syntax">Syntax-Prüfung</h2>
+        <div id="syntaxBanner"></div>
+        <div id="syntaxIssuesList" style="margin-top:8px"></div>
+      </div>
+
+      <div id="resultTabNav" style="border-bottom: 2px solid var(--sa-line); margin: 16px 0 4px; display: flex; gap: 4px; flex-wrap: wrap;">
+        <button class="sa-tab active" id="rTabBtnInsights" onclick="srSwitch('rTabInsights', this)">
+          <i class="bi bi-eye me-1"></i><span data-i18n="sql_analysis.section_insights">Erkenntnisse</span>
+        </button>
+        <button class="sa-tab" id="rTabBtnOptim" onclick="srSwitch('rTabOptim', this)">
+          <i class="bi bi-lightbulb me-1"></i><span data-i18n="sql_analysis.section_optimizations">Optimierungsvorschläge</span>
+        </button>
+        <button class="sa-tab" id="rTabBtnIndex" onclick="srSwitch('rTabIndex', this)">
+          <i class="bi bi-diagram-3 me-1"></i><span data-i18n="sql_analysis.section_indexes">Index-Vorschläge</span>
+        </button>
+        <button class="sa-tab" id="rTabBtnTest" onclick="srSwitch('rTabTest', this)" style="display:none">
+          <i class="bi bi-play-fill me-1"></i><span data-i18n="sql_analysis.section_test_run">Query-Test</span>
+        </button>
+      </div>
+
+      <div id="rTabInsights" class="sa-rtab-pane active">
+        <div class="sa-card" id="insightsCard">
+          <div id="insightsText" class="sa-text-block"></div>
+        </div>
+      </div>
+
+      <div id="rTabOptim" class="sa-rtab-pane">
+        <div class="sa-card" id="optimCard">
+          <div id="optimizationsList"></div>
+        </div>
+      </div>
+
+      <div id="rTabIndex" class="sa-rtab-pane">
+        <div class="sa-card" id="indexCard">
+          <div id="indexList"></div>
+        </div>
+      </div>
+
+      <div id="rTabTest" class="sa-rtab-pane">
+        <div class="sa-card" id="testRunCard">
+          <div style="display:flex;align-items:center;margin-bottom:12px;flex-wrap:wrap;gap:8px;">
+            <h2 style="margin:0"><i class="bi bi-play-fill me-2" style="color:var(--sa-accent2)"></i><span data-i18n="sql_analysis.section_test_run">Query-Testergebnis</span>
+              <span id="testRunRowCount" style="font-size:12px;color:var(--sa-muted);font-weight:400;margin-left:8px;"></span>
+            </h2>
+          </div>
+          <div id="testRunLoading" class="sa-loading">
+            <span class="spinner-border spinner-border-sm" style="color:var(--sa-accent2)"></span>
+            <span data-i18n="sql_analysis.running_test">Query wird ausgeführt…</span>
+          </div>
+          <div id="testRunError" class="sa-error"></div>
+          <div id="testRunTable" style="overflow-x:auto;margin-top:4px;"></div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <div id="panelData" class="sa-tab-pane">
+    <div class="sa-card">
+      <h2><i class="bi bi-table me-2" style="color:var(--sa-accent)"></i><span data-i18n="sql_analysis.tab_data">Testdaten generieren</span></h2>
+
+      <div class="mb-3">
+        <div class="sa-label" data-i18n="sql_analysis.label_sql">SQL-Query (MySQL / MariaDB)</div>
+        <textarea id="dataSql" class="sa-textarea" rows="6"
+                  placeholder="SELECT u.id, u.name, COUNT(o.id) AS order_count FROM users u LEFT JOIN orders o ON u.id = o.user_id GROUP BY u.id;"
+                  onkeydown="if(event.ctrlKey&&event.key==='Enter')doGenerateData()"></textarea>
+      </div>
+
+      <button class="sa-collapse-btn" onclick="saToggle('dataDdlWrap', this)">
+        <i class="bi bi-chevron-right" id="dataDdlChevron"></i>
+        <span data-i18n="sql_analysis.label_ddl">Tabellenstruktur / DDL (optional)</span>
+      </button>
+      <div id="dataDdlWrap" class="sa-collapsible mb-3">
+        <textarea id="dataDdl" class="sa-textarea" rows="5"
+                  placeholder="CREATE TABLE users (...); CREATE TABLE orders (...);"></textarea>
+      </div>
+
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+        <button id="btnData" class="sa-btn" onclick="doGenerateData()">
+          <i class="bi bi-magic me-1"></i><span data-i18n="sql_analysis.btn_generate_data">Testdaten generieren</span>
+        </button>
+        <button id="btnCancelData" class="sa-btn-danger" type="button" onclick="cancelSqlData()">
+          <i class="bi bi-x-circle me-1"></i><span data-i18n="common.cancel">Abbrechen</span>
+        </button>
+      </div>
+    </div>
+
+    <div id="dataLoading" class="sa-loading">
+      <span class="spinner-border spinner-border-sm" style="color:var(--sa-accent)"></span>
+      <span data-i18n="sql_analysis.ai_generating_data">KI generiert Testdaten…</span>
+    </div>
+    <div id="dataError" class="sa-error"></div>
+
+    <div id="dataResult" class="sa-result">
+      <div class="sa-card">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
+          <h2 style="margin:0" data-i18n="sql_analysis.section_tables">Generierte Testdaten</h2>
+          <button class="sa-btn-secondary" onclick="saCopyAll()">
+            <i class="bi bi-clipboard me-1"></i>Alles kopieren
+          </button>
+        </div>
+        <div id="execOrder" style="display:none;margin-bottom:16px;">
+          <span class="sa-label" data-i18n="sql_analysis.execution_order">Ausführungsreihenfolge</span>
+          <div id="execOrderList" style="margin-top:4px;display:flex;gap:6px;flex-wrap:wrap;"></div>
+        </div>
+        <div id="tablesContainer"></div>
+        <div id="dataNotes" style="display:none;margin-top:12px;">
+          <div class="sa-label" data-i18n="sql_analysis.section_notes">Hinweise</div>
+          <div class="sa-text-block" id="dataNotesText"></div>
+        </div>
+        <div id="dataValidation" style="display:none;margin-top:12px;">
+          <div class="sa-label"><i class="bi bi-check2-circle me-1" style="color:var(--sa-accent)"></i><span data-i18n="sql_analysis.section_validation">KI-Selbstkontrolle</span></div>
+          <div class="sa-text-block" id="dataValidationText" style="border-left:3px solid var(--sa-accent);padding-left:10px;"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="panelGenerate" class="sa-tab-pane">
+    <div class="sa-card">
+      <h2><i class="bi bi-stars me-2" style="color:var(--sa-accent)"></i><span data-i18n="sql_analysis.tab_generate">Query erstellen</span></h2>
+
+      <div class="mb-3">
+        <div class="sa-label" data-i18n="sql_analysis.label_ddl_required">Tabellenstruktur / DDL</div>
+        <textarea id="genDdl" class="sa-textarea" rows="7"
+                  placeholder="CREATE TABLE users (id INT PRIMARY KEY AUTO_INCREMENT, name VARCHAR(100) NOT NULL, active TINYINT DEFAULT 1);&#10;CREATE TABLE orders (id INT PRIMARY KEY AUTO_INCREMENT, user_id INT, amount DECIMAL(10,2), created_at DATETIME);"></textarea>
+      </div>
+
+      <button class="sa-collapse-btn" onclick="saToggle('genSeedWrap', this)">
+        <i class="bi bi-chevron-right" id="genSeedChevron"></i>
+        <span data-i18n="sql_analysis.label_seed">Beispieldaten / Seed-Daten (optional)</span>
+      </button>
+      <div id="genSeedWrap" class="sa-collapsible mb-3">
+        <textarea id="genSeed" class="sa-textarea" rows="5"
+                  placeholder="INSERT INTO users VALUES (1, 'Max Muster', 1);&#10;INSERT INTO orders VALUES (1, 1, 99.90, '2025-01-15 10:00:00');"></textarea>
+      </div>
+
+      <div class="mb-3">
+        <div class="sa-label" data-i18n="sql_analysis.label_goal">Was soll die Query liefern?</div>
+        <textarea id="genGoal" class="sa-textarea" rows="3"
+                  placeholder="Alle aktiven Benutzer mit der Anzahl ihrer Bestellungen und dem Gesamtumsatz in den letzten 30 Tagen, absteigend sortiert nach Umsatz."
+                  onkeydown="if(event.ctrlKey&&event.key==='Enter')doGenerateQuery()"></textarea>
+      </div>
+
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+        <button id="btnGen" class="sa-btn" onclick="doGenerateQuery()">
+          <i class="bi bi-stars me-1"></i><span data-i18n="sql_analysis.btn_generate_query">Query erstellen</span>
+        </button>
+        <button id="btnCancelGen" class="sa-btn-danger" type="button" onclick="cancelSqlGen()">
+          <i class="bi bi-x-circle me-1"></i><span data-i18n="common.cancel">Abbrechen</span>
+        </button>
+      </div>
+    </div>
+
+    <div id="genLoading" class="sa-loading">
+      <span class="spinner-border spinner-border-sm" style="color:var(--sa-accent)"></span>
+      <span data-i18n="sql_analysis.ai_generating_query">KI erstellt Query…</span>
+    </div>
+    <div id="genError" class="sa-error"></div>
+
+    <div id="genResult" class="sa-result">
+
+      <div class="sa-card">
+        <h2 data-i18n="sql_analysis.section_generated_query">Generierte Query</h2>
+        <div class="sa-code-header">
+          <span class="sa-code-label">SQL</span>
+          <button class="sa-btn-secondary" onclick="saCopyText('genQueryCode')">
+            <i class="bi bi-clipboard me-1"></i><span data-i18n="sql_analysis.btn_copy">Kopieren</span>
+          </button>
+        </div>
+        <div class="sa-code" id="genQueryCode"></div>
+      </div>
+
+      <div class="sa-card" id="genExplanationCard">
+        <h2 data-i18n="sql_analysis.section_explanation">Erklärung</h2>
+        <div class="sa-text-block" id="genExplanationText"></div>
+      </div>
+
+      <div class="sa-card" id="genTablesCard">
+        <h2 data-i18n="sql_analysis.section_used_tables">Verwendete Tabellen</h2>
+        <div id="genTablesList" style="display:flex;gap:6px;flex-wrap:wrap;margin-top:4px;"></div>
+      </div>
+
+      <div class="sa-card" id="genAltCard">
+        <h2 data-i18n="sql_analysis.section_alternatives">Alternative Queries</h2>
+        <div id="genAltList"></div>
+      </div>
+
+      <div class="sa-card" id="genNotesCard">
+        <h2 data-i18n="sql_analysis.section_notes">Hinweise</h2>
+        <div class="sa-text-block" id="genNotesText"></div>
+      </div>
+
+      <div class="sa-card" id="genValidationCard" style="display:none">
+        <h2 data-i18n="sql_analysis.section_validation">Selbstkontrolle</h2>
+        <div class="sa-text-block" id="genValidationText"></div>
+      </div>
+
+    </div>
+  </div>
+
+  <th:block th:replace="~{fragments/shared/history :: card('sql-analysis', '')}"></th:block>
+
+</div>
+</div>
+
+<th:block layout:fragment="scripts">
+<th:block th:replace="~{fragments/sql-analysis/scripts :: scripts}"></th:block>
+<th:block th:replace="~{fragments/shared/token-usage :: scripts}"></th:block>
+
+<script>
+  if (window.slTokenUsagePage) window.slTokenUsagePage({
+        kind: 'sql',
+        anchor: document.querySelector('.sa-page-tabs, .sl-page-header'),
+        resolveId: function () { return _saCurrentHistoryId; }
+    });
+function saInitTokenUsageBar() {
+  if (window.slTokenUsageRebind) window.slTokenUsageRebind('sql');
+}
+</script>
+</th:block>
+</body>
+</html>

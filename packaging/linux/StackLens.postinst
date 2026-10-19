@@ -1,0 +1,410 @@
+#!/bin/sh
+
+set -e
+
+APP_NAME="StackLens"
+APP_HOME="/opt/stacklens"
+BUNDLED_JAVA="${APP_HOME}/lib/runtime/bin/java"
+BUNDLED_JAVAC="${APP_HOME}/lib/runtime/bin/javac"
+REQUIRED_JAVA_MAJOR=25
+ALT_MARKER="/var/lib/stacklens/java-alt-registered"
+
+java_major() {
+    "$1" -version 2>&1 \
+        | awk -F '"' '/version/ {
+            v = $2
+            sub(/^1\./, "", v)
+            split(v, a, ".")
+            print a[1]
+            exit
+          }'
+}
+
+fix_autostart_dir_ownership() {
+    REAL_USER="${SUDO_USER:-}"
+    if [ -z "${REAL_USER}" ] && [ -n "${PKEXEC_UID:-}" ]; then
+        REAL_USER="$(getent passwd "${PKEXEC_UID}" | cut -d: -f1 || true)"
+    fi
+    if [ -z "${REAL_USER}" ] || [ "${REAL_USER}" = "root" ]; then
+        return 0
+    fi
+
+    REAL_HOME="$(getent passwd "${REAL_USER}" | cut -d: -f6 || true)"
+    if [ -z "${REAL_HOME}" ]; then
+        return 0
+    fi
+
+    AUTOSTART_DIR="${REAL_HOME}/.config/autostart"
+    CONFIG_DIR="${REAL_HOME}/.config"
+
+    if [ ! -d "${CONFIG_DIR}" ]; then
+        mkdir -p "${CONFIG_DIR}"
+        chown "${REAL_USER}:" "${CONFIG_DIR}" 2>/dev/null || true
+    fi
+
+    if [ -d "${AUTOSTART_DIR}" ]; then
+        REAL_UID="$(id -u "${REAL_USER}" 2>/dev/null || echo "")"
+        DIR_UID="$(stat -c '%u' "${AUTOSTART_DIR}" 2>/dev/null || echo "")"
+        if [ -n "${REAL_UID}" ] && [ -n "${DIR_UID}" ] && [ "${DIR_UID}" != "${REAL_UID}" ]; then
+            echo "StackLens: Fixing ownership of ${AUTOSTART_DIR} (was UID ${DIR_UID}, setting to ${REAL_USER}) …"
+            chown -R "${REAL_USER}:" "${AUTOSTART_DIR}" 2>/dev/null || true
+        fi
+    else
+        mkdir -p "${AUTOSTART_DIR}"
+        chown -R "${REAL_USER}:" "${AUTOSTART_DIR}" 2>/dev/null || true
+    fi
+}
+
+case "$1" in
+    configure)
+        fix_autostart_dir_ownership
+        echo ""
+        echo "┌──────────────────────────────────────────────────────────────────────────┐"
+        echo "│                    StackLens – Installations-Setup                      │"
+        echo "├──────────────────────────────────────────────────────────────────────────┤"
+        echo "│  Dieser Installer richtet automatisch alle benötigten Werkzeuge ein.     │"
+        echo "│  Bereits installierte Versionen werden erkannt und übersprungen.         │"
+        echo "│                                                                          │"
+        echo "│  AUTOMATISCH (falls fehlend):                                            │"
+        echo "│    ✔  JRE Java 25    – Laufzeit (direkt im Paket enthalten)              │"
+        echo "│    ✔  Node.js 22 LTS – Benötigt für den integrierten MCP-Server          │"
+        echo "│    ✔  Git            – Repository-Analyse und Code-Suche                 │"
+        echo "│    ✔  Kotlin-Compiler – Kotlin-spezifische Analyse-Funktionen           │"
+        echo "│    ✔  k6             – Lasttest-Tool                                     │"
+        echo "│    ✔  Apache JMeter  – Lasttest-Tool (komplexe Szenarien)               │"
+        echo "│                                                                          │"
+        echo "│  MANUELL (Internetverbindung + GitHub-Account erforderlich):             │"
+        echo "│    ✗  GitHub Copilot CLI  →  gh auth login                              │"
+        echo "│                            →  gh extension install github/gh-copilot    │"
+        echo "│    ✗  Docker (optional)   →  https://docs.docker.com/engine/install/    │"
+        echo "│                                                                          │"
+        echo "│  Bitte warten – die Einrichtung kann einige Minuten dauern ...          │"
+        echo "└──────────────────────────────────────────────────────────────────────────┘"
+        echo ""
+
+        WAS_NOT_INSTALLED=0
+        if ! update-alternatives --list "${APP_NAME}" > /dev/null 2>&1; then
+            WAS_NOT_INSTALLED=1
+        fi
+        update-alternatives --install "/usr/bin/${APP_NAME}" "${APP_NAME}" \
+            "${APP_HOME}/bin/${APP_NAME}" 100
+        if [ "${WAS_NOT_INSTALLED}" -eq 1 ]; then
+            update-alternatives --set "${APP_NAME}" "${APP_HOME}/bin/${APP_NAME}"
+        fi
+        ;;
+
+    abort-upgrade|abort-remove|abort-deconfigure)
+        ;;
+
+    *)
+        echo "postinst called with unknown argument '$1'" >&2
+        exit 1
+        ;;
+esac
+
+SYSTEM_JAVA="$(command -v java 2>/dev/null || true)"
+SYSTEM_MAJOR=""
+if [ -n "${SYSTEM_JAVA}" ]; then
+    SYSTEM_MAJOR="$(java_major "${SYSTEM_JAVA}" 2>/dev/null || true)"
+fi
+
+if [ -n "${SYSTEM_MAJOR}" ] && [ "${SYSTEM_MAJOR}" -ge "${REQUIRED_JAVA_MAJOR}" ] 2>/dev/null; then
+    echo "StackLens: Java ${SYSTEM_MAJOR} is already the system default – nothing to do."
+else
+    echo "StackLens: Java ${REQUIRED_JAVA_MAJOR}+ not found as system default. Configuring now …"
+    INSTALLED_VIA=""
+
+    if [ -x "${BUNDLED_JAVA}" ]; then
+        BUNDLED_MAJOR="$(java_major "${BUNDLED_JAVA}" 2>/dev/null || echo 0)"
+        if [ "${BUNDLED_MAJOR}" -ge "${REQUIRED_JAVA_MAJOR}" ] 2>/dev/null; then
+            echo "StackLens: Registering bundled Java ${BUNDLED_MAJOR} with update-alternatives (priority 2500) …"
+
+            if [ -x "${BUNDLED_JAVAC}" ]; then
+                update-alternatives --install /usr/bin/java java \
+                    "${BUNDLED_JAVA}" 2500 \
+                    --slave /usr/bin/javac javac "${BUNDLED_JAVAC}" \
+                    2>/dev/null \
+                && INSTALLED_VIA="bundled" || true
+            else
+                update-alternatives --install /usr/bin/java java \
+                    "${BUNDLED_JAVA}" 2500 \
+                    2>/dev/null \
+                && INSTALLED_VIA="bundled" || true
+            fi
+
+            if [ "${INSTALLED_VIA}" = "bundled" ]; then
+                update-alternatives --set java "${BUNDLED_JAVA}" 2>/dev/null || true
+                mkdir -p "$(dirname "${ALT_MARKER}")"
+                touch "${ALT_MARKER}"
+                echo "StackLens: Java ${BUNDLED_MAJOR} set as global default (/usr/bin/java → bundled JRE)."
+            fi
+        fi
+    fi
+
+    if [ -z "${INSTALLED_VIA}" ] && command -v apt-get > /dev/null 2>&1; then
+        echo "StackLens: Attempting to install openjdk-25-jdk via apt-get …"
+        DEBIAN_FRONTEND=noninteractive apt-get install -y openjdk-25-jdk 2>/dev/null \
+            && echo "StackLens: openjdk-25-jdk installed successfully via apt." \
+            || echo "StackLens: WARNING – Could not install Java 25 automatically." \
+               " Please run: sudo apt-get install openjdk-25-jdk" >&2
+    fi
+fi
+
+if ! command -v kotlinc >/dev/null 2>&1; then
+    echo "StackLens: Kotlin compiler (kotlinc) not found. Attempting installation …"
+    
+    KOTLIN_INSTALLED=0
+    if command -v apt-get >/dev/null 2>&1; then
+        echo "StackLens: Attempting to install kotlin via apt-get …"
+        if DEBIAN_FRONTEND=noninteractive apt-get install -y kotlin 2>/dev/null; then
+            KOTLIN_INSTALLED=1
+            echo "StackLens: kotlin installed successfully via apt."
+        fi
+    fi
+
+    if [ "${KOTLIN_INSTALLED}" -eq 0 ]; then
+        echo "StackLens: Attempting to download standalone Kotlin compiler …"
+        KOTLIN_VERSION="2.0.21"
+        KOTLIN_URL="https://github.com/JetBrains/kotlin/releases/download/v${KOTLIN_VERSION}/kotlin-compiler-${KOTLIN_VERSION}.zip"
+        KOTLIN_TMP="/tmp/kotlin-compiler.zip"
+        
+        if command -v curl >/dev/null 2>&1; then
+            curl -fsSL -o "${KOTLIN_TMP}" "${KOTLIN_URL}" 2>/dev/null || true
+        elif command -v wget >/dev/null 2>&1; then
+            wget -q -O "${KOTLIN_TMP}" "${KOTLIN_URL}" 2>/dev/null || true
+        fi
+        
+        if [ -f "${KOTLIN_TMP}" ]; then
+            if ! command -v unzip >/dev/null 2>&1 && command -v apt-get >/dev/null 2>&1; then
+                DEBIAN_FRONTEND=noninteractive apt-get install -y unzip 2>/dev/null || true
+            fi
+            mkdir -p /opt/kotlin
+            unzip -q "${KOTLIN_TMP}" -d /opt/kotlin 2>/dev/null || true
+            mkdir -p /usr/local/bin
+            ln -sf /opt/kotlin/kotlinc/bin/kotlinc /usr/local/bin/kotlinc 2>/dev/null || true
+            ln -sf /opt/kotlin/kotlinc/bin/kotlin /usr/local/bin/kotlin 2>/dev/null || true
+            rm -f "${KOTLIN_TMP}"
+            echo "StackLens: Kotlin standalone compiler installed to /opt/kotlin and linked."
+        else
+            echo "StackLens: WARNING - Failed to download/install kotlin compiler." >&2
+        fi
+    fi
+else
+    echo "StackLens: Kotlin compiler already available."
+fi
+
+if command -v k6 >/dev/null 2>&1; then
+    echo "StackLens: k6 already available."
+else
+    echo "StackLens: k6 not found. Attempting installation …"
+    K6_INSTALLED=0
+
+    if command -v apt-get >/dev/null 2>&1 && command -v gpg >/dev/null 2>&1; then
+        echo "StackLens: Attempting to add k6 apt repository and install k6 …"
+        K6_KEYRING="/usr/share/keyrings/k6-archive-keyring.gpg"
+        K6_SOURCES="/etc/apt/sources.list.d/k6.list"
+        if curl -fsSL https://dl.k6.io/key.gpg 2>/dev/null \
+              | gpg --dearmor --yes -o "${K6_KEYRING}" 2>/dev/null \
+           && echo "deb [signed-by=${K6_KEYRING}] https://dl.k6.io/deb stable main" \
+              > "${K6_SOURCES}" \
+           && DEBIAN_FRONTEND=noninteractive apt-get update -qq 2>/dev/null \
+           && DEBIAN_FRONTEND=noninteractive apt-get install -y k6 2>/dev/null; then
+            K6_INSTALLED=1
+            echo "StackLens: k6 installed via Grafana apt repository."
+        else
+            echo "StackLens: k6 apt repository install failed; trying binary download."
+            rm -f "${K6_KEYRING}" "${K6_SOURCES}" 2>/dev/null || true
+        fi
+    fi
+
+    if [ "${K6_INSTALLED}" -eq 0 ]; then
+        echo "StackLens: Downloading k6 binary from GitHub …"
+        K6_VERSION="v0.55.0"
+        MACHINE="$(uname -m)"
+        case "${MACHINE}" in
+            aarch64|arm64) K6_ARCH="arm64" ;;
+            *)             K6_ARCH="amd64" ;;
+        esac
+        K6_URL="https://github.com/grafana/k6/releases/download/${K6_VERSION}/k6-${K6_VERSION}-linux-${K6_ARCH}.tar.gz"
+        K6_TMP="/tmp/stacklens-k6-install"
+        mkdir -p "${K6_TMP}"
+
+        DL_OK=0
+        if command -v curl >/dev/null 2>&1; then
+            curl -fsSL --retry 3 --connect-timeout 30 --max-time 120 \
+                -o "${K6_TMP}/k6.tar.gz" "${K6_URL}" 2>/dev/null && DL_OK=1 || true
+        elif command -v wget >/dev/null 2>&1; then
+            wget -q -O "${K6_TMP}/k6.tar.gz" "${K6_URL}" 2>/dev/null && DL_OK=1 || true
+        fi
+
+        if [ "${DL_OK}" -eq 1 ] && [ -f "${K6_TMP}/k6.tar.gz" ]; then
+            tar -xzf "${K6_TMP}/k6.tar.gz" -C "${K6_TMP}" 2>/dev/null || true
+            K6_BIN="$(find "${K6_TMP}" -name "k6" -type f | head -1)"
+            if [ -n "${K6_BIN}" ]; then
+                install -m 755 "${K6_BIN}" /usr/local/bin/k6
+                K6_INSTALLED=1
+                echo "StackLens: k6 ${K6_VERSION} installed to /usr/local/bin/k6"
+            fi
+        fi
+        rm -rf "${K6_TMP}" 2>/dev/null || true
+    fi
+
+    if [ "${K6_INSTALLED}" -eq 0 ]; then
+        echo "StackLens: WARNING – Could not install k6 automatically." >&2
+        echo "StackLens: To install manually: sudo apt-get install k6  (after adding https://dl.k6.io/deb)" >&2
+    fi
+fi
+
+if command -v jmeter >/dev/null 2>&1; then
+    echo "StackLens: JMeter already available."
+else
+    echo "StackLens: JMeter not found. Attempting installation …"
+    JMETER_INSTALLED=0
+    JMETER_VERSION="5.6.3"
+
+    if command -v apt-get >/dev/null 2>&1; then
+        echo "StackLens: Attempting to install jmeter via apt-get …"
+        if DEBIAN_FRONTEND=noninteractive apt-get install -y jmeter 2>/dev/null; then
+            JMETER_INSTALLED=1
+            echo "StackLens: JMeter installed via apt."
+        fi
+    fi
+
+    if [ "${JMETER_INSTALLED}" -eq 0 ]; then
+        echo "StackLens: Downloading Apache JMeter ${JMETER_VERSION} …"
+        JMETER_URL="https://downloads.apache.org/jmeter/binaries/apache-jmeter-${JMETER_VERSION}.tgz"
+        JMETER_TMP="/tmp/stacklens-jmeter-install"
+        mkdir -p "${JMETER_TMP}"
+
+        DL_OK=0
+        if command -v curl >/dev/null 2>&1; then
+            curl -fsSL --retry 3 --connect-timeout 30 --max-time 300 \
+                -o "${JMETER_TMP}/jmeter.tgz" "${JMETER_URL}" 2>/dev/null && DL_OK=1 || true
+        elif command -v wget >/dev/null 2>&1; then
+            wget -q -O "${JMETER_TMP}/jmeter.tgz" "${JMETER_URL}" 2>/dev/null && DL_OK=1 || true
+        fi
+
+        if [ "${DL_OK}" -eq 1 ] && [ -f "${JMETER_TMP}/jmeter.tgz" ]; then
+            if ! command -v java >/dev/null 2>&1 && command -v apt-get >/dev/null 2>&1; then
+                DEBIAN_FRONTEND=noninteractive apt-get install -y default-jre-headless 2>/dev/null || true
+            fi
+            tar -xzf "${JMETER_TMP}/jmeter.tgz" -C /opt/ 2>/dev/null || true
+            if [ -d "/opt/apache-jmeter-${JMETER_VERSION}" ]; then
+                rm -rf /opt/jmeter 2>/dev/null || true
+                mv "/opt/apache-jmeter-${JMETER_VERSION}" /opt/jmeter
+                printf '#!/bin/sh\nexec /opt/jmeter/bin/jmeter "$@"\n' \
+                    > /usr/local/bin/jmeter
+                chmod 755 /usr/local/bin/jmeter
+                JMETER_INSTALLED=1
+                echo "StackLens: JMeter ${JMETER_VERSION} installed to /opt/jmeter, linked at /usr/local/bin/jmeter"
+            fi
+        fi
+        rm -rf "${JMETER_TMP}" 2>/dev/null || true
+    fi
+
+    if [ "${JMETER_INSTALLED}" -eq 0 ]; then
+        echo "StackLens: WARNING – Could not install JMeter automatically." >&2
+        echo "StackLens: To install manually: sudo apt-get install jmeter" >&2
+    fi
+fi
+
+if command -v git >/dev/null 2>&1; then
+    echo "StackLens: Git already available."
+else
+    echo "StackLens: Git not found. Attempting installation via apt-get …"
+    if command -v apt-get >/dev/null 2>&1; then
+        DEBIAN_FRONTEND=noninteractive apt-get install -y git 2>/dev/null \
+            && echo "StackLens: Git installed successfully via apt." \
+            || echo "StackLens: WARNING – Could not install git automatically." >&2
+    else
+        echo "StackLens: WARNING – apt-get not available; install git manually." >&2
+    fi
+fi
+
+if command -v node >/dev/null 2>&1 && command -v npm >/dev/null 2>&1; then
+    echo "StackLens: Node.js and npm already available."
+else
+    echo "StackLens: Node.js / npm not found. Attempting installation …"
+    NODE_INSTALLED=0
+
+    if command -v apt-get >/dev/null 2>&1 && command -v curl >/dev/null 2>&1; then
+        echo "StackLens: Adding NodeSource APT repository (Node.js 22.x LTS) …"
+        if curl -fsSL https://deb.nodesource.com/setup_22.x 2>/dev/null | bash - >/dev/null 2>&1; then
+            if DEBIAN_FRONTEND=noninteractive apt-get install -y nodejs 2>/dev/null; then
+                NODE_INSTALLED=1
+                echo "StackLens: Node.js installed via NodeSource."
+            fi
+        fi
+    fi
+
+    if [ "${NODE_INSTALLED}" -eq 0 ] && command -v apt-get >/dev/null 2>&1; then
+        echo "StackLens: Falling back to distro 'nodejs' + 'npm' packages …"
+        if DEBIAN_FRONTEND=noninteractive apt-get install -y nodejs npm 2>/dev/null; then
+            NODE_INSTALLED=1
+            echo "StackLens: Node.js installed via distro packages."
+        fi
+    fi
+
+    if [ "${NODE_INSTALLED}" -eq 0 ]; then
+        echo "StackLens: Downloading official Node.js tarball …"
+        NODE_VERSION="22.12.0"
+        MACHINE="$(uname -m)"
+        case "${MACHINE}" in
+            aarch64|arm64) NODE_ARCH="arm64" ;;
+            *)             NODE_ARCH="x64" ;;
+        esac
+        NODE_URL="https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-${NODE_ARCH}.tar.xz"
+        NODE_TMP="/tmp/stacklens-node-install"
+        mkdir -p "${NODE_TMP}"
+
+        DL_OK=0
+        if command -v curl >/dev/null 2>&1; then
+            curl -fsSL --retry 3 --connect-timeout 30 --max-time 300 \
+                -o "${NODE_TMP}/node.tar.xz" "${NODE_URL}" 2>/dev/null && DL_OK=1 || true
+        elif command -v wget >/dev/null 2>&1; then
+            wget -q -O "${NODE_TMP}/node.tar.xz" "${NODE_URL}" 2>/dev/null && DL_OK=1 || true
+        fi
+
+        if [ "${DL_OK}" -eq 1 ] && [ -f "${NODE_TMP}/node.tar.xz" ]; then
+            tar -xJf "${NODE_TMP}/node.tar.xz" -C "${NODE_TMP}" 2>/dev/null || true
+            NODE_DIR="$(find "${NODE_TMP}" -maxdepth 1 -type d -name 'node-v*' | head -1)"
+            if [ -n "${NODE_DIR}" ] && [ -x "${NODE_DIR}/bin/node" ]; then
+                rm -rf /opt/node 2>/dev/null || true
+                mv "${NODE_DIR}" /opt/node
+                ln -sf /opt/node/bin/node /usr/local/bin/node
+                ln -sf /opt/node/bin/npm  /usr/local/bin/npm
+                ln -sf /opt/node/bin/npx  /usr/local/bin/npx
+                NODE_INSTALLED=1
+                echo "StackLens: Node.js ${NODE_VERSION} installed to /opt/node, linked at /usr/local/bin."
+            fi
+        fi
+        rm -rf "${NODE_TMP}" 2>/dev/null || true
+    fi
+
+    if [ "${NODE_INSTALLED}" -eq 0 ]; then
+        echo "StackLens: WARNING – Could not install Node.js automatically." >&2
+        echo "StackLens: The MCP server will not start until Node.js is installed." >&2
+    fi
+fi
+
+MCP_DIR="${APP_HOME}/lib/app/mcp-server"
+if [ -d "${MCP_DIR}" ]; then
+    echo "StackLens: Bundled MCP server found at ${MCP_DIR}."
+    if [ ! -d "${MCP_DIR}/node_modules" ]; then
+        if command -v npm >/dev/null 2>&1; then
+            echo "StackLens: Installing MCP server runtime dependencies (npm ci --omit=dev) …"
+            (cd "${MCP_DIR}" && npm ci --omit=dev --silent 2>/dev/null \
+                || npm install --omit=dev --silent) || \
+                echo "StackLens: WARNING – npm install for MCP server failed." >&2
+        else
+            echo "StackLens: NOTE – npm not on PATH; skipping MCP server dep install." >&2
+            echo "StackLens:        Run 'npm install --omit=dev' in ${MCP_DIR} once Node.js is installed." >&2
+        fi
+    else
+        echo "StackLens: MCP server node_modules already present – skipping npm install."
+    fi
+else
+    echo "StackLens: No bundled MCP server found at ${MCP_DIR} – skipping."
+fi
+
+exit 0

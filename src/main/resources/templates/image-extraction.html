@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org"
+      xmlns:layout="http://www.ultraq.net.nz/thymeleaf/layout"
+      layout:decorate="~{layout}" lang="de">
+<head><title>Bild-Extraktion</title></head>
+<body>
+
+<th:block layout:fragment="page-title">
+  <span data-i18n="page_titles.image_extraction">Bild-Extraktion</span>
+</th:block>
+
+<th:block layout:fragment="page-subtitle"><p class="page-subtitle"><span data-i18n="page_subtitles.image_extraction">Extrahiert per KI Text aus Bildern (TIFF, PNG, JPG, JPEG). Bild per Drag-and-drop, Dateibrowser oder Upload bereitstellen und das Ergebnis als .txt-Datei speichern – entweder auf dem Server oder lokal.</span></p></th:block>
+
+<th:block layout:fragment="page-actions">
+  <div style="display:flex;gap:8px;align-items:center;">
+    <button class="btn btn-sm btn-outline-secondary" style="border-color:#ddd7cb;color:#5b564d;"
+            data-prompt-prefix="imageextraction" disabled
+            onclick="openPromptEditorForPrefix('imageextraction', (window.i18n ? window.i18n.t('page_titles.image_extraction') : 'Bild-Extraktion'), null, 'imageextraction.extractText', function(){ doImageExtract(); })">
+      <i class="bi bi-cpu me-1"></i><span>KI-Prompt</span>
+    </button>
+    <button class="btn btn-sm" style="background:linear-gradient(135deg,#7c5cbf,#5b8ef0);color:#fff;border:none;"
+            onclick="kiChatToggle()" title="KI Chat">
+      <i class="bi bi-chat-dots-fill me-1"></i><span data-i18n="common.ki_chat_btn">KI Chat</span>
+    </button>
+  </div>
+</th:block>
+
+<th:block layout:fragment="head-extra">
+<script th:inline="javascript">
+/*<![CDATA[*/
+window.kiChatConfig = {
+  tabId: 'image-extraction',
+  tabLabel: 'Bild-Extraktion',
+  tabLabelKey: 'ki_chat.image_extraction.tab_label',
+  introMessage: 'Hi! Ich helfe dir beim Extrahieren von Text aus Bildern. Lege ein TIFF/PNG/JPG-Bild ab, und die KI liest den Text für dich. Du kannst das Ergebnis als .txt-Datei speichern oder direkt hier anzeigen.',
+  introMessageKey: 'ki_chat.image_extraction.intro',
+  suggestionsKey: 'ki_chat.image_extraction.suggestions',
+  suggestions: [
+    'Welche Bildformate unterstützt die Bildextraktion?',
+    'Wie groß darf ein Bild maximal sein?',
+    'Wie wird das Ergebnis gespeichert?',
+    'Welches LLM wird für die Extraktion verwendet?',
+    'Was passiert, wenn das Bild keinen Text enthält?',
+    'Kann ich mehrere Bilder gleichzeitig extrahieren?',
+    'Wie funktioniert die Textextraktion bei gescannten Dokumenten?',
+    'Welche Schriftarten werden am besten erkannt?'
+  ],
+  systemHint: 'You are an OCR specialist. Help the user extract text from images using the StackLens image extraction feature. Explain supported formats, file size limits, output options, and best practices for getting good OCR results.',
+  contextProvider: function(){
+    return '';
+  }
+};
+/*]]>*/
+</script>
+</th:block>
+
+<div layout:fragment="content">
+<th:block th:replace="~{fragments/image-extraction/styles :: styles}"></th:block>
+<th:block th:replace="~{fragments/shared/token-usage :: styles}"></th:block>
+
+<div class="ie-page" data-cf-token-usage-anchor="">
+
+  <div class="ie-card">
+    <h2><i class="bi bi-image me-2" style="color:var(--ie-accent)"></i><span data-i18n="image_extraction.form_title">Text aus Bild extrahieren</span></h2>
+
+    <div id="ieDropzone" class="ie-dropzone" tabindex="0" role="button" aria-label="Bild auswählen">
+      <i class="bi bi-cloud-arrow-up" style="font-size:42px;color:var(--ie-accent);"></i>
+      <div class="ie-dropzone-title" data-i18n="image_extraction.dropzone_title">Bild hier ablegen oder klicken zum Auswählen</div>
+      <div class="ie-dropzone-subtitle" data-i18n="image_extraction.dropzone_subtitle">Unterstützte Formate: TIFF, PNG, JPG, JPEG – max. 20 MB pro Datei</div>
+      <div class="ie-dropzone-or" data-i18n="image_extraction.dropzone_or">oder</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:center;">
+        <button type="button" class="ie-btn-secondary" onclick="event.stopPropagation();ieOpenBrowser();">
+          <i class="bi bi-folder2-open me-1"></i><span data-i18n="image_extraction.btn_browse">Dateibrowser öffnen</span>
+        </button>
+      </div>
+    </div>
+    <input type="file" id="ieFileInput" accept="image/tiff,image/png,image/jpeg,.tif,.tiff,.png,.jpg,.jpeg" style="display:none;" />
+
+    <div id="ieFileChip" class="ie-file-chip" style="display:none;">
+      <i class="bi bi-image-fill" style="color:var(--ie-accent);font-size:18px;"></i>
+      <div class="ie-file-chip-info">
+        <div class="ie-file-chip-name" id="ieFileChipName">datei.png</div>
+        <div class="ie-file-chip-meta" id="ieFileChipMeta">image/png · 0 KB</div>
+      </div>
+      <button type="button" class="ie-btn-icon" onclick="ieClearFile()" title="Entfernen">
+        <i class="bi bi-x-lg"></i>
+      </button>
+    </div>
+
+    <div style="margin-top:16px;">
+      <div class="ie-label" data-i18n="image_extraction.label_save_path">Ergebnis als .txt-Datei speichern unter (optional)</div>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+        <input type="text" id="ieSavePath" class="ie-input" style="flex:1;min-width:240px;"
+               data-i18n-placeholder="image_extraction.label_save_path_placeholder"
+               placeholder="Verzeichnispfad auf dem Server (z. B. /tmp/exports)" />
+        <button type="button" class="ie-btn-secondary" onclick="ieOpenSavePathBrowser()">
+          <i class="bi bi-folder2 me-1"></i><span data-i18n="image_extraction.btn_browse_save_path">Zielordner wählen</span>
+        </button>
+      </div>
+    </div>
+
+    <div class="ie-engine-selector">
+      <label class="ie-label" data-i18n="image_extraction.label_ocr_engine">Texterkennungs-Engine</label>
+      <div class="ie-engine-options" id="ieEngineOptions">
+        <label class="ie-engine-option">
+          <input type="radio" name="ieOcrEngine" value="ai_first" id="ieOcrAiFirst" />
+          <div class="ie-engine-option-content">
+            <div class="ie-engine-option-title">
+              <i class="bi bi-cpu me-1"></i><span data-i18n="image_extraction.engine_ai_first_title">KI zuerst</span>
+            </div>
+            <div class="ie-engine-option-desc" data-i18n="image_extraction.engine_ai_first_desc">KI versucht die Extraktion; bei Fehlern oder Blindheit fällt die Engine automatisch auf Tesseract zurück.</div>
+          </div>
+        </label>
+        <label class="ie-engine-option">
+          <input type="radio" name="ieOcrEngine" value="tesseract" id="ieOcrTesseract" checked />
+          <div class="ie-engine-option-content">
+            <div class="ie-engine-option-title">
+              <i class="bi bi-fonts me-1"></i><span data-i18n="image_extraction.engine_tesseract_title">Nur Tesseract</span>
+            </div>
+            <div class="ie-engine-option-desc" data-i18n="image_extraction.engine_tesseract_desc">Überspringt die KI komplett und nutzt direkt die lokale Tesseract-Engine. Schneller, offline, keine API-Kosten.</div>
+          </div>
+        </label>
+      </div>
+    </div>
+
+    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:16px;">
+      <button id="ieBtnExtract" class="ie-btn-primary" disabled onclick="doImageExtract()">
+        <i class="bi bi-magic me-1"></i><span data-i18n="image_extraction.btn_extract">Text extrahieren</span>
+      </button>
+      <button id="ieBtnCancel" class="ie-btn-danger" type="button" onclick="cancelImageExtract()" style="display:none;">
+        <i class="bi bi-x-circle me-1"></i><span data-i18n="common.cancel">Abbrechen</span>
+      </button>
+      <div id="ieLoading" class="ie-status-pill ie-status-running">
+        <span class="spinner-border spinner-border-sm"></span>
+        <span id="ieLoadingText" data-i18n="image_extraction.ai_extracting">KI liest das Bild und extrahiert den Text…</span>
+      </div>
+      <div id="ieDone" class="ie-status-pill ie-status-done">
+        <i class="bi bi-check-circle-fill"></i>
+        <span data-i18n="image_extraction.extraction_done">Textextraktion erfolgreich abgeschlossen</span>
+      </div>
+    </div>
+  </div>
+
+  <div id="ieErrorCard" class="ie-card ie-error-card" style="display:none;">
+    <h2 style="color:var(--ie-danger);"><i class="bi bi-x-circle me-2"></i><span data-i18n="common.error">Fehler</span></h2>
+    <p id="ieErrorMessage" class="ie-error-msg"></p>
+  </div>
+
+  <div id="ieResultCard" class="ie-card" style="display:none;">
+    <h2><i class="bi bi-card-text me-2" style="color:var(--ie-accent)"></i><span data-i18n="image_extraction.section_result">Extrahierter Text</span></h2>
+
+    <div id="ieResultMeta" class="ie-meta-grid"></div>
+
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;margin-bottom:8px;">
+      <button class="ie-btn-secondary" onclick="ieCopyResult()">
+        <i class="bi bi-clipboard me-1"></i><span data-i18n="image_extraction.copy_result">Text kopieren</span>
+      </button>
+      <button class="ie-btn-secondary" onclick="ieDownloadResult()">
+        <i class="bi bi-download me-1"></i><span data-i18n="image_extraction.download_result">Als .txt herunterladen</span>
+      </button>
+    </div>
+
+    <div class="ie-result-wrap" id="ieResultWrap">
+      <textarea id="ieResultText" class="ie-result-textarea" readonly></textarea>
+      <div class="sl-scroll-track" id="ieResultScrollTrack" data-always-visible="true">
+        <div class="sl-scroll-thumb" id="ieResultScrollThumb"></div>
+      </div>
+    </div>
+  </div>
+
+  <th:block th:replace="~{fragments/shared/history :: card('image-extraction', '')}"></th:block>
+
+</div>
+</div>
+
+<th:block layout:fragment="scripts">
+<th:block th:replace="~{fragments/image-extraction/scripts :: scripts}"></th:block>
+<th:block th:replace="~{fragments/image-extraction/scripts-history :: scripts-history}"></th:block>
+<th:block th:replace="~{fragments/shared/token-usage :: scripts}"></th:block>
+
+<script>
+  if (window.slTokenUsagePage) window.slTokenUsagePage({
+        kind: 'image_extraction',
+        anchor: document.querySelector('.sl-page-header'),
+        resolveId: function () { return window._ie && window._ie.currentHistoryId; }
+    });
+function ieInitTokenUsageBar() {
+  if (window.slTokenUsageRebind) window.slTokenUsageRebind('image_extraction');
+}
+</script>
+</th:block>
+</body>
+</html>

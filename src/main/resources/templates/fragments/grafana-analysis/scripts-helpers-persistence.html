@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" lang="de">
+<body>
+<th:block th:fragment="scripts-helpers-persistence">
+<script>
+
+function setDashboardJson(raw) {
+  const ta = document.getElementById('inputDashboardJson');
+  if (!ta) return;
+  let formatted = raw;
+  try { formatted = JSON.stringify(JSON.parse(raw), null, 2); } catch (_) {  }
+  ta.value = formatted;
+  if (window._gaJsonScroll) window._gaJsonScroll.update();
+  setTimeout(saveState, 0);
+}
+
+var GA_SESSION_KEY = 'stacklens-grafana-analyse';
+
+function saveState() {
+  if (!document.getElementById('inputDashboardJson')) return;
+  try {
+    sessionStorage.setItem(GA_SESSION_KEY, JSON.stringify({
+      dashboardJson:       document.getElementById('inputDashboardJson')?.value        ?? '',
+      rebuildInstructions: document.getElementById('inputRebuildInstructions')?.value  ?? '',
+      dashboards: dashboards.map(({ id, url, title, height }) => ({ id, url, title, height })),
+      panelApiData:        (window.GrafanaBoard?._panelApiData?.length ? window.GrafanaBoard._panelApiData : null),
+      boardVisible:        document.getElementById('gaBoardSection')?.style.display !== 'none',
+      rebuiltDashboardData: rebuiltDashboardData || null,
+    }));
+  } catch (_) {  }
+}
+
+function restoreState() {
+  let state;
+  try { state = JSON.parse(sessionStorage.getItem(GA_SESSION_KEY) || 'null'); } catch (_) {}
+  if (!state) return;
+
+  const setVal = (id, val) => { if (val) { const el = document.getElementById(id); if (el) el.value = val; } };
+
+  if (state.dashboardJson) setDashboardJson(state.dashboardJson);
+
+  setVal('inputRebuildInstructions', state.rebuildInstructions);
+  if (window._gaRebuildScroll) window._gaRebuildScroll.update();
+
+  if (state.dashboards?.length) {
+    state.dashboards.forEach(d => dashboards.push(d));
+    renderDashboards();
+  }
+
+  if (state.rebuiltDashboardData) {
+    rebuiltDashboardData = state.rebuiltDashboardData;
+    const btnExport = document.getElementById('btnDashExport');
+    if (btnExport) btnExport.style.display = 'inline-flex';
+  }
+  try {
+    if (sessionStorage.getItem(GA_SESSION_KEY + ':running')) {
+      const rBtn   = document.getElementById('btnRebuild');
+      const rIcon  = document.getElementById('btnRebuildIcon');
+      const rLabel = document.getElementById('btnRebuildLabel');
+      if (rBtn) rBtn.disabled = true;
+      if (rIcon)  rIcon.className = 'spinner-border spinner-border-sm';
+      if (rLabel) rLabel.textContent = (window.i18n && window.i18n.t('grafana_analysis.ai_working')) || 'KI arbeitet…';
+    }
+  } catch (_) {}
+
+  if (state.dashboardJson && state.boardVisible) {
+    const cached = (state.panelApiData?.length) ? state.panelApiData : null;
+    setTimeout(function() {
+      if (typeof visualizeDashboard === 'function') visualizeDashboard(cached);
+    }, 50);
+  }
+}
+</script>
+</th:block>
+</body>
+</html>

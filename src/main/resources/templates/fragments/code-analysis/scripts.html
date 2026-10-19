@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" lang="de">
+<body>
+<th:block th:fragment="scripts">
+
+<script>
+
+  function _caSetPref(key, value) {
+  window.slHelpers.setPref(key, value);
+}
+  function _caGetPref(key) {
+  return window.slHelpers.getPref(key);
+}
+
+  function _caRestoreState() {
+    var saved = null;
+    try { saved = JSON.parse(localStorage.getItem('ca_state') || 'null'); } catch(_) {}
+    var cont = document.getElementById('gitlabConfigList');
+    if (cont && cont.querySelector('.ca-gitlab-projects')) {
+      cont.querySelectorAll('.ca-gitlab-projects[data-config-id]').forEach(function(div) {
+        var cfgId = div.getAttribute('data-config-id');
+        if (localStorage.getItem('ca_gl_open_' + cfgId) === '1' && div.classList.contains('d-none')) {
+          var h = div.previousElementSibling;
+          if (h) caToggleGitlabConfig(h, cfgId);
+        }
+      });
+      if (saved && saved.gitlabConfigId && _caGetPref('ca_gl_open_' + saved.gitlabConfigId) !== '0') {
+        var sdiv = cont.querySelector('.ca-gitlab-projects[data-config-id="' + saved.gitlabConfigId + '"]');
+        if (sdiv && sdiv.classList.contains('d-none')) {
+          var sh = sdiv.previousElementSibling;
+          if (sh) caToggleGitlabConfig(sh, saved.gitlabConfigId);
+        }
+      }
+    }
+    var ghReposDiv = document.getElementById('caGithubRepoList');
+    if (ghReposDiv) {
+      var ghOpen = _caGetPref('ca_gh_open');
+      if (!ghOpen && saved && saved.githubRepoConfigId) ghOpen = '1';
+      if (ghOpen === '1' && ghReposDiv.classList.contains('d-none')) {
+        var ghHeader = ghReposDiv.previousElementSibling;
+        if (ghHeader) caToggleGithubAccordion(ghHeader);
+      }
+    }
+  }
+
+  if (!window.__desktopAppReady) window.__desktopAppReady = false;
+  window.__onDesktopAppReady = function() {
+    window.__desktopAppReady = true;
+    _caRestoreState();
+  };
+
+  var caCurrentRepoId     = null;
+  var caCurrentRepoName   = '';
+  var caCurrentAnalysisId = null;
+  var caPollTimer         = window._caPollTimer || null;
+  var caGitlabConfigId    = null;
+  var caGitlabProjectId   = null;
+  var _caCancelledIds     = new Set();
+  var caGitlabProjectPath = null;
+  var caGithubRepoConfigId = null;
+  var _caStartGen         = 0;
+  var _caSelectGen        = 0;
+  var _caGlConfigGen      = 0;
+  window._caGlVisitSeq = (window._caGlVisitSeq || 0) + 1;
+  var _caGlVisitSeq = window._caGlVisitSeq;
+  var caMermaidStore      = null;
+  var caDrawioXmlStore    = null;
+  var caDrawioNormalizedXml = null;
+  var _caMermaidInitialized = false;
+  var _caMermaidSvgCache  = null;
+  var caIsMonorepo        = false;
+  var caMonorepoApps      = [];
+  var caMonorepoTimers    = window._caMonorepoTimers || (window._caMonorepoTimers = {});
+  var caMonorRepoDone     = 0;
+
+
+  var _caEscHandler = null;
+
+  function showModalById(id) {
+    var el = document.getElementById(id);
+    if (!el) return;
+    el.className = el.className.replace(/\bshow\b/g, '').trim() + ' show';
+    el.style.setProperty('display', 'block', 'important');
+    el.removeAttribute('aria-hidden');
+    el.setAttribute('aria-modal', 'true');
+    document.body.className = document.body.className.replace(/\bmodal-open\b/g, '').trim() + ' modal-open';
+    if (!document.querySelector('.modal-backdrop')) {
+      var bd = document.createElement('div');
+      bd.className = 'modal-backdrop fade show';
+      bd.style.setProperty('display', 'block', 'important');
+      document.body.appendChild(bd);
+    }
+    if (_caEscHandler) window.removeEventListener('keydown', _caEscHandler, true);
+    _caEscHandler = function(e) {
+      if (e.key === 'Escape' || e.key === 'Esc') {
+        e.preventDefault();
+        hideModalById(id);
+      }
+    };
+    window.addEventListener('keydown', _caEscHandler, true);
+  }
+
+  function hideModalById(id) {
+    var el = document.getElementById(id);
+    if (!el) return;
+    el.className = el.className.replace(/\bshow\b/g, '').trim();
+    el.style.setProperty('display', 'none', 'important');
+    el.setAttribute('aria-hidden', 'true');
+    el.removeAttribute('aria-modal');
+    var bd = document.querySelector('.modal-backdrop');
+    if (bd) bd.parentNode.removeChild(bd);
+    if (!document.querySelector('.modal.show')) {
+      document.body.className = document.body.className.replace(/\bmodal-open\b/g, '').trim();
+    }
+    if (_caEscHandler) {
+      window.removeEventListener('keydown', _caEscHandler, true);
+      _caEscHandler = null;
+    }
+  }
+
+  if (window._caModalDismissHandler) document.removeEventListener('click', window._caModalDismissHandler);
+  window._caModalDismissHandler = function (event) {
+    var trigger = event.target;
+    while (trigger && trigger !== document) {
+      if (trigger.getAttribute && trigger.getAttribute('data-bs-dismiss') === 'modal') {
+        var modal = trigger;
+        while (modal && !modal.classList.contains('modal')) modal = modal.parentElement;
+        if (modal) hideModalById(modal.id);
+        return;
+      }
+      trigger = trigger.parentElement;
+    }
+  };
+  document.addEventListener('click', window._caModalDismissHandler);
+
+  window.__onEscDeselect = function() {
+    document.querySelectorAll('.ca-gitlab-projects input[type=text], .ca-gitlab-projects input[type=search]').forEach(function(inp) {
+      if (inp.value) {
+        inp.value = '';
+        inp.dispatchEvent(new Event('input', { bubbles: true }));
+      }
+    });
+  };
+
+  function caSwitch(panelId, btn) {
+    document.querySelectorAll('.ca-tab-panel').forEach(function(p) { p.classList.remove('active'); });
+    document.querySelectorAll('.ca-tab-btn').forEach(function(b) { b.classList.remove('active'); });
+    var panel = document.getElementById(panelId);
+    if (panel) panel.classList.add('active');
+    if (btn) btn.classList.add('active');
+    if (panelId === 'tabMermaid' && caMermaidStore) caRenderMermaid(caMermaidStore);
+    if (panelId === 'tabDrawio'  && caDrawioXmlStore) caRenderDrawio(caDrawioXmlStore);
+  }
+
+</script>
+<th:block th:replace="~{fragments/code-analysis/scripts-diagrams :: scripts-diagrams}"></th:block>
+
+<script>
+
+  function caSaveState() {
+    if (caCurrentRepoId !== null || caGitlabConfigId !== null || caGithubRepoConfigId !== null) {
+      localStorage.setItem('ca_state', JSON.stringify({
+        repoId: caCurrentRepoId, repoName: caCurrentRepoName,
+        gitlabConfigId: caGitlabConfigId, gitlabProjectId: caGitlabProjectId,
+        gitlabProjectPath: caGitlabProjectPath,
+        githubRepoConfigId: caGithubRepoConfigId
+      }));
+    } else {
+      localStorage.removeItem('ca_state');
+    }
+  }
+
+  function caRestoreLocalRepo() {
+    var saved = localStorage.getItem('ca_state');
+    if (!saved) return;
+    try {
+      var state = JSON.parse(saved);
+      if (state.githubRepoConfigId) {
+        caSelectGithub(state.githubRepoConfigId, state.repoName || '');
+      } else if (!state.gitlabConfigId && state.repoId) {
+        var card = document.getElementById('repoCard-' + state.repoId);
+        if (card) selectRepo(state.repoId, state.repoName, card.getAttribute('data-repo-path') || '');
+      }
+    } catch(_) {}
+  }
+
+  function caFetchStatus(analysisId) {
+    return fetch('/api/code-analysis/analysis/' + analysisId + '/status')
+      .then(function(r) {
+        if (!r.ok) return { gone: true };
+        return r.json().then(function(data) { return { data: data }; },
+                              function() { return { gone: true }; });
+      }, function() { return { retry: true }; });
+  }
+
+  function _caClearMonorepoTimers() {
+    Object.keys(caMonorepoTimers).forEach(function(id) {
+      clearInterval(caMonorepoTimers[id]);
+      delete caMonorepoTimers[id];
+    });
+  }
+
+  function _caSetPollTimer(id) {
+    caPollTimer = id;
+    window._caPollTimer = id;
+  }
+
+  var _caStatusPollTimer = null;
+
+  function _caStopStatusPoll() {
+    if (_caStatusPollTimer) { clearInterval(_caStatusPollTimer); _caStatusPollTimer = null; }
+  }
+
+  function _caStartStatusPollIfNeeded(list) {
+    var hasRunning = (list || []).some(function(a) { return a.status === 'RUNNING' || a.status === 'PENDING'; });
+    if (hasRunning && !_caStatusPollTimer) {
+      _caStatusPollTimer = setInterval(caRefreshCardStatuses, 5000);
+    } else if (!hasRunning) {
+      _caStopStatusPoll();
+    }
+  }
+
+  if (window._caPollCleanupHandler) document.removeEventListener('app:navigate', window._caPollCleanupHandler);
+  window._caPollCleanupHandler = function(e) {
+    if (e.detail && e.detail.url && e.detail.url.indexOf('code-analysis') !== -1) return;
+    caStopPolling();
+    _caStopStatusPoll();
+  };
+  document.addEventListener('app:navigate', window._caPollCleanupHandler);
+
+  async function caRefreshCardStatuses() {
+    var resp;
+    try { resp = await fetch('/api/code-analysis/all'); } catch(e) { return; }
+    if (!resp.ok) return;
+    var list = await resp.json();
+    window._caLastHistoryList = list || [];
+    caApplyCardStatusesFromHistory(window._caLastHistoryList, true);
+    _caStartStatusPollIfNeeded(list);
+    caLoadHistory();
+  }
+
+</script>
+<th:block th:replace="~{fragments/code-analysis/scripts-repo-list :: scripts-repo-list}"></th:block>
+<th:block th:replace="~{fragments/code-analysis/scripts-file-browser-gitlab :: scripts-file-browser-gitlab}"></th:block>
+<th:block th:replace="~{fragments/code-analysis/scripts-repo-run :: scripts-repo-run}"></th:block>
+<th:block th:replace="~{fragments/code-analysis/scripts-monorepo :: scripts-monorepo}"></th:block>
+<th:block th:replace="~{fragments/code-analysis/scripts-findings :: scripts-findings}"></th:block>
+<th:block th:replace="~{fragments/code-analysis/scripts-history :: scripts-history}"></th:block>
+</th:block>
+</body>
+</html>

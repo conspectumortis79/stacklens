@@ -1,0 +1,30 @@
+#!/bin/sh
+
+set -e
+
+APP_NAME="StackLens"
+APP_HOME="/opt/stacklens"
+BUNDLED_JAVA="${APP_HOME}/runtime/bin/java"
+ALT_MARKER="/var/lib/stacklens/java-alt-registered"
+
+case "$1" in
+    remove|purge)
+        update-alternatives --remove "${APP_NAME}" \
+            "${APP_HOME}/bin/${APP_NAME}" 2>/dev/null || true
+
+        if [ -f "${ALT_MARKER}" ]; then
+            update-alternatives --remove java "${BUNDLED_JAVA}" 2>/dev/null || true
+            rm -f "${ALT_MARKER}"
+            rmdir "$(dirname "${ALT_MARKER}")" 2>/dev/null || true
+        fi
+        ;;
+
+    upgrade|failed-upgrade|abort-install|abort-upgrade|disappear)
+        ;;
+
+    *)
+        echo "postrm called with unknown argument '$1'" >&2
+        ;;
+esac
+
+exit 0

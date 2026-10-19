@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" lang="de">
+<body>
+<th:block th:fragment="scripts-code-mr">
+
+<script>
+var _taCodeAnalysisId        = null;
+var _taCodeGitlabIds         = [];
+var _taCodeGitlabProjectRefs = [];
+
+
+async function openGithubPrDialog(btn) {
+  var section   = btn.closest('.ta-code-repo-section');
+  var statusDiv = section.querySelector('.ta-mr-status');
+  statusDiv.innerHTML = '<div style="font-size:13px;color:var(--ta-muted)"><span class="spinner-border spinner-border-sm me-1"></span>' + t('ticket_implementation.github_pr_detecting', 'GitHub-Remote wird geprüft…') + '</div>';
+  try {
+    var res  = await fetch('/api/ticket-implementation/' + _taCodeAnalysisId + '/create-github-pr', { method: 'POST' });
+    var json = await res.json();
+    if (res.ok && json.prUrl) {
+      var isSimPr = json.prUrl.indexOf('/simulated-github-pr/') !== -1;
+      var displayUrl = isSimPr ? (window.location.origin + json.prUrl) : json.prUrl;
+      statusDiv.innerHTML = '<div class="ta-mr-result"><i class="bi bi-check-circle-fill me-1"></i>' +
+        (isSimPr ? t('ticket_implementation.simulated_github_pr_prefix', 'Simulierter GitHub PR: ') : t('ticket_implementation.github_pr_created_prefix', 'GitHub Pull Request erstellt: ')) +
+        '<a href="' + escHtml(displayUrl) + '" class="sl-link" onclick="openExternalUrl(this.href); return false;">' + escHtml(displayUrl) + '</a></div>';
+    } else {
+      statusDiv.innerHTML = '<div class="ta-mr-error"><i class="bi bi-exclamation-triangle me-1"></i>' + escHtml(json.error || t('ticket_implementation.github_pr_no_remote', 'Kein GitHub-Remote erkannt oder PR-Erstellung fehlgeschlagen.')) + '</div>';
+    }
+  } catch (e) {
+    statusDiv.innerHTML = '<div class="ta-mr-error"><i class="bi bi-exclamation-triangle me-1"></i>' + t('common.error', 'Fehler') + ': ' + escHtml(String(e.message)) + '</div>';
+  }
+}
+
+async function openMrDialog(btn) {
+  var repoName  = btn.dataset.repo;
+  var section   = btn.closest('.ta-code-repo-section');
+  var statusDiv = section.querySelector('.ta-mr-status');
+  if (!GITLAB_CONFIGS || !GITLAB_CONFIGS.length) {
+    statusDiv.innerHTML = '<div class="ta-mr-error"><i class="bi bi-exclamation-triangle me-1"></i>' + (window.i18n ? window.i18n.t('ticket_implementation.no_gitlab_config') : 'Keine GitLab-Konfiguration verfügbar.') + '</div>';
+    return;
+  }
+
+  if (btn.dataset.configId && btn.dataset.projectId) {
+    await submitMrCreation(btn, repoName, parseInt(btn.dataset.configId, 10), statusDiv, parseInt(btn.dataset.projectId, 10));
+    return;
+  }
+
+  var avail = (_taCodeGitlabIds && _taCodeGitlabIds.length)
+    ? GITLAB_CONFIGS.filter(function (c) { return _taCodeGitlabIds.includes(c.id); })
+    : GITLAB_CONFIGS;
+  if (avail.length <= 1) {
+    var cfgId = avail[0] ? avail[0].id : null;
+    var projId = null;
+    if (cfgId && _taCodeGitlabProjectRefs.length === 1 && _taCodeGitlabProjectRefs[0].configId === cfgId) {
+      projId = _taCodeGitlabProjectRefs[0].projectId;
+    }
+    await submitMrCreation(btn, repoName, cfgId, statusDiv, projId);
+    return;
+  }
+  var opts  = avail.map(function (c) { return '<option value="' + escHtml(String(c.id)) + '">' + escHtml(c.name) + '</option>'; }).join('');
+  var selId = 'mrSel_' + Date.now();
+  statusDiv.innerHTML =
+    '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:6px">' +
+    '<label style="font-size:13px;color:var(--ta-muted)">' + _t('ticket_implementation.gitlab_config_select') + '</label>' +
+    '<select id="' + selId + '" class="form-select form-select-sm" style="width:auto">' + opts + '</select>' +
+    '<button class="ta-btn-create-mr" data-repo="' + escHtml(repoName) + '" data-select="' + selId + '" onclick="confirmMrCreation(this)">' +
+      '<i class="bi bi-check-lg me-1"></i>' + _t('ticket_implementation.mr_create_btn') + '</button></div>';
+}
+
+async function confirmMrCreation(btn) {
+  var sel   = document.getElementById(btn.dataset.select);
+  var cfgId = parseInt(sel ? sel.value : '0', 10);
+  var refsForCfg = _taCodeGitlabProjectRefs.filter(function (r) { return r.configId === cfgId; });
+  var projId = refsForCfg.length === 1 ? refsForCfg[0].projectId : null;
+  await submitMrCreation(btn, btn.dataset.repo, cfgId,
+    btn.closest('.ta-code-repo-section').querySelector('.ta-mr-status'), projId);
+}
+
+async function submitMrCreation(btn, repoName, gitlabConfigId, statusDiv, gitlabProjectId) {
+  btn.disabled = true;
+  statusDiv.innerHTML = '<div style="font-size:13px;color:var(--ta-muted)"><span class="spinner-border spinner-border-sm me-1"></span>' + _t('ticket_implementation.mr_creating') + '</div>';
+  try {
+    var body = { gitlabConfigId: gitlabConfigId, repoName: repoName };
+    if (gitlabProjectId) body.gitlabProjectId = gitlabProjectId;
+    var res  = await fetch('/api/ticket-implementation/' + _taCodeAnalysisId + '/create-mr', {
+      method : 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body   : JSON.stringify(body)
+    });
+    var json = await res.json();
+    if (res.ok && json.mrUrl) {
+      statusDiv.innerHTML = '<div class="ta-mr-result"><i class="bi bi-check-circle-fill me-1"></i>' +
+        _t('ticket_implementation.mr_created_prefix') +
+        '<a href="' + escHtml(json.mrUrl) + '" class="sl-link" onclick="openExternalUrl(this.href); return false;">' + escHtml(json.mrUrl) + '</a></div>';
+    } else {
+      statusDiv.innerHTML = '<div class="ta-mr-error"><i class="bi bi-exclamation-triangle me-1"></i>' + escHtml(json.error || _t('ticket_implementation.mr_error_default')) + '</div>';
+      btn.disabled = false;
+    }
+  } catch (e) {
+    statusDiv.innerHTML = '<div class="ta-mr-error"><i class="bi bi-exclamation-triangle me-1"></i>' + _t('ticket_implementation.mr_network_error') + escHtml(String(e.message)) + '</div>';
+    btn.disabled = false;
+  }
+}
+
+
+function openExternalUrl(url) {
+  fetch('/api/open-url', {
+    method : 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body   : JSON.stringify({ url: url })
+  });
+}
+
+
+function t(k, fb) { return window.i18n ? window.i18n.t(k) : (fb !== undefined ? fb : k); }
+
+
+updateTicketKeyHint();
+reloadHistory();
+
+(function taRestore() {
+  setTimeout(function() {
+    try {
+      var st = window._ta;
+
+      if (st.pipelineId) {
+        var pipelinePanel = document.getElementById('agentPipelineCard');
+        if (pipelinePanel) pipelinePanel.style.display = '';
+        AP_CURRENT_ID = st.pipelineId;
+        apSetButtonsLocked(true);
+        apStartPolling(st.pipelineId);
+      } else {
+        fetch('/api/agent-pipeline')
+          .then(function(r) { return r.json(); })
+          .then(function(runs) {
+            var running = runs.find(function(r) { return r.status === 'RUNNING'; });
+            if (running) {
+              window._ta.pipelineId = running.id;
+              AP_CURRENT_ID = running.id;
+              var pipelinePanel = document.getElementById('agentPipelineCard');
+              if (pipelinePanel) pipelinePanel.style.display = '';
+              apSetButtonsLocked(true);
+              apStartPolling(running.id);
+            }
+          })
+          .catch(function() {});
+      }
+    } catch (e) {
+      console.warn('[TA] restore error:', e);
+    }
+  }, 0);
+})();
+
+window.startAnalysisJira    = startAnalysisJira;
+window.cancelTicketImplementation = cancelTicketImplementation;
+window.deleteAnalysis       = deleteAnalysis;
+window.taDeleteAllHistory   = taDeleteAllHistory;
+window.updateTicketKeyHint  = updateTicketKeyHint;
+window.resetView            = resetView;
+window.openMrDialog         = openMrDialog;
+window.openGithubPrDialog   = openGithubPrDialog;
+
+
+window.confirmMrCreation    = confirmMrCreation;
+</script>
+</th:block>
+</body>
+</html>

@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org"
+      xmlns:layout="http://www.ultraq.net.nz/thymeleaf/layout"
+      layout:decorate="~{layout}" lang="de">
+<head>
+  <title>Sicherheits-Analyse</title>
+  <meta name="mcp-sources" content="gitlab,github">
+</head>
+<body>
+
+<th:block layout:fragment="page-title"><span data-i18n="page_titles.bug_analysis">Sicherheits-Analyse</span></th:block>
+
+<th:block layout:fragment="page-subtitle">
+  <p class="page-subtitle">
+    <span data-i18n="page_subtitles.bug_analysis">Analysiert Repositories vollständig auf Sicherheitslücken und Code-Defekte per KI. Repository hinzufügen, auswählen und Analyse starten.</span>
+  </p>
+</th:block>
+
+<th:block layout:fragment="page-actions">
+  <div style="display:flex;gap:8px;align-items:center;">
+  <button class="btn btn-sm btn-outline-secondary" style="border-color:#ddd7cb;color:#5b564d;"
+          data-prompt-prefix="securityanalysis" disabled
+          onclick="openPromptEditorForPrefix('securityanalysis', 'Sicherheits-Analyse', 'de', 'securityanalysis.iter1Prompt', function(){})">
+    <i class="bi bi-cpu me-1"></i><span>KI-Prompt</span>
+  </button>
+  <button class="btn btn-sm" style="background:linear-gradient(135deg,#7c5cbf,#5b8ef0);color:#fff;border:none;"
+          onclick="kiChatToggle()" title="KI Chat">
+    <i class="bi bi-chat-dots-fill me-1"></i><span data-i18n="common.ki_chat_btn">KI Chat</span>
+  </button>
+  </div>
+</th:block>
+
+<th:block layout:fragment="head-extra">
+<script th:inline="javascript">
+/*<![CDATA[*/
+window.kiChatConfig = {
+  tabId: 'security-analysis',
+  tabLabel: 'Sicherheits-Analyse',
+  tabLabelKey: 'ki_chat.security_analysis.tab_label',
+  introMessage: 'Hi! Ich bin dein App-Sec-Berater (OWASP, CVE, Dependency-Risk, Secret-Scans). Beschreibe mir dein Repo oder eine Code-Stelle und ich gebe konkrete Hardening-Hinweise.',
+  introMessageKey: 'ki_chat.security_analysis.intro',
+  suggestionsKey: 'ki_chat.security_analysis.suggestions',
+  suggestions: [
+    'OWASP Top 10 — kurze Übersicht mit Beispielen in PHP',
+    'Wie verhindere ich SQL-Injection mit PDO + prepared statements?',
+    'CSRF in Symfony / Laravel — wie korrekt schützen?',
+    'XSS: wann reicht htmlspecialchars, wann nicht?',
+    'Secrets-Scan-Strategie für mein Repo (gitleaks / trufflehog)',
+    'Dependency-Risiko: wie bewerte ich CVE-Listen aus composer audit?',
+    'JWT-Hardening: alg-Whitelist, key-rotation, exp/nbf',
+    'CORS-Header sicher konfigurieren'
+  ],
+  systemHint: 'You are a senior application security engineer (OWASP, CVE, dependency analysis, secret-scanning, PHP-Stack). Give concrete examples and code, reference real CWE/CVE IDs where useful.',
+  contextProvider: function(){
+    var parts = [];
+    try {
+      var repoBadge = document.querySelector('#baSelectedRepoLabel, .ba-current-repo, [data-current-repo]');
+      if (repoBadge && repoBadge.textContent) {
+        parts.push('Aktuelles Repository: ' + repoBadge.textContent.trim());
+      }
+      var sumCard = document.querySelector('.ba-summary-card');
+      if (sumCard) {
+        parts.push('Zusammenfassung der Analyse:\n' + (sumCard.innerText || '').trim().slice(0, 4000));
+      }
+      if (typeof baAllFindings !== 'undefined' && Array.isArray(baAllFindings) && baAllFindings.length > 0) {
+        var counts = { CRITICAL:0, HIGH:0, MEDIUM:0, LOW:0 };
+        baAllFindings.forEach(function(f){ if (counts[f.severity] != null) counts[f.severity]++; });
+        parts.push(
+          'Anzahl Findings: ' + baAllFindings.length +
+          ' (CRITICAL=' + counts.CRITICAL + ', HIGH=' + counts.HIGH +
+          ', MEDIUM=' + counts.MEDIUM + ', LOW=' + counts.LOW + ')'
+        );
+        var compact = baAllFindings.slice(0, 200).map(function(f){
+          return {
+            id: f.id,
+            severity: f.severity,
+            type: f.type,
+            title: f.title,
+            file: f.file || f.filePath,
+            line: f.line || f.lineNumber,
+            description: (f.description || '').slice(0, 600),
+            recommendation: (f.recommendation || '').slice(0, 600),
+            cwe: f.cwe, cve: f.cve,
+            confirmed: f.confirmed === true
+          };
+        });
+        parts.push('Findings (JSON, max. 200):\n' + JSON.stringify(compact, null, 2));
+      } else {
+        parts.push('Es liegen aktuell keine Findings vor (Analyse noch nicht gestartet oder keine Probleme gefunden).');
+      }
+    } catch(e){ parts.push('contextProvider error: ' + (e && e.message || e)); }
+    return parts.join('\n\n');
+  }
+};
+/*]]>*/
+</script>
+</th:block>
+
+<div layout:fragment="content">
+<th:block th:replace="~{fragments/security-analysis/styles :: styles}"></th:block>
+<th:block th:replace="~{fragments/shared/token-usage :: styles}"></th:block>
+
+<div class="modal fade" id="baRepoModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content" style="border:1px solid var(--ba-line);border-radius:16px;overflow:hidden;box-shadow:0 8px 32px rgba(0,0,0,.12);">
+      <div class="modal-header fb-modal-header" style="border-bottom:1px solid var(--ba-line);padding:14px 20px;">
+        <h5 class="modal-title" id="baRepoModalTitle" style="font-size:15px;font-weight:800;">
+          <i class="bi bi-folder2-open me-2" style="color:var(--ba-accent);"></i>
+          <span data-i18n="bug_analysis.repo_edit_title">Repository bearbeiten</span>
+        </h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body" style="background:var(--ba-paper);padding:20px 20px 16px;">
+        <input type="hidden" id="baRepoId"/>
+        <div class="mb-3">
+          <label class="form-label" style="font-weight:700;font-size:13px;">
+            <span data-i18n="common.name">Name</span>
+          </label>
+          <input type="text" id="baRepoName" class="form-control"
+                 style="border-color:var(--ba-line);border-radius:10px;background:#fff;font-size:14px;"/>
+        </div>
+        <div class="mb-3">
+          <label class="form-label" style="font-weight:700;font-size:13px;">
+            <span data-i18n="code_analysis.repo_path_label">Pfad (absoluter Dateipfad)</span>
+          </label>
+          <div class="input-group">
+            <input type="text" id="baRepoPath" class="form-control"
+                   placeholder="/Users/me/code/my-project"
+                   style="border-color:var(--ba-line);border-radius:10px 0 0 10px;background:#fff;font-size:14px;font-family:monospace;"/>
+            <button class="btn fb-btn-browse" type="button" onclick="baFbOpenBrowserForEdit()"
+                    style="border:1px solid var(--ba-line);border-left:none;border-radius:0 10px 10px 0;color:var(--ba-accent);" title="Verzeichnis auswählen">
+              <i class="bi bi-folder2-open"></i>
+            </button>
+          </div>
+        </div>
+        <div class="form-check form-switch" style="margin-top:4px;">
+          <input class="form-check-input" type="checkbox" id="baRepoActive" checked/>
+          <label class="form-check-label" style="font-size:13px;color:var(--ba-ink);" for="baRepoActive" data-i18n="common.active">Aktiv</label>
+        </div>
+        <div id="baRepoModalError" class="alert alert-danger mt-3 d-none" style="border-radius:10px;font-size:13px;"></div>
+      </div>
+      <div class="modal-footer fb-modal-footer" style="border-top:1px solid var(--ba-line);padding:12px 20px;">
+        <button class="btn btn-outline-secondary" data-bs-dismiss="modal" style="border-radius:999px;font-size:13px;font-weight:600;" data-i18n="common.cancel">Abbrechen</button>
+        <button class="btn" style="background:#7c5cbf;color:#fff;border-radius:999px;font-size:13px;font-weight:700;padding:6px 20px;" onclick="baSaveRepo()">
+          <i class="bi bi-check-lg me-1"></i><span data-i18n="common.save">Speichern</span>
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="ba-page" data-cf-token-usage-anchor="">
+  <div id="baFixLive" class="ba-fix-sr" role="status" aria-live="polite"></div>
+  <div class="ba-layout">
+
+    <aside class="ba-panel">
+      <div class="ba-list-top">
+        <h2 style="display:flex;align-items:center;justify-content:space-between;">
+          <span><i class="bi bi-folder2 me-1" style="color:#eab308;"></i><span data-i18n="bug_analysis.repos_title">Repositories</span></span>
+          <button onclick="baFbOpenBrowserForNewRepo()"
+                  data-i18n-title="common.repo_add_title"
+                  title="Repository hinzufügen"
+                  style="background:var(--ba-accent);color:#fff;border:none;border-radius:8px;width:26px;height:26px;display:inline-flex;align-items:center;justify-content:center;cursor:pointer;font-size:18px;line-height:1;padding:0;flex-shrink:0;">
+            <i class="bi bi-plus"></i>
+          </button>
+        </h2>
+      </div>
+
+      <div class="ba-repo-scroll">
+        <div class="ba-repo-scroll-content" id="baRepoScrollContent">
+        <div id="baLocalRepoList">
+
+          <div th:each="r : ${localRepoConfigs}"
+               class="ba-repo-card"
+               th:classappend="${!r.active} ? ' ba-repo-inactive'"
+               th:id="'baRepoCard-' + ${r.id}"
+               th:data-repo-id="${r.id}"
+               th:data-repo-name="${r.name}"
+               th:data-repo-path="${r.path}"
+               th:data-repo-active="${r.active}"
+               onclick="baSelectLocal(+this.dataset.repoId, this.dataset.repoName)"
+               style="cursor:pointer;">
+            <div class="ba-repo-name" th:text="${r.name}"></div>
+            <div class="ba-repo-path" th:text="${r.path}"></div>
+            <div class="ba-card-status"></div>
+            <div class="ba-btn-row">
+              <button class="ba-btn-xs ba-btn-xs-success"
+                      onclick="event.stopPropagation(); var c=this.closest('.ba-repo-card'); baSelectLocal(+c.dataset.repoId, c.dataset.repoName); baStartAnalysis(+c.dataset.repoId, c.dataset.repoName, null, null, null)">
+                <i class="bi bi-play-fill"></i> <span data-i18n="bug_analysis.btn_start">Starten</span>
+              </button>
+              <button class="ba-btn-xs ba-btn-xs-cancel"
+                      onclick="event.stopPropagation(); baCancelAnalysis()" title="Abbrechen">
+                <i class="bi bi-x-circle"></i>
+              </button>
+              <button class="ba-btn-xs ba-btn-xs-outline" data-ba-edit="true"
+                      onclick="event.stopPropagation(); var c=this.closest('.ba-repo-card'); baOpenAddRepoModal(+c.dataset.repoId, c.dataset.repoName, c.dataset.repoPath, c.dataset.repoActive === 'true')">
+                <i class="bi bi-pencil"></i>
+              </button>
+              <button class="ba-btn-xs ba-btn-xs-outline"
+                      onclick="event.stopPropagation(); baDeleteRepo(+this.closest('.ba-repo-card').dataset.repoId)">
+                <i class="bi bi-trash"></i>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div id="baGitlabSection">
+          <div id="baGitlabConfigList">
+            <div class="text-muted small text-center py-2" data-i18n="common.loading">Wird geladen…</div>
+          </div>
+        </div>
+
+        <div th:if="${!githubRepoConfigs.empty}" id="baGithubSection">
+          <div class="mb-2">
+            <div class="d-flex align-items-center gap-2 p-2 rounded ba-gh-accordion-header"
+                 style="border:1px solid var(--ba-line);cursor:pointer;"
+                 onclick="baToggleGithubAccordion(this)">
+              <i class="bi bi-github" style="color:#24292e;"></i>
+              <span class="fw-bold flex-grow-1" style="font-size:13px;word-break:break-all;">GitHub</span>
+              <i class="bi bi-chevron-down small text-muted ba-gh-chevron"></i>
+            </div>
+            <div class="ba-github-repos d-none" id="baGithubRepoList">
+              <div th:each="gh : ${githubRepoConfigs}"
+                   class="ba-repo-card"
+                   th:id="'baGhCard-' + ${gh.id}"
+                   th:data-github-repo-id="${gh.id}"
+                   th:data-github-repo-name="${gh.owner + '/' + gh.repo}"
+                   onclick="baSelectGithub(+this.dataset.githubRepoId, this.dataset.githubRepoName)"
+                   style="cursor:pointer;">
+                <div class="ba-repo-name"><span th:text="${gh.name}"></span></div>
+                <div class="ba-repo-path" th:text="${gh.owner + '/' + gh.repo}"></div>
+                <div class="ba-card-status"></div>
+                <div class="ba-btn-row">
+                  <button class="ba-btn-xs ba-btn-xs-success"
+                          onclick="event.stopPropagation(); var c=this.closest('.ba-repo-card'); baSelectGithub(+c.dataset.githubRepoId, c.dataset.githubRepoName); baStartGithubAnalysis(+c.dataset.githubRepoId, c.dataset.githubRepoName)">
+                    <i class="bi bi-play-fill"></i> <span data-i18n="bug_analysis.btn_start">Starten</span>
+                  </button>
+                  <button class="ba-btn-xs ba-btn-xs-cancel"
+                          onclick="event.stopPropagation(); baCancelAnalysis()" title="Abbrechen">
+                    <i class="bi bi-x-circle"></i>
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+        <div class="sl-scroll-track" id="baRepoScrollTrack"><div class="sl-scroll-thumb" id="baRepoScrollThumb"></div></div>
+      </div>
+    </aside>
+
+    <div class="ba-main">
+      <div id="baMainArea">
+        <div class="ba-empty">
+          <i class="bi bi-bug"></i>
+          <p data-i18n="bug_analysis.select_hint">Wähle ein Repository aus der Liste und starte die Sicherheits-Analyse.</p>
+        </div>
+      </div>
+
+      <th:block th:replace="~{fragments/shared/history :: card('security-analysis', 'hx-card--spaced')}"></th:block>
+
+    </div>
+
+  </div>
+</div>
+
+<th:block th:replace="~{fragments/security-analysis/scripts :: scripts}"></th:block>
+<th:block th:replace="~{fragments/shared/token-usage :: scripts}"></th:block>
+
+<script>
+  if (window.slTokenUsagePage) window.slTokenUsagePage({
+        kind: 'security',
+        anchor: document.querySelector('.sl-page-header'),
+        resolveId: function () { return window._ba && window._ba.analysisId; }
+    });
+function baInitTokenUsageBar() {
+  if (window.slTokenUsageRebind) window.slTokenUsageRebind('security');
+}
+</script>
+
+</div>
+</body>
+</html>

@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org"
+      xmlns:layout="http://www.ultraq.net.nz/thymeleaf/layout"
+      layout:decorate="~{layout}" lang="de">
+<head><title>Code QA</title>
+<meta name="mcp-sources" content="gitlab">
+</head>
+<body>
+
+<th:block layout:fragment="page-title">
+  <span data-i18n="page_titles.mr_analysis">MR-Analyse</span>
+</th:block>
+
+<th:block layout:fragment="page-subtitle">
+  <p class="page-subtitle">
+    <span data-i18n="page_subtitles.mr_analysis">Analysiert GitLab- und GitHub-Merge-Requests auf AK-Erfüllung und Einhaltung der Coding Guidelines.</span>
+  </p>
+</th:block>
+
+<th:block layout:fragment="page-actions">
+  <div style="display:flex;gap:8px;align-items:center;">
+    <button class="btn btn-sm btn-outline-secondary" style="border-color:#ddd7cb;color:#5b564d;"
+            data-prompt-prefix="mranalysis" disabled
+            onclick="openPromptEditorForPrefix('mranalysis', (window.i18n ? window.i18n.t('page_titles.mr_analysis') : 'Code QA'), null, 'mranalysis.analyzePrompt', function(){ window.startMrAnalysis && window.startMrAnalysis(); })">
+      <i class="bi bi-cpu me-1"></i><span>KI-Prompt</span>
+    </button>
+    <button class="btn btn-sm" style="background:linear-gradient(135deg,#7c5cbf,#5b8ef0);color:#fff;border:none;"
+            onclick="kiChatToggle()" title="KI Chat">
+      <i class="bi bi-chat-dots-fill me-1"></i><span data-i18n="common.ki_chat_btn">KI Chat</span>
+    </button>
+  </div>
+</th:block>
+
+<th:block layout:fragment="head-extra">
+<script th:inline="javascript">
+/*<![CDATA[*/
+window.kiChatConfig = {
+  tabId: 'code-qa',
+  tabLabel: 'MR-Analyse',
+  tabLabelKey: 'ki_chat.mr_analysis.tab_label',
+  introMessage: 'Hi! Ich helfe dir beim Verstehen und Verbessern von Merge Requests – AK-Prüfung, Code-Review, Feedback.',
+  introMessageKey: 'ki_chat.mr_analysis.intro',
+  suggestionsKey: 'ki_chat.mr_analysis.suggestions',
+  suggestions: [
+    'Was sind typische Probleme in Merge Requests?',
+    'Wie schreibe ich ein gutes MR-Review-Feedback?',
+    'Wann ist ein MR zu groß?',
+    'Branch-Naming-Konventionen für GitLab',
+    'Wie verknüpfe ich MRs mit Jira-Tickets?',
+    'Draft vs. Ready-for-Review – best practices',
+    'Squash-Commits: ja oder nein?',
+    'Was gehört in die MR-Beschreibung?'
+  ],
+  systemHint: 'You are an experienced senior software engineer. Help with merge request analysis, code review, and git workflow best practices.',
+  contextProvider: function(){ return ''; }
+};
+/*]]>*/
+</script>
+</th:block>
+
+<div layout:fragment="content" class="mr-page" data-cf-token-usage-anchor="">
+<th:block th:replace="~{fragments/code-qa/styles :: styles}"></th:block>
+<th:block th:replace="~{fragments/shared/token-usage :: styles}"></th:block>
+
+<div class="mr-card">
+  <h2><i class="bi bi-git me-2" style="color:var(--mr-accent)"></i><span data-i18n="mr_analysis.form_title">Merge Request analysieren</span></h2>
+
+  <div class="row g-3 mb-3">
+    <div class="col-md-6">
+      <div class="mr-label" data-i18n="mr_analysis.label_mr_url">Merge Request URL</div>
+      <input id="mrInputUrl" type="url" class="mr-input"
+             data-i18n-placeholder="mr_analysis.placeholder_mr_url"
+             placeholder="https://gitlab.example.com/group/project/-/merge_requests/42" />
+    </div>
+    <div class="col-md-6">
+      <div class="mr-label" data-i18n="mr_analysis.label_git_config">GitLab / GitHub Konfiguration</div>
+      <select id="mrSelectGitConfig" class="mr-select">
+        <option value="" data-platform="" data-i18n="mr_analysis.no_git_config">– Automatisch erkennen –</option>
+        <th:block th:if="${not #lists.isEmpty(gitlabConfigs)}">
+          <optgroup label="GitLab">
+            <option th:each="cfg : ${gitlabConfigs}"
+                    th:value="${cfg.id}"
+                    th:text="${cfg.name}"
+                    data-platform="gitlab">GitLab</option>
+          </optgroup>
+        </th:block>
+        <th:block th:if="${not #lists.isEmpty(githubConfigs)}">
+          <optgroup label="GitHub">
+            <option th:each="cfg : ${githubConfigs}"
+                    th:value="${cfg.id}"
+                    th:text="${cfg.name}"
+                    data-platform="github">GitHub</option>
+          </optgroup>
+        </th:block>
+      </select>
+    </div>
+  </div>
+
+  <div class="row g-3 mb-3">
+    <div class="col-md-6">
+      <div class="mr-label" data-i18n="mr_analysis.label_jira_key">Jira-Ticket (optional)</div>
+      <input id="mrInputJiraKey" type="text" class="mr-input"
+             placeholder="PROJ-123" style="font-size:14px;" />
+    </div>
+    <div class="col-md-6">
+      <div class="mr-label" data-i18n="mr_analysis.label_jira_config">Jira-Konfiguration</div>
+      <select id="mrSelectJiraConfig" class="mr-select">
+        <option value="" data-i18n="mr_analysis.no_jira_config">– Kein Jira –</option>
+        <option th:each="cfg : ${jiraConfigs}"
+                th:value="${cfg.id}"
+                th:text="${cfg.name}">Jira Config</option>
+      </select>
+    </div>
+  </div>
+
+  <div class="row g-3 mb-3">
+    <div class="col-12">
+      <div class="mr-label" data-i18n="mr_analysis.label_additional_instructions">Zusätzliche Anweisungen (optional)</div>
+      <textarea id="mrInputAdditionalInstructions" class="mr-input"
+                rows="3"
+                data-i18n-placeholder="mr_analysis.placeholder_additional_instructions"
+                placeholder="z. B. Bitte prüfe besonders auf Sicherheitslücken…"
+                style="resize:none;font-size:14px;"></textarea>
+      <div class="mr-checkbox-hint" data-i18n="mr_analysis.hint_additional_instructions">Optionale Anweisungen, die direkt an die KI weitergegeben werden.</div>
+    </div>
+  </div>
+
+  <div class="mr-checkbox-row">
+    <label class="mr-checkbox-label">
+      <input type="checkbox" id="mrChkCodeSuggestions" />
+      <span data-i18n="mr_analysis.label_code_suggestions">Code-Vorschläge für diesen MR vorbereiten</span>
+    </label>
+    <div class="mr-checkbox-hint" data-i18n="mr_analysis.hint_code_suggestions">Wenn aktiviert: Gefundene Coding-Verstöße werden als kopierfertige MR-Kommentare angezeigt.</div>
+  </div>
+
+  <div class="mr-checkbox-row" style="margin-top:2px;border-top:1px solid var(--mr-line);padding-top:12px;">
+    <label class="mr-checkbox-label">
+      <input type="checkbox" id="mrChkIntegrationTest" />
+      <span style="font-weight:700;"><i class="bi bi-play-circle me-1" style="color:var(--mr-green)"></i><span data-i18n="mr_analysis.label_integration_test">Automatische Integrationstests ausführen</span></span>
+    </label>
+    <div class="mr-checkbox-hint" style="margin-top:4px;" data-i18n="mr_analysis.hint_integration_test">
+      Nach der Analyse: KI erkennt betroffene Docker-Services, klont den Branch, startet die Services und führt Tests durch.
+      Erfordert <code>docker</code> und <code>git</code> auf dem Server.
+    </div>
+  </div>
+
+  <div style="display:flex;justify-content:flex-end;gap:10px;align-items:center;">
+    <button id="mrBtnCancel" class="mr-btn-cancel" style="display:none;" onclick="mrCancelAnalysis()">
+      <i class="bi bi-x-circle me-2"></i><span data-i18n="mr_analysis.btn_cancel">Abbrechen</span>
+    </button>
+    <button id="mrBtnStart" class="mr-btn-primary" disabled onclick="startMrAnalysis()">
+      <i class="bi bi-search me-2"></i><span data-i18n="mr_analysis.btn_start">Analyse starten</span>
+    </button>
+  </div>
+</div>
+
+<div id="mrProgressWrap" class="mr-card mr-progress-wrap">
+  <h2><span class="mr-spinner" style="margin-right:10px;"></span><span data-i18n="mr_analysis.progress_title">Analyse läuft…</span></h2>
+  <div class="mr-label mb-1" data-i18n="mr_analysis.progress_current_step">Aktueller Schritt</div>
+  <div id="mrCurrentStep" style="font-size:14px;margin-bottom:12px;color:var(--mr-ink);" data-i18n="mr_analysis.step_starting">Wird gestartet…</div>
+  <div class="mr-label mb-1" data-i18n="mr_analysis.progress_log">Log</div>
+  <div id="mrLogOutput" class="mr-log"></div>
+  <div id="mrStreamWrap" style="display:none;margin-top:16px;">
+    <div class="mr-label mb-1" data-i18n="mr_analysis.thinking_label">KI schreibt…</div>
+    <div id="mrStreamOutput"
+         style="font-size:12px;font-family:monospace;white-space:pre-wrap;background:var(--app-cream-2);color:var(--mr-ink);padding:10px;border-radius:6px;border:1.5px solid var(--mr-line);max-height:280px;overflow-y:auto;"></div>
+  </div>
+</div>
+
+<div id="mrErrorCard" class="mr-card" style="display:none;border-color:#fca5a5;">
+  <h2 style="color:var(--mr-red)"><i class="bi bi-x-circle me-2"></i><span data-i18n="mr_analysis.error_title">Analyse fehlgeschlagen</span></h2>
+  <p class="mr-error-msg" style="font-size:14px;color:var(--mr-ink);margin:0;"></p>
+  <div style="margin-top:12px;">
+    <button class="mr-btn-primary" onclick="mrResetView && mrResetView()">
+      <i class="bi bi-arrow-clockwise me-2"></i><span data-i18n="mr_analysis.btn_retry">Erneut versuchen</span>
+    </button>
+  </div>
+</div>
+
+<div id="mrResultCard" class="mr-card" style="display:none;">
+  <h2><i class="bi bi-check2-circle me-2" style="color:var(--mr-accent)"></i><span data-i18n="mr_analysis.result_title">Analyse-Ergebnis</span></h2>
+
+  <div id="mrThinkingTabs" style="display:none;margin-bottom:16px;border-bottom:1px solid var(--mr-border);padding-bottom:0;align-items:center;gap:0;">
+    <button class="mr-tab active" data-tab="Result" data-i18n="mr_analysis.result_tab">Ergebnis</button>
+    <button class="mr-tab" data-tab="Thinking" data-i18n="mr_analysis.thinking_tab">KI-Gedanken</button>
+    <button class="mr-tab-close" onclick="mrDismissThinking()" title="KI-Gedanken ausblenden" style="margin-left:auto;background:none;border:none;cursor:pointer;padding:4px 8px;color:var(--mr-muted);font-size:16px;line-height:1;">&#x2715;</button>
+  </div>
+
+  <div id="mrPaneResult" class="mr-tab-pane active">
+    <div style="display:flex;flex-direction:row;max-height:680px;overflow:hidden;">
+      <div id="mrMarkdownBody" class="mr-markdown-body"
+           style="overflow-wrap:break-word;word-break:break-word;flex:1;min-width:0;overflow-y:scroll;scrollbar-width:none;-ms-overflow-style:none;"></div>
+      <div class="sl-scroll-track" id="mrResultScrollTrack"><div class="sl-scroll-thumb" id="mrResultScrollThumb"></div></div>
+    </div>
+  </div>
+
+  <div id="mrPaneThinking" class="mr-tab-pane">
+    <div style="display:flex;flex-direction:row;max-height:480px;overflow:hidden;">
+      <pre id="mrThinkingOutput"
+           style="white-space:pre-wrap;font-family:monospace;font-size:12px;color:var(--mr-ink);background:var(--app-cream-2);padding:10px 10px 10px 10px;border-radius:6px 0 0 6px;border:1.5px solid var(--mr-line);border-right:none;flex:1;min-width:0;overflow-y:scroll;scrollbar-width:none;-ms-overflow-style:none;margin:0;"></pre>
+      <div class="sl-scroll-track" id="mrThinkingScrollTrack" style="border:1.5px solid var(--mr-line);border-left:none;border-radius:0 6px 6px 0;"><div class="sl-scroll-thumb" id="mrThinkingScrollThumb"></div></div>
+    </div>
+  </div>
+
+  <div id="mrCodeSuggestionsPanel" style="display:none;margin-top:16px;border-top:1px solid var(--mr-line);padding-top:16px;"></div>
+</div>
+
+<div id="mrIntegrationTestCard" class="mr-card" style="display:none;">
+  <h2><i class="bi bi-play-circle-fill me-2" style="color:var(--mr-green)"></i><span data-i18n="mr_analysis.integration_title">Automatische Integrationstests</span></h2>
+
+  <div id="mrItStatusBar" style="display:flex;align-items:center;gap:12px;margin-bottom:14px;">
+    <span id="mrItStatusBadge" class="mr-status-badge running" style="font-size:12px;" data-i18n="mr_analysis.running">Läuft…</span>
+    <span id="mrItStatusText" style="font-size:13px;color:var(--mr-muted);" data-i18n="mr_analysis.preparing_tests">Integrationstests werden vorbereitet…</span>
+    <span id="mrItElapsed" style="margin-left:auto;font-size:12px;color:var(--mr-muted);font-variant-numeric:tabular-nums;">00:00</span>
+  </div>
+
+  <div id="mrItStatusPanel" class="mr-it-status-panel" hidden>
+    <ol id="mrItStepper" class="mr-it-stepper" aria-label="Integration test progress"></ol>
+
+    <div class="mr-it-grid">
+      <section class="mr-it-block" id="mrItServicesBlock" hidden>
+        <header class="mr-it-block-header">
+          <i class="bi bi-box-seam me-2"></i>
+          <span data-i18n="mr_analysis.it_services_title">Betroffene Services</span>
+          <span id="mrItServicesCount" class="mr-it-block-badge"></span>
+        </header>
+        <ul id="mrItServices" class="mr-it-list"></ul>
+      </section>
+
+      <section class="mr-it-block" id="mrItTestsBlock" hidden>
+        <header class="mr-it-block-header">
+          <i class="bi bi-terminal me-2"></i>
+          <span data-i18n="mr_analysis.it_tests_title">Tests</span>
+          <span id="mrItTestsCount" class="mr-it-block-badge"></span>
+        </header>
+        <ul id="mrItTests" class="mr-it-list"></ul>
+      </section>
+    </div>
+
+    <div id="mrItWaitBar" class="mr-it-waitbar" hidden>
+      <i class="bi bi-hourglass-split me-2"></i>
+      <span id="mrItWaitText">Waiting for services…</span>
+      <div class="mr-it-progress-track"><div id="mrItProgressFill" class="mr-it-progress-fill"></div></div>
+    </div>
+  </div>
+
+  <div style="display:flex;flex-direction:row;max-height:480px;overflow:hidden;">
+    <pre id="mrItConsole"
+         style="white-space:pre-wrap;font-family:monospace;font-size:12px;color:var(--mr-ink);background:var(--app-cream-2);padding:12px;border-radius:6px 0 0 6px;border:1.5px solid var(--mr-line);border-right:none;flex:1;min-width:0;overflow-y:scroll;scrollbar-width:none;-ms-overflow-style:none;margin:0;"></pre>
+    <div class="sl-scroll-track" id="mrItScrollTrack" style="border:1.5px solid var(--mr-line);border-left:none;border-radius:0 6px 6px 0;"><div class="sl-scroll-thumb" id="mrItScrollThumb"></div></div>
+  </div>
+
+  <div id="mrItResultWrap" style="display:none;margin-top:16px;border-top:1px solid var(--mr-line);padding-top:14px;">
+    <div class="mr-label mb-2" data-i18n="mr_analysis.it_result_label">Test-Zusammenfassung</div>
+    <div id="mrItResultBody" class="mr-markdown-body" style="overflow-wrap:break-word;word-break:break-word;"></div>
+  </div>
+</div>
+
+  <th:block th:replace="~{fragments/shared/history :: card('code-qa', '')}"></th:block>
+
+
+<th:block th:replace="~{fragments/code-qa/scripts :: scripts}"></th:block>
+<th:block th:replace="~{fragments/shared/token-usage :: scripts}"></th:block>
+
+<script>
+  if (window.slTokenUsagePage) window.slTokenUsagePage({
+        kind: 'codeqa',
+        anchor: document.querySelector('.sl-page-header'),
+        resolveId: function () { return window._mr && window._mr.analysisId; }
+    });
+function mrInitTokenUsageBar() {
+  if (window.slTokenUsageRebind) window.slTokenUsageRebind('codeqa');
+}
+</script>
+</div>
+
+</body>
+</html>

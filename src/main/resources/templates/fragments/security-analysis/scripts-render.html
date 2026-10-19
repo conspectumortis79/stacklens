@@ -1,0 +1,559 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" lang="de">
+<body>
+<th:block th:fragment="scripts-render">
+<script>
+
+  function baShowEmpty(name) {
+    var el = document.getElementById('baMainArea');
+    if (!el) return;
+    var label = name ? ('<strong>' + baEsc(name) + '</strong>') : '';
+    el.innerHTML =
+      '<div class="ba-empty">' +
+      '  <i class="bi bi-bug"></i>' +
+      '  <p>' + (label ? (label + '<br>') : '') +
+         '<span data-i18n="bug_analysis.empty_hint">Noch keine Analyse. Klicke auf „Analyse starten".</span></p>' +
+      '</div>';
+    _baApplyI18n();
+    _baUpdateFixPrBadge();
+  }
+
+  var _baRunStartedAt = null;
+  var _baRunServerAnchored = false;
+  var _baRunClockTimer = null;
+
+  function _baRunPad(n) { return (n < 10 ? '0' : '') + n; }
+
+  function _baRunAnchor(createdAt) {
+    if (!createdAt || !window.slHistory || typeof window.slHistory.parseDate !== 'function') return false;
+    var parsed = window.slHistory.parseDate(createdAt);
+    if (!parsed) return false;
+    _baRunStartedAt = parsed.getTime();
+    _baRunServerAnchored = true;
+    return true;
+  }
+
+  function _baRunElapsedLabel() {
+    if (_baRunStartedAt === null) return '';
+    var secs = Math.max(0, Math.floor((Date.now() - _baRunStartedAt) / 1000));
+    return _baI18n('bug_analysis.running_elapsed', 'seit {t}')
+      .replace('{t}', _baRunPad(Math.floor(secs / 60)) + ':' + _baRunPad(secs % 60));
+  }
+
+  function _baRunClockStart() {
+    if (_baRunClockTimer) return;
+    _baRunClockTimer = setInterval(function () {
+      var el = document.getElementById('baRunElapsed');
+      if (!el) { clearInterval(_baRunClockTimer); _baRunClockTimer = null; return; }
+      el.textContent = _baRunElapsedLabel();
+    }, 1000);
+  }
+
+  function _baRunIdChipLabel(analysisId) {
+    if (!analysisId) return '';
+    return _baI18n('bug_analysis.analysis_ref', 'Analyse') + ' #' + analysisId;
+  }
+
+  function _baRunDurationLabel(from, to) {
+    if (!from || !to || !window.slHistory || typeof window.slHistory.parseDate !== 'function') return '';
+    var started = window.slHistory.parseDate(from);
+    var ended   = window.slHistory.parseDate(to);
+    if (!started || !ended) return '';
+    var secs = Math.max(0, Math.floor((ended.getTime() - started.getTime()) / 1000));
+    return _baI18n('bug_analysis.run_duration', 'Dauer {t}')
+      .replace('{t}', _baRunPad(Math.floor(secs / 60)) + ':' + _baRunPad(secs % 60));
+  }
+
+  function _baRunHeadChipsHtml(ctx) {
+    var path = ctx.path || '';
+    var ref  = _baRunIdChipLabel(ctx.analysisId);
+    return '<span class="ba-run-chip ba-run-chip--prov">' + baEsc(ctx.label) + '</span>' +
+           '<span class="ba-run-chip ba-run-chip--path" id="baRunPathChip" title="' + baEsc(path) + '"'
+             + (path ? '' : ' hidden') + '>' + baEsc(path) + '</span>' +
+           '<span class="ba-run-chip" id="baRunIdChip" title="' + baEsc(ref) + '"'
+             + (ref ? '' : ' hidden') + '>' + baEsc(ref) + '</span>';
+  }
+
+  function _baRunHeadRightHtml(opts) {
+    var o = opts || {};
+    var html = '';
+    if (o.pct !== null && o.pct !== undefined) {
+      html += '<span class="ba-run-pct" id="baRunPct">' + o.pct + ' %</span>';
+    }
+    html += '<span class="ba-run-state' + (o.stateClass ? ' ' + o.stateClass : '') + '">'
+            + (o.pulse ? '<span class="ba-run-state-dot"></span>' : '')
+            + baEsc(o.state || '') + '</span>';
+    if (o.tail) html += '<span class="ba-run-elapsed">' + baEsc(o.tail) + '</span>';
+    return html;
+  }
+
+  function _baRunHeadHtml(ctx, opts) {
+    return '<div class="ba-run-head">' +
+      '<span class="ba-run-badge bi ' + ctx.icon + '"></span>' +
+      '<div class="ba-run-head-id">' +
+      '  <div class="ba-run-head-name" id="baRunRepo" title="' + baEsc(ctx.name) + '">' + baEsc(ctx.name) + '</div>' +
+      '  <div class="ba-run-head-meta">' + _baRunHeadChipsHtml(ctx) + '</div>' +
+      '</div>' +
+      '<div class="ba-run-head-right">' + _baRunHeadRightHtml(opts) + '</div>' +
+      '</div>';
+  }
+
+  function _baRunCardHtml(ctx, headOpts, bodyHtml) {
+    return '<div class="ba-iter-progress" data-provider="' + ctx.provider + '">' +
+           _baRunHeadHtml(ctx, headOpts) + (bodyHtml || '') + '</div>';
+  }
+
+  function _baSyncRunHead(ctx) {
+    var card = document.querySelector('#baMainArea .ba-iter-progress');
+    if (!card) return;
+    if (card.getAttribute('data-provider') !== ctx.provider) card.setAttribute('data-provider', ctx.provider);
+
+    var badge = card.querySelector('.ba-run-badge');
+    if (badge && badge.className.indexOf(ctx.icon) === -1) badge.className = 'ba-run-badge bi ' + ctx.icon;
+
+    var nameEl = document.getElementById('baRunRepo');
+    if (nameEl && nameEl.textContent !== ctx.name) {
+      nameEl.textContent = ctx.name;
+      nameEl.setAttribute('title', ctx.name);
+    }
+
+    var provEl = card.querySelector('.ba-run-chip--prov');
+    if (provEl) provEl.textContent = ctx.label;
+
+    var pathEl = document.getElementById('baRunPathChip');
+    if (pathEl) {
+      pathEl.textContent = ctx.path;
+      pathEl.setAttribute('title', ctx.path);
+      pathEl.hidden = !ctx.path;
+    }
+
+    var idEl = document.getElementById('baRunIdChip');
+    if (idEl) {
+      var ref = _baRunIdChipLabel(ctx.analysisId);
+      idEl.textContent = ref;
+      idEl.setAttribute('title', ref);
+      idEl.hidden = !ref;
+    }
+  }
+
+  function baShowRunning(name, iterCurrent, iterTotal, stepText, createdAt) {
+
+    if (!document.getElementById('baMainArea')) {
+      if (typeof baPollTimer !== 'undefined' && baPollTimer) { clearInterval(baPollTimer); baPollTimer = null; }
+      return;
+    }
+    var iter  = iterCurrent || 1;
+    var total = iterTotal   || 3;
+    var steps = total;
+    var iterLabels = [
+      _baI18n('bug_analysis.iter1_label', 'Reconnaissance & Attack Surface Mapping'),
+      _baI18n('bug_analysis.iter2_label', 'Exploit-Entwicklung & Best\u00e4tigung'),
+      _baI18n('bug_analysis.iter3_label', 'Angriffsketten & Konsolidierung')
+    ];
+    var iterLabel = iterLabels[Math.min(iter - 1, iterLabels.length - 1)];
+    var pct = Math.round((iter / steps) * 100);
+    var stepLbl = '<strong>' + _baI18n('bug_analysis.step_label', 'Schritt') + ' ' + iter + '/' + steps + '</strong>: ' + baEsc(iterLabel);
+    var ctx = _baRepoContext(name);
+
+    var barEl = document.getElementById('baProgressBarInner');
+    if (barEl) {
+      if (!_baRunServerAnchored) _baRunAnchor(createdAt);
+      barEl.style.width = pct + '%';
+      var lblEl = document.getElementById('baIterLabelInner');
+      if (lblEl) lblEl.innerHTML = stepLbl;
+      var pctEl = document.getElementById('baRunPct');
+      if (pctEl) pctEl.textContent = pct + ' %';
+      _baSyncRunHead(ctx);
+      if (stepText) {
+        _baAppendStep(stepText);
+        var logEl = document.getElementById('baLiveLog');
+        if (logEl) { logEl.innerHTML = _baStepLogHtml(); _baScrollLog(); }
+      }
+      return;
+    }
+
+    _baStepLog = [];
+    _baAppendStep(stepText || '\u2026');
+    _baRunServerAnchored = false;
+    if (!_baRunAnchor(createdAt)) _baRunStartedAt = Date.now();
+
+    var liveCard =
+      '<div class="ba-live-card">' +
+      '  <div class="ba-live-header">' +
+      '    <span class="ba-live-dot"></span>' +
+      '    <span data-i18n="bug_analysis.live_status_label">KI-Aktivit\u00e4t</span>' +
+      '  </div>' +
+      '  <div class="ba-live-log" id="baLiveLog">' + _baStepLogHtml() + '</div>' +
+      '</div>';
+
+    document.getElementById('baMainArea').innerHTML =
+      _baRunCardHtml(ctx,
+        {
+          pct: pct,
+          state: _baI18n('bug_analysis.running_status', 'L\u00e4uft\u2026'),
+          stateClass: 'ba-card-status--running',
+          pulse: true,
+        },
+        '<div class="ba-run-body">' +
+        '  <div class="ba-progress-bar-outer">' +
+        '    <div class="ba-progress-bar-inner" id="baProgressBarInner" style="width:' + pct + '%">' +
+               '<span class="ba-bar-shimmer"></span><span class="ba-bar-tip"></span>' +
+        '    </div>' +
+        '  </div>' +
+        '  <div class="ba-run-meta">' +
+        '    <div class="ba-iter-label" id="baIterLabelInner">' + stepLbl + '</div>' +
+        '    <span class="ba-run-elapsed" id="baRunElapsed">' + _baRunElapsedLabel() + '</span>' +
+        '  </div>' +
+        '</div>') +
+      liveCard;
+    _baApplyI18n();
+    _baScrollLog();
+    _baRunClockStart();
+
+    _baUpdateFixPrBadge();
+  }
+
+  function baShowError(msg) {
+    var el = document.getElementById('baMainArea');
+    if (!el) return;
+    el.innerHTML =
+      '<div class="ba-empty"><i class="bi bi-exclamation-triangle text-danger"></i>' +
+      '<p class="text-danger">' + baEsc(msg) + '</p></div>';
+    _baUpdateFixPrBadge();
+  }
+
+  var _baGroupByPriority = false;
+
+  function _baResultHeadCardHtml(data) {
+    var ok = data.status === 'COMPLETED';
+    return _baRunCardHtml(_baRepoContext(), {
+      state:      ok ? _baI18n('bug_analysis.status_completed', 'Abgeschlossen')
+                     : _baI18n('bug_analysis.status_failed', 'Fehlgeschlagen'),
+      stateClass: ok ? 'ba-card-status--completed' : 'ba-card-status--aborted',
+      tail:       _baRunDurationLabel(data.createdAt, data.completedAt)
+    });
+  }
+
+  function baRenderResult(data) {
+    if (!document.getElementById('baMainArea')) return;
+    if (data.status === 'FAILED') {
+      document.getElementById('baMainArea').innerHTML =
+        _baResultHeadCardHtml(data) +
+        '<div class="ba-empty"><i class="bi bi-exclamation-triangle text-danger"></i>' +
+        '<p class="text-danger" data-i18n="bug_analysis.failed">Analyse fehlgeschlagen.</p>' +
+        '<small class="text-muted" style="max-width:400px;word-break:break-all;">' + baEsc(data.errorMessage || '') + '</small>' +
+        '</div>';
+      _baApplyI18n();
+      _baUpdateFixPrBadge();
+      return;
+    }
+
+    var findings = [];
+    if (data.findingsJson) {
+      try { findings = JSON.parse(data.findingsJson); } catch(_) {}
+    }
+    baAllFindings = findings;
+    baActiveSevFilter  = 'ALL';
+    baActiveTypeFilter = 'ALL';
+    _baFixFilter       = 'ALL';
+    _baGroupByPriority = false;
+
+    var critical = findings.filter(function(f) { return f.severity === 'CRITICAL'; }).length;
+    var high     = findings.filter(function(f) { return f.severity === 'HIGH'; }).length;
+    var medium   = findings.filter(function(f) { return f.severity === 'MEDIUM'; }).length;
+    var low      = findings.filter(function(f) { return f.severity === 'LOW'; }).length;
+    var total    = findings.length;
+    var fixable  = findings.filter(function(f) { return f.confirmed; }).length;
+
+    var types = [];
+    findings.forEach(function(f) { if (types.indexOf(f.type) === -1) types.push(f.type); });
+    types.sort();
+
+    var html = _baResultHeadCardHtml(data);
+
+    if (data.summaryText) {
+      html += '<div class="ba-summary-card">';
+      html += '<div class="ba-summary-title"><i class="bi bi-clipboard-check me-1"></i>' +
+              '<span data-i18n="bug_analysis.summary_title">Zusammenfassung</span></div>';
+      html += '<div>' + baEsc(data.summaryText) + '</div>';
+      html += '</div>';
+    }
+
+    html += _baFixStripHtml();
+
+    html += '<div class="ba-stats" id="baStats">';
+    html += baStatCard('CRITICAL', critical);
+    html += baStatCard('HIGH',     high);
+    html += baStatCard('MEDIUM',   medium);
+    html += baStatCard('LOW',      low);
+    html += '<div class="ba-stat"><span class="ba-stat-num">' + total + '</span><span class="ba-stat-lbl" data-i18n="bug_analysis.stat_total">Gesamt</span></div>';
+    html += '</div>';
+
+    html += '<div class="ba-toolbar">';
+    html += '<div class="ba-filter-bar" id="baFilterBar">';
+    html += '<button class="ba-filter-btn active" data-sev="ALL" onclick="baFilterSev(this,\'ALL\')" data-i18n="bug_analysis.filter_all">Alle</button>';
+    if (critical) html += '<button class="ba-filter-btn" data-sev="CRITICAL" onclick="baFilterSev(this,\'CRITICAL\')">CRITICAL (' + critical + ')</button>';
+    if (high)     html += '<button class="ba-filter-btn" data-sev="HIGH"     onclick="baFilterSev(this,\'HIGH\')">HIGH (' + high + ')</button>';
+    if (medium)   html += '<button class="ba-filter-btn" data-sev="MEDIUM"   onclick="baFilterSev(this,\'MEDIUM\')">MEDIUM (' + medium + ')</button>';
+    if (low)      html += '<button class="ba-filter-btn" data-sev="LOW"      onclick="baFilterSev(this,\'LOW\')">LOW (' + low + ')</button>';
+    html += '</div>';
+
+    html += '<div class="ba-toolbar-right">';
+    html += '<button class="ba-view-btn" id="baGroupToggle" onclick="baToggleGrouping()" title="' + _baI18n('bug_analysis.group_by_priority_title', 'Nach Priorität gruppieren') + '">' +
+            '<i class="bi bi-layers me-1"></i>' + _baI18n('bug_analysis.group_by_priority', 'Gruppieren') + '</button>';
+    if (fixable > 0) {
+      html += '<div class="ba-bulk-menu">';
+      html += '<button class="ba-bulk-btn" onclick="baBulkCreateFixPrs(\'ALL\')" title="Alle Fix-PRs erstellen">' +
+              '<i class="bi bi-git me-1"></i>' + _baI18n('bug_analysis.bulk_fix_all', 'Alle Fix-PRs') + '</button>';
+      if (critical) html += '<button class="ba-bulk-btn ba-bulk-sev-CRITICAL" onclick="baBulkCreateFixPrs(\'CRITICAL\')" title="Fix-PRs für CRITICAL">CRITICAL</button>';
+      if (high)     html += '<button class="ba-bulk-btn ba-bulk-sev-HIGH"     onclick="baBulkCreateFixPrs(\'HIGH\')"     title="Fix-PRs für HIGH">HIGH</button>';
+      if (medium)   html += '<button class="ba-bulk-btn ba-bulk-sev-MEDIUM"   onclick="baBulkCreateFixPrs(\'MEDIUM\')"   title="Fix-PRs für MEDIUM">MEDIUM</button>';
+      if (low)      html += '<button class="ba-bulk-btn ba-bulk-sev-LOW"      onclick="baBulkCreateFixPrs(\'LOW\')"      title="Fix-PRs für LOW">LOW</button>';
+      html += '</div>';
+    }
+    html += '</div>';
+    html += '</div>';
+
+    if (types.length > 1) {
+      html += '<div class="ba-filter-bar" id="baTypeFilterBar" style="margin-top:-8px;">';
+      html += '<button class="ba-filter-btn active" data-type="ALL" onclick="baFilterType(this,\'ALL\')" data-i18n="bug_analysis.filter_all_types">Alle Typen</button>';
+      types.forEach(function(t) {
+        html += '<button class="ba-filter-btn" data-type="' + t + '" onclick="baFilterType(this,\'' + t + '\')">' + t + '</button>';
+      });
+      html += '</div>';
+    }
+
+    html += '<div id="baFindingsList">';
+    if (total === 0) {
+      html += '<div class="ba-empty" style="height:auto;padding:40px 0;">' +
+              '<i class="bi bi-check-circle text-success" style="font-size:2.5rem;opacity:.8;"></i>' +
+              '<p data-i18n="bug_analysis.no_findings">Keine Bugs gefunden. Glückwunsch!</p></div>';
+    } else {
+      findings.forEach(function(f, idx) {
+        html += baRenderFinding(f, idx);
+      });
+    }
+    html += '</div>';
+
+    html += '<div style="margin-top:20px;padding-top:12px;border-top:1px solid var(--ba-line);">';
+    html += '<button class="ba-btn-xs ba-btn-xs-cancel" onclick="baDeleteAnalysis(' + data.id + ')" data-i18n="bug_analysis.delete_analysis">Analyse löschen</button>';
+    html += '</div>';
+
+    document.getElementById('baMainArea').innerHTML = html;
+    _baApplyI18n();
+
+    var _rck = null;
+    if (baCurrentRepoId)          _rck = 'local:'  + baCurrentRepoId;
+    else if (baGitlabConfigId)    _rck = 'gitlab:' + baGitlabConfigId + ':' + baGitlabProjectId;
+    else if (baGithubRepoConfigId) _rck = 'github:' + baGithubRepoConfigId;
+    if (_rck && baCurrentAnalysisId) {
+      _baViewCache[_rck] = { analysisId: baCurrentAnalysisId, status: data.status, html: html };
+    }
+
+    if (data.status === 'COMPLETED' || data.status === 'FAILED') {
+      baLoadHistory();
+    }
+
+    _baUpdateFixPrBadge();
+  }
+
+  function baToggleGrouping() {
+    _baGroupByPriority = !_baGroupByPriority;
+    var btn = document.getElementById('baGroupToggle');
+    if (btn) btn.classList.toggle('active', _baGroupByPriority);
+    baRebuildFindingsList();
+  }
+
+  function baRebuildFindingsList() {
+    var list = document.getElementById('baFindingsList');
+    if (!list || !baAllFindings) return;
+    var findings = baAllFindings;
+    if (_baGroupByPriority) {
+      var order = ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW'];
+      var html = '';
+      order.forEach(function(sev) {
+        var group = findings.filter(function(f) { return f.severity === sev; });
+        if (!group.length) return;
+        html += '<div class="ba-group-header ba-group-' + sev + '">' +
+                '<span class="ba-sev ba-sev-' + sev + '">' + sev + '</span>' +
+                '<span class="ba-group-count">' + group.length + '</span>' +
+                '<button class="ba-group-fix-btn" onclick="baBulkCreateFixPrs(\'' + sev + '\')" title="Fix-PRs für ' + sev + ' erstellen">' +
+                '<i class="bi bi-git me-1"></i>' + _baI18n('bug_analysis.bulk_fix_group', 'Fix-PRs für Gruppe') +
+                '</button>' +
+                '</div>';
+        group.forEach(function(f, i) {
+          html += baRenderFinding(f, findings.indexOf(f));
+        });
+      });
+      list.innerHTML = html;
+    } else {
+      var html2 = '';
+      findings.forEach(function(f, i) { html2 += baRenderFinding(f, i); });
+      list.innerHTML = html2;
+    }
+    baApplyFilters();
+    _baApplyI18n();
+  }
+
+  function baBulkCreateFixPrs(sevFilter) {
+    if (!baCurrentAnalysisId || !baAllFindings) return;
+    var targets = baAllFindings.filter(function(f) {
+      return (sevFilter === 'ALL' || f.severity === sevFilter);
+    });
+    if (targets.length === 0) return;
+
+    _baBulkRun(targets, 0);
+  }
+
+  function _baBulkRun(targets, idx) {
+    if (idx >= targets.length) return;
+    var f = targets[idx];
+    var findingId = f.id;
+
+    var btn = document.querySelector('.ba-btn-fix[data-finding-id="' + CSS.escape(String(findingId)) + '"]');
+    if (btn) {
+      baGenerateFix(baCurrentAnalysisId, findingId, btn);
+      setTimeout(function() { _baBulkRun(targets, idx + 1); }, 400);
+    } else {
+      _baBulkRun(targets, idx + 1);
+    }
+  }
+
+  function baStatCard(sev, count) {
+    return '<div class="ba-stat ba-stat-' + sev + '">' +
+           '<span class="ba-stat-num">' + count + '</span>' +
+           '<span class="ba-stat-lbl">' + sev + '</span>' +
+           '</div>';
+  }
+
+  function baRenderFinding(f, idx) {
+    var line = f.line ? (':' + f.line) : '';
+    var cwe  = f.cwe  ? '<span class="ba-cwe ms-1">' + baEsc(f.cwe) + '</span>' : '';
+    var confirmedBadge = f.confirmed
+      ? '<span class="ba-confirmed-badge"><i class="bi bi-shield-fill-check me-1"></i>' + _baI18n('bug_analysis.confirmed', 'Bestätigt') + '</span>'
+      : '<span class="ba-unconfirmed-badge"><i class="bi bi-shield-exclamation me-1"></i>' + _baI18n('bug_analysis.unconfirmed', 'Kandidat') + '</span>';
+    var exploitBadge = f.exploitability
+      ? '<span class="ba-exploit-' + f.exploitability + '">' + baEsc(f.exploitability) + '</span>'
+      : '';
+    var cvss = f.cvssScore
+      ? '<span class="ba-cvss">CVSS&nbsp;' + baEsc(f.cvssScore) + '</span>'
+      : '';
+    var iterBadge = (f.iterationFound && f.iterationFound > 1)
+      ? '<span class="ba-iter-badge">Iter&nbsp;' + f.iterationFound + '</span>'
+      : '';
+
+    var html = '<div class="ba-finding' + (f.confirmed ? ' ba-finding-confirmed' : '') + '" data-sev="' + (f.severity||'') + '" data-type="' + (f.type||'') + '" data-fix-id="' + baEsc(String(f.id)) + '">';
+    html += '<div class="ba-finding-header" onclick="baToggleFinding(this)" data-idx="' + idx + '">';
+    html += '  <span class="ba-sev ba-sev-' + (f.severity||'LOW') + '">' + baEsc(f.severity||'?') + '</span>';
+    html += '  <span class="ba-type">' + baEsc(f.type||'?') + cwe + '</span>';
+    html += '  <div class="ba-finding-meta">';
+    html += '    <div class="ba-finding-file"><i class="bi bi-file-code me-1"></i>' + baEsc(f.file||'?') + baEsc(line) + '</div>';
+    html += '    <div class="ba-finding-desc">' + baEsc(f.description||'') + '</div>';
+    html += '    <div class="ba-finding-badges">' + confirmedBadge + exploitBadge + cvss + iterBadge + '</div>';
+    html += '  </div>';
+    html += '  <i class="bi bi-chevron-down" style="color:var(--ba-muted);font-size:11px;flex-shrink:0;"></i>';
+    html += '</div>';
+    html += '<div class="ba-finding-body">';
+
+    if (f.snippet) {
+      html += '<div class="ba-finding-label" data-i18n="bug_analysis.label_snippet">Problematischer Code</div>';
+      html += '<pre>' + baEsc(f.snippet) + '</pre>';
+    }
+    if (f.suggestion) {
+      html += '<div class="ba-finding-label" data-i18n="bug_analysis.label_suggestion">Behebungsvorschlag</div>';
+      html += '<p style="margin:0 0 6px;">' + baEsc(f.suggestion) + '</p>';
+    }
+    if (f.suggestedFix) {
+      html += '<div class="ba-finding-label" data-i18n="bug_analysis.label_fix">Korrektur-Code</div>';
+      html += '<pre>' + baEsc(f.suggestedFix) + '</pre>';
+    }
+
+    if (f.exploitPayload || (f.attackSteps && f.attackSteps.length) || f.proofOfConcept) {
+      html += '<div class="ba-pentest-section">';
+      html += '<div class="ba-pentest-title"><i class="bi bi-crosshair me-1"></i>' +
+              _baI18n('bug_analysis.pentest_section', 'Pentest-Details') + '</div>';
+      if (f.exploitPayload) {
+        html += '<div class="ba-finding-label ba-label-red" data-i18n="bug_analysis.label_payload">Exploit-Payload</div>';
+        html += '<pre class="ba-payload">' + baEsc(f.exploitPayload) + '</pre>';
+      }
+      if (f.attackVector) {
+        html += '<div style="margin-bottom:6px;font-size:12px;">' +
+                '<span class="ba-meta-key">' + _baI18n('bug_analysis.label_attack_vector','Angriffsvektor') + ': </span>' +
+                '<span class="ba-av-badge ba-av-' + f.attackVector + '">' + baEsc(f.attackVector) + '</span>' +
+                '</div>';
+      }
+      if (f.attackSteps && f.attackSteps.length) {
+        html += '<div class="ba-finding-label" data-i18n="bug_analysis.label_attack_steps">Angriffs-Szenario</div>';
+        html += '<ol class="ba-attack-steps">';
+        f.attackSteps.forEach(function(s) {
+          html += '<li>' + baEsc(String(s).replace(/^\d+\.\s*/, '')) + '</li>';
+        });
+        html += '</ol>';
+      }
+      if (f.proofOfConcept) {
+        html += '<div class="ba-finding-label ba-label-red" data-i18n="bug_analysis.label_poc">Proof-of-Concept</div>';
+        html += '<pre class="ba-poc">' + baEsc(f.proofOfConcept) + '</pre>';
+      }
+      html += '</div>';
+    }
+
+    html += _baFixRowHtml(f.id, baCurrentAnalysisId);
+    html += '</div>';
+    html += '</div>';
+    return html;
+  }
+
+  function baToggleFinding(header) {
+    var body = header.nextElementSibling;
+    var open = header.classList.toggle('open');
+    body.classList.toggle('open', open);
+    var icon = header.querySelector('.bi-chevron-down,.bi-chevron-up');
+    if (icon) { icon.classList.toggle('bi-chevron-down', !open); icon.classList.toggle('bi-chevron-up', open); }
+  }
+
+  function baFilterSev(btn, sev) {
+    baActiveSevFilter = sev;
+    document.querySelectorAll('#baFilterBar .ba-filter-btn').forEach(function(b) { b.classList.remove('active'); });
+    btn.classList.add('active');
+    baApplyFilters();
+  }
+  function baFilterType(btn, type) {
+    baActiveTypeFilter = type;
+    document.querySelectorAll('#baTypeFilterBar .ba-filter-btn').forEach(function(b) { b.classList.remove('active'); });
+    btn.classList.add('active');
+    baApplyFilters();
+  }
+  function baApplyFilters() {
+    document.querySelectorAll('#baFindingsList .ba-finding').forEach(function(el) {
+      var matchSev  = baActiveSevFilter  === 'ALL' || el.dataset.sev  === baActiveSevFilter;
+      var matchType = baActiveTypeFilter === 'ALL' || el.dataset.type === baActiveTypeFilter;
+      var matchFix  = _baFixFilter === 'ALL';
+      if (!matchFix) {
+        var state = _baFixStateOf(_baFixEntry(el.dataset.fixId));
+        matchFix = _baFixFilter === 'open' ? state === 'idle' : state === _baFixFilter;
+      }
+      el.style.display = (matchSev && matchType && matchFix) ? '' : 'none';
+    });
+  }
+
+  function baDeleteAnalysis(id) {
+    showConfirm(
+      _baI18n('bug_analysis.confirm_delete', 'Analyse wirklich löschen?'),
+      _baI18n('common.delete', 'Löschen'),
+      function() {
+        fetch('/api/bug-analysis/analysis/' + id, { method: 'DELETE' })
+          .then(function() {
+            baCurrentAnalysisId = null;
+            baShowEmpty(baCurrentRepoName);
+            baLoadHistory();
+          });
+      },
+      _baI18n('common.delete', 'Löschen'),
+      'bi-trash',
+      '#b91c1c'
+    );
+  }
+</script>
+</th:block>
+</body>
+</html>

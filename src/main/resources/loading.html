@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  html, body {
+    width: 100%; height: 100%;
+    overflow: hidden;
+    background: #f5f2ea;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  }
+
+  .wrap {
+    width: 100%; height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+  }
+
+  .hex-bg {
+    position: absolute;
+    inset: 0;
+    opacity: 0.07;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='56' height='48'%3E%3Cpath d='M28 0 l28 16 v16 l-28 16 L0 32 V16 Z' fill='none' stroke='%23126a5a' stroke-width='1.5'/%3E%3C/svg%3E");
+    background-size: 56px 48px;
+  }
+
+  .beam {
+    position: absolute;
+    left: 0; right: 0;
+    height: 3px;
+    background: linear-gradient(
+      90deg,
+      transparent 0%,
+      rgba(124, 92, 191,0.3) 15%,
+      rgba(124, 92, 191,0.9) 50%,
+      rgba(240,180,76,0.8) 55%,
+      rgba(124, 92, 191,0.3) 85%,
+      transparent 100%
+    );
+    box-shadow: 0 0 18px rgba(124, 92, 191,0.5);
+    animation: beamsweep 2.6s ease-in-out infinite;
+    top: 0;
+  }
+
+  @keyframes beamsweep {
+    0%   { top: 0%;   opacity: 0; }
+    8%   { opacity: 1; }
+    92%  { opacity: 1; }
+    100% { top: 100%; opacity: 0; }
+  }
+
+  .glow-l {
+    position: absolute;
+    left: -80px; top: 50%;
+    width: 360px; height: 360px;
+    border-radius: 50%;
+    background: radial-gradient(circle, rgba(124, 92, 191,0.14) 0%, transparent 70%);
+    transform: translateY(-50%);
+    animation: glowpulse 5s ease-in-out infinite alternate;
+    pointer-events: none;
+  }
+  .glow-r {
+    position: absolute;
+    right: -80px; top: 50%;
+    width: 360px; height: 360px;
+    border-radius: 50%;
+    background: radial-gradient(circle, rgba(240,180,76,0.13) 0%, transparent 70%);
+    transform: translateY(-50%);
+    animation: glowpulse 5s ease-in-out infinite alternate-reverse;
+    pointer-events: none;
+  }
+  @keyframes glowpulse {
+    from { opacity: 0.5; }
+    to   { opacity: 1.0; }
+  }
+
+  .card {
+    position: relative;
+    z-index: 2;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 20px;
+    background: rgba(255,253,248,0.94);
+    border: 1px solid #ddd7cb;
+    border-radius: 24px;
+    padding: 40px 56px;
+    box-shadow: 0 12px 48px rgba(124, 92, 191,0.09), 0 2px 8px rgba(0,0,0,0.05);
+  }
+
+  .logo-mark {
+    width: 62px; height: 62px;
+    background: #7c5cbf;
+    border-radius: 17px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 4px 20px rgba(124, 92, 191,0.4);
+    animation: logopulse 2.4s ease-in-out infinite;
+  }
+  .logo-mark svg {
+    width: 32px; height: 32px;
+  }
+  @keyframes logopulse {
+    0%,100% { box-shadow: 0 4px 20px rgba(124, 92, 191,0.40); }
+    50%     { box-shadow: 0 6px 32px rgba(124, 92, 191,0.65); }
+  }
+
+  .text-group {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 5px;
+  }
+  .app-title {
+    font-size: 2rem;
+    font-weight: 900;
+    color: #1f1f1f;
+    letter-spacing: -0.025em;
+  }
+  .app-subtitle {
+    font-size: 11px;
+    color: #6a665f;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    font-weight: 800;
+  }
+
+  .progress-wrap {
+    width: 240px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-top: 4px;
+  }
+  .track {
+    width: 100%;
+    height: 4px;
+    background: #ddd7cb;
+    border-radius: 99px;
+    overflow: hidden;
+  }
+  .fill {
+    height: 100%;
+    border-radius: 99px;
+    background: linear-gradient(90deg, #7c5cbf 0%, #eab308 100%);
+    animation: fillsweep 2.6s cubic-bezier(0.4,0,0.2,1) infinite;
+  }
+  @keyframes fillsweep {
+    0%   { width: 0%;   opacity: 1; }
+    72%  { width: 100%; opacity: 1; }
+    88%  { width: 100%; opacity: 0; }
+    89%  { width: 0%;   opacity: 0; }
+    100% { width: 0%;   opacity: 1; }
+  }
+
+  #status {
+    font-size: 12px;
+    font-weight: 700;
+    color: #6a665f;
+    text-align: center;
+    letter-spacing: 0.04em;
+    min-height: 17px;
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="hex-bg"></div>
+  <div class="beam" id="beam"></div>
+  <div class="glow-l"></div>
+  <div class="glow-r"></div>
+
+  <div class="card">
+    <div class="logo-mark">
+      <svg viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <circle cx="13" cy="13" r="8" stroke="#fffdf8" stroke-width="2.5"/>
+        <line x1="19.5" y1="19.5" x2="27" y2="27" stroke="#eab308" stroke-width="2.8" stroke-linecap="round"/>
+      </svg>
+    </div>
+    <div class="text-group">
+      <div class="app-title">StackLens</div>
+      <div class="app-subtitle">AI Analysis Platform</div>
+    </div>
+    <div class="progress-wrap">
+      <div class="track"><div class="fill" id="fill"></div></div>
+      <div id="status">Initialisiere Module…</div>
+    </div>
+  </div>
+</div>
+
+<script>
+  var msgs = [
+    'Initialisiere Module\u2026',
+    'Lade Konfiguration\u2026',
+    'Datenbankverbindung aufbauen\u2026',
+    'KI-Engine vorbereiten\u2026',
+    'StackLens startet\u2026'
+  ];
+  var idx = 0;
+  var statusEl = document.getElementById('status');
+  setInterval(function() {
+    idx = (idx + 1) % msgs.length;
+    statusEl.textContent = msgs[idx];
+  }, 2600);
+</script>
+</body>
+</html>

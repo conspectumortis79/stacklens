@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" lang="de">
+<body>
+<th:block th:fragment="panes-system">
+<div id="tab-tools" class="cf-tab-pane">
+  <div class="card border-0 shadow-sm cf-card">
+    <div class="card-header bg-white py-3">
+      <h5 class="mb-0 fw-semibold">
+        <i class="bi bi-tools me-2" style="color:var(--ns-accent);"></i><span data-i18n="config.tools.section">Essenzielle Tools</span>
+      </h5>
+    </div>
+    <div class="card-body">
+      <p class="text-muted small mb-3" data-i18n="config.tools.hint">
+        StackLens benötigt für die KI-Analyse das GitHub CLI (<code>gh</code>) und die GitHub Copilot CLI.
+        Hier kannst du den Status prüfen und die fehlenden Tools für dein Betriebssystem installieren.
+      </p>
+
+      <div class="d-flex align-items-center gap-2 mb-3">
+        <span class="text-muted small" data-i18n="config.tools.platform_label">Erkanntes System:</span>
+        <span id="toolsPlatformLabel" class="badge bg-secondary">…</span>
+        <button class="btn btn-sm btn-outline-secondary ms-auto" onclick="cfLoadToolsStatus()">
+          <i class="bi bi-arrow-clockwise me-1"></i><span data-i18n="config.tools.refresh">Aktualisieren</span>
+        </button>
+      </div>
+
+      <div id="toolsUnsupportedAlert" class="alert alert-warning d-none">
+        <i class="bi bi-exclamation-triangle-fill me-2"></i>
+        <span data-i18n="config.tools.unsupported">Auf diesem System ist keine automatische Installation möglich. Bitte verwende den unten angezeigten Befehl manuell.</span>
+      </div>
+
+      <div class="table-responsive">
+        <table class="table align-middle mb-0">
+          <thead>
+            <tr>
+              <th data-i18n="config.tools.col_tool">Tool</th>
+              <th data-i18n="config.tools.col_status">Status</th>
+              <th data-i18n="config.tools.col_version">Version</th>
+              <th class="text-end" data-i18n="config.tools.col_action">Aktion</th>
+            </tr>
+          </thead>
+          <tbody id="toolsTableBody">
+            <tr><td colspan="4" class="text-center text-muted py-4"><i class="bi bi-hourglass-split me-2"></i>Lade…</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div id="toolsInstallOutputBox" class="mt-3" style="display:none;">
+        <div class="d-flex align-items-center gap-2 mb-2">
+          <strong data-i18n="config.tools.install_output">Installations-Ausgabe</strong>
+          <span id="toolsInstallStatusBadge" class="badge bg-secondary"></span>
+        </div>
+        <pre id="toolsInstallOutput" style="background:#1e1e1e;color:#dcdcdc;padding:12px;border-radius:6px;max-height:320px;overflow:auto;font-size:12px;"></pre>
+        <div id="toolsManualBox" class="alert alert-info mt-2" style="display:none;">
+          <div class="fw-semibold mb-1" data-i18n="config.tools.manual_hint">Bitte führe folgenden Befehl im Terminal aus:</div>
+          <pre id="toolsManualCmd" style="background:#0d1117;color:#c9d1d9;padding:8px;border-radius:4px;margin:0;font-size:12px;"></pre>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+<div id="tab-dev" class="cf-tab-pane">
+  <div class="card border-0 shadow-sm cf-card">
+    <div class="card-header bg-white py-3">
+      <h5 class="mb-0 fw-semibold">
+        <i class="bi bi-toggles me-2" style="color:var(--ns-accent);"></i><span data-i18n="config.developer.section">Entwickleroptionen</span>
+      </h5>
+    </div>
+    <div class="card-body">
+      <p class="text-muted small mb-4" data-i18n="config.developer.hint">Diese Einstellungen steuern erweiterte UI-Funktionen. Die Änderungen werden im Browser gespeichert.</p>
+      <div class="d-flex align-items-center justify-content-between py-3" style="border-bottom:1px solid var(--ns-line);">
+        <div>
+          <div class="fw-semibold" data-i18n="config.developer.show_prompt_buttons">KI-Prompt-Buttons anzeigen</div>
+          <div class="text-muted small mt-1" data-i18n="config.developer.show_prompt_buttons_hint">Zeigt auf Analyseseiten den Button zur Auswahl des KI-Prompts an.</div>
+        </div>
+        <div class="form-check form-switch ms-4 flex-shrink-0">
+          <input class="form-check-input" type="checkbox" id="devShowPromptButtons" style="cursor:pointer;"
+                 onchange="cfDevTogglePromptButtons(this.checked)">
+        </div>
+      </div>
+      <div class="d-flex align-items-center justify-content-between py-3" style="border-bottom:1px solid var(--ns-line);">
+        <div>
+          <div class="fw-semibold" data-i18n="config.developer.text_filter_enabled">Token-sparende Subprocess-Ausgabefilterung</div>
+          <div class="text-muted small mt-1" data-i18n="config.developer.text_filter_enabled_hint">Komprimiert Build-, Test- und Git-Ausgaben (rtk-Pattern, 63 Profile) bevor sie in den KI-Prompt gelangen. Spart typischerweise 60–80&nbsp;% der Tokens in Rex- und Build-Outputs.</div>
+        </div>
+        <div class="form-check form-switch ms-4 flex-shrink-0">
+          <input class="form-check-input" type="checkbox" id="devTextFilterEnabled" style="cursor:pointer;"
+                 onchange="cfDevToggleTextFilter(this.checked)">
+        </div>
+      </div>
+      <div class="d-flex align-items-center justify-content-between py-3" style="border-bottom:1px solid var(--ns-line);">
+        <div>
+          <div class="fw-semibold" data-i18n="config.developer.show_token_usage">Token-Verbrauchs-Anzeige</div>
+          <div class="text-muted small mt-1" data-i18n="config.developer.show_token_usage_hint">Zeigt den Token-Verbrauch in KI-Analysen und im KI-Chat an (Input · Output · Gesamt · Dauer). Die Daten werden lokal in der H2-Datenbank gespeichert.</div>
+        </div>
+        <div class="form-check form-switch ms-4 flex-shrink-0">
+          <input class="form-check-input" type="checkbox" id="devShowTokenUsage" style="cursor:pointer;"
+                 onchange="cfDevToggleShowTokenUsage(this.checked)">
+        </div>
+      </div>
+      <div id="devDockerSection">
+        <div class="d-flex align-items-center justify-content-between py-3" style="border-bottom:1px solid var(--ns-line);">
+          <div>
+            <div class="fw-semibold" data-i18n="config.developer.docker_test_env">Docker Testumgebung starten</div>
+            <div class="text-muted small mt-1" data-i18n="config.developer.docker_test_env_hint">Zeigt in der Seitenleiste den Eintrag 'Testdocker' und startet alle Docker-Container mit allen Demos automatisch bei jedem Start von StackLens (per ./start.sh oder docker compose up).</div>
+          </div>
+          <div class="form-check form-switch ms-4 flex-shrink-0">
+            <input class="form-check-input" type="checkbox" id="devDockerTestEnv" style="cursor:pointer;"
+                   onchange="cfDevToggleDockerTestEnv(this.checked)">
+          </div>
+        </div>
+        <div class="d-flex align-items-center justify-content-between py-3 ps-3">
+          <div>
+            <div class="fw-semibold" data-i18n="config.developer.docker_auto_start">Automatisch beim Start starten</div>
+            <div class="text-muted small mt-1" data-i18n="config.developer.docker_auto_start_hint">Startet die Docker Testumgebung automatisch beim Start von StackLens.</div>
+          </div>
+          <div class="form-check form-switch ms-4 flex-shrink-0">
+            <input class="form-check-input" type="checkbox" id="devDockerAutoStart" style="cursor:pointer;"
+                   onchange="cfDevToggleDockerAutoStart(this.checked)">
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+<div id="tab-reset" class="cf-tab-pane">
+
+  <div class="card border-0 shadow-sm cf-card mb-4">
+    <div class="card-header bg-white py-3">
+      <h5 class="mb-0 fw-semibold">
+        <i class="bi bi-hdd me-2" style="color:var(--ns-accent);"></i><span data-i18n="config.reset.storage_title">Browser-Speicher zurücksetzen</span>
+      </h5>
+    </div>
+    <div class="card-body">
+      <div class="alert alert-warning d-flex gap-2 align-items-start mb-3" role="alert">
+        <i class="bi bi-exclamation-triangle-fill flex-shrink-0 mt-1"></i>
+        <div>
+          <strong data-i18n="config.reset.storage_warning_title">Achtung:</strong> <span data-i18n="config.reset.storage_warning_text">Alle gespeicherten UI-Zustände gehen verloren — geöffnete Sektionen, zuletzt gewählte Projekte, gespeicherte Lasttest-Ergebnisse und Bearer-Tokens. Die Anwendung bleibt jedoch voll funktionsfähig.</span>
+        </div>
+      </div>
+      <p class="text-muted small mb-3" data-i18n="config.reset.storage_desc">Setzt alle von StackLens im Browser-LocalStorage gespeicherten Einträge zurück (lt_*, cf_*). Server-seitige Daten und Konfigurationen bleiben unberührt.</p>
+      <button class="btn btn-warning" onclick="cfResetLocalStorage()">
+        <i class="bi bi-trash3 me-2"></i><span data-i18n="config.reset.storage_btn">Browser-Speicher löschen</span>
+      </button>
+      <div id="cfStorageResetResult" style="display:none;margin-top:1rem;"></div>
+    </div>
+  </div>
+
+  <div class="card border-0 shadow-sm cf-card" style="border-left: 4px solid #b91c1c !important;">
+    <div class="card-header bg-white py-3">
+      <h5 class="mb-0 fw-semibold">
+        <i class="bi bi-database-dash me-2 text-danger"></i><span data-i18n="config.reset.db_title">Datenbank auf Werkseinstellungen zurücksetzen</span>
+      </h5>
+    </div>
+    <div class="card-body">
+      <div class="alert alert-danger d-flex gap-2 align-items-start mb-3" role="alert">
+        <i class="bi bi-exclamation-octagon-fill flex-shrink-0 mt-1"></i>
+        <div>
+          <strong data-i18n="config.reset.db_warning_title">Unwiderrufliche Aktion!</strong><span data-i18n="config.reset.db_warning_header"> Alle gespeicherten Daten werden gelöscht:</span>
+          <ul class="mb-0 mt-1 small">
+            <li data-i18n="config.reset.db_list_1">Alle GitLab-, Datenbank-, Confluence-, Grafana- und Jira-Verbindungen</li>
+            <li data-i18n="config.reset.db_list_2">Alle Suchsitzungen und Ergebnisse</li>
+            <li data-i18n="config.reset.db_list_3">Alle Analysen (Codequaliät, Lasttest, Sprint-Vorbereitung, SQL, JWT, Ticket)</li>
+            <li data-i18n="config.reset.db_list_4">Alle generierten Tooling-JARs</li>
+            <li data-i18n="config.reset.db_list_5">Alle Wissensdatenbanken, Dokumente, Chunks und Vektoren (RAG-Datenbank)</li>
+          </ul>
+          <strong data-i18n="config.reset.db_warning_footer">Die Anwendung wird danach nicht mehr korrekt funktionieren</strong><span data-i18n="config.reset.db_warning_footer_suffix">, bis neue Verbindungen eingerichtet wurden.</span>
+        </div>
+      </div>
+      <p class="text-muted small mb-3" data-i18n="config.reset.db_desc">Löscht alle Inhalte der eingebetteten H2-Datenbank. Diese Aktion kann nicht rückgängig gemacht werden.</p>
+      <div id="cfDbResetConfirmBox" style="display:none;" class="mb-3">
+        <div class="alert alert-danger">
+          <strong data-i18n="config.reset.db_confirm_title">Sicher?</strong> <span data-i18n="config.reset.db_confirm_text">Alle Daten werden unwiderruflich gelöscht. Bitte bestätige durch erneutes Klicken.</span>
+        </div>
+        <div class="d-flex gap-2">
+          <button class="btn btn-danger" onclick="cfConfirmDbReset()">
+            <i class="bi bi-trash3-fill me-2"></i><span data-i18n="config.reset.db_confirm_yes">Ja, alles löschen</span>
+          </button>
+          <button class="btn btn-outline-secondary" onclick="cfCancelDbReset()">
+            <i class="bi bi-x-lg me-1"></i><span data-i18n="common.cancel">Abbrechen</span>
+          </button>
+        </div>
+      </div>
+      <button class="btn btn-outline-danger" id="cfDbResetBtn" onclick="cfInitDbReset()">
+        <i class="bi bi-database-x me-2"></i><span data-i18n="config.reset.db_btn">Datenbank zurücksetzen</span>
+      </button>
+      <div class="alert alert-info mt-3 mb-0 small d-flex gap-2 align-items-start" role="note">
+        <i class="bi bi-info-circle-fill flex-shrink-0 mt-1"></i>
+        <div data-i18n="[html]config.reset.knowledge_preserved_hint">
+          Die Wissensdatenbank (RAG) bleibt von dieser Aktion unberührt und wird separat im <a href="/knowledge">Wissensdatenbank-Tab</a> verwaltet.
+        </div>
+      </div>
+      <div id="cfDbResetResult" style="display:none;" class="mt-3"></div>
+    </div>
+  </div>
+
+</div>
+
+</th:block>
+</body>
+</html>

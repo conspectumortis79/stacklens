@@ -1,0 +1,683 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" lang="de">
+<body>
+<th:block th:fragment="scripts-fix-pr">
+
+<script>
+  var _baFixFilter = 'ALL';
+  var _baFixTickTimer = null;
+
+  function _baFixHasTerminalState(entry) {
+    return !!(entry && (entry.prUrl || entry.localDone || entry.error));
+  }
+
+  function _baFixStateOf(entry) {
+    if (!entry) return 'idle';
+    if (entry.prUrl || entry.localDone) return 'done';
+    if (entry.error) return 'error';
+    if (entry.interrupted || !entry.inFlight) return 'interrupted';
+    return 'running';
+  }
+
+  function _baFixEntry(findingId) {
+    var key = String(findingId);
+    for (var i = _baFixPrDetails.length - 1; i >= 0; i--) {
+      if (String(_baFixPrDetails[i].findingId) === key) return _baFixPrDetails[i];
+    }
+    return null;
+  }
+
+  function _baFixCounts() {
+    var c = { total: _baFixPrDetails.length, running: 0, done: 0, error: 0, interrupted: 0 };
+    _baFixPrDetails.forEach(function(d) {
+      var state = _baFixStateOf(d);
+      if (Object.prototype.hasOwnProperty.call(c, state)) c[state]++;
+    });
+    return c;
+  }
+
+  function _baFixRecomputeRunning() {
+    _baFixPrRunning = _baFixCounts().running;
+    return _baFixPrRunning;
+  }
+
+  function _baFixElapsedSeconds(entry, nowMs) {
+    if (!entry || !entry.startedAt) return 0;
+    var end = entry.finishedAt || nowMs || Date.now();
+    return Math.max(0, Math.round((end - entry.startedAt) / 1000));
+  }
+
+  function _baFixClock(seconds) {
+    var s = Math.max(0, seconds | 0);
+    return String(Math.floor(s / 60)).padStart(2, '0') + ':' + String(s % 60).padStart(2, '0');
+  }
+
+  function _baFixOldestRunningSeconds() {
+    var oldest = 0;
+    _baFixPrDetails.forEach(function(d) {
+      if (_baFixStateOf(d) !== 'running') return;
+      oldest = Math.max(oldest, _baFixElapsedSeconds(d));
+    });
+    return oldest;
+  }
+
+  function _baFixShortUrl(url) {
+    if (!url) return '';
+    var mr = url.match(/\/merge_requests\/(\d+)/);
+    if (mr) return 'MR\u00a0!' + mr[1];
+    var pr = url.match(/\/pull\/(\d+)/);
+    if (pr) return 'PR\u00a0#' + pr[1];
+    return url.length > 38 ? '\u2026' + url.slice(-35) : url;
+  }
+
+  function _baFixStepsHtml(state) {
+    var labels = [
+      _baI18n('bug_analysis.fix_step_request', 'Anfrage'),
+      _baI18n('bug_analysis.fix_step_generate', 'KI-Fix'),
+      _baI18n('bug_analysis.fix_step_result', 'Ergebnis')
+    ];
+    var reached = state === 'idle' ? -1 : state === 'running' ? 1 : 2;
+    return '<span class="ba-fix-steps">' + labels.map(function(label, index) {
+      var cls = 'ba-fix-step';
+      var mark = String(index + 1);
+      if (state === 'error' && index === 1) { cls += ' ba-fix-step-err'; mark = '!'; }
+      else if (state === 'interrupted' && index === 1) { cls += ' ba-fix-step-int'; mark = '!'; }
+      else if (index < reached) { cls += ' ba-fix-step-ok'; mark = '\u2713'; }
+      else if (index === reached) { cls += state === 'running' ? ' ba-fix-step-act' : ' ba-fix-step-ok'; }
+      var line = index < labels.length - 1 ? '<span class="ba-fix-step-line"></span>' : '';
+      return '<span class="' + cls + '"><b>' + mark + '</b>' + baEsc(label) + '</span>' + line;
+    }).join('') + '</span>';
+  }
+
+  function _baFixResultHtml(entry) {
+    if (entry.prUrl) {
+      return '<span class="ba-fix-res ba-fix-res-ok">' +
+        '<i class="bi bi-check-circle-fill me-1"></i>' +
+        baEsc(_baI18n('bug_analysis.fix_pr_created', 'PR/MR erstellt')) + '</span>' +
+        '<button class="ba-fix-link-btn" data-fix-act="open" data-fix-fid="' + baEsc(String(entry.findingId)) + '" ' +
+        'title="' + baEsc(entry.prUrl) + '"><i class="bi bi-box-arrow-up-right me-1"></i>' +
+        baEsc(_baFixShortUrl(entry.prUrl)) + '</button>' +
+        '<span class="ba-fix-meta">' + baEsc(_baFixFileSummary(entry)) + '</span>';
+    }
+    if (entry.localDone) {
+      return '<span class="ba-fix-res ba-fix-res-ok">' +
+        '<i class="bi bi-check-circle-fill me-1"></i>' +
+        baEsc(_baI18n('bug_analysis.fix_local_done', 'Fixes generiert')) + '</span>' +
+        '<span class="ba-fix-meta">' + baEsc(_baFixFileSummary(entry)) + '</span>';
+    }
+    return '';
+  }
+
+  function _baFixFileSummary(entry) {
+    var files = (entry.localChanges && entry.localChanges.length)
+      ? entry.localChanges.length
+      : (entry.filesChanged || []).length;
+    if (!files) return '';
+    return files + ' ' + baEsc(_baI18n('bug_analysis.fix_files_suffix', 'Datei(en) geändert'));
+  }
+
+  function _baFixBodyHtml(entry) {
+    if (!entry || entry.error) {
+      var errText = entry ? entry.error : '';
+      var errHtml = entry
+        ? '<div class="ba-fix-error"><i class="bi bi-exclamation-triangle me-1"></i>' + baEsc(errText) + '</div>'
+        : '';
+      return errHtml;
+    }
+    if (entry.prUrl && entry.explanation) {
+      return '<div class="ba-fix-explanation">' + baEsc(entry.explanation) + '</div>';
+    }
+    if (entry.localDone) {
+      var files = (entry.localChanges || []).map(function(c) {
+        return '<div class="ba-fix-file"><div class="ba-finding-label">' + baEsc(c.path) + '</div>' +
+               '<pre class="ba-fix-code">' + baEsc(c.code) + '</pre></div>';
+      }).join('');
+      return (entry.explanation ? '<div class="ba-fix-explanation">' + baEsc(entry.explanation) + '</div>' : '') + files;
+    }
+    return '';
+  }
+
+  function _baFixActionsHtml(entry) {
+    var state = _baFixStateOf(entry);
+    var fid = entry ? baEsc(String(entry.findingId)) : '';
+    if (state === 'running') {
+      return '<button class="ba-fix-act ba-fix-act-danger" data-fix-act="cancel" data-fix-fid="' + fid + '">' +
+        '<i class="bi bi-x-lg me-1"></i>' + baEsc(_baI18n('bug_analysis.fix_pr_cancel', 'Abbrechen')) + '</button>';
+    }
+    if (state === 'error' || state === 'interrupted') {
+      return '<button class="ba-fix-act ba-fix-act-primary" data-fix-act="retry" data-fix-fid="' + fid + '">' +
+        '<i class="bi bi-arrow-repeat me-1"></i>' + baEsc(_baI18n('bug_analysis.fix_retry', 'Erneut')) + '</button>';
+    }
+    if (state === 'done' && entry.localDone) {
+      return '<button class="ba-fix-act" data-fix-act="changes" data-fix-fid="' + fid + '">' +
+        '<i class="bi bi-eye me-1"></i>' + baEsc(_baI18n('bug_analysis.fix_pr_view_changes', 'Änderungen anzeigen')) + '</button>';
+    }
+    return '';
+  }
+
+  function _baFixStageInner(entry) {
+    var state = _baFixStateOf(entry);
+    if (state === 'running') {
+      var step = entry.step ? baEsc(entry.step) + ' \u00b7 ' : '';
+      return step + '<b>' + baEsc(_baI18n('bug_analysis.fix_running_since', 'läuft seit')) + ' ' +
+        _baFixClock(_baFixElapsedSeconds(entry)) + '</b>';
+    }
+    if (state === 'error') {
+      return baEsc(_baI18n('bug_analysis.fix_failed_stage', 'fehlgeschlagen nach')) + ' ' +
+        _baFixClock(_baFixElapsedSeconds(entry));
+    }
+    if (state === 'interrupted') {
+      return baEsc(_baI18n('bug_analysis.fix_interrupted_after', 'unterbrochen nach')) + ' ' +
+        _baFixClock(_baFixElapsedSeconds(entry));
+    }
+    if (state === 'done') {
+      return baEsc(_baI18n('bug_analysis.fix_done_in', 'fertig in')) + ' ' + _baFixClock(_baFixElapsedSeconds(entry));
+    }
+    return baEsc(_baI18n('bug_analysis.fix_idle_hint', 'Button wird zum Fortschritt \u2013 kein separater Banner.'));
+  }
+
+  function _baFixStageClass(entry) {
+    var state = _baFixStateOf(entry);
+    if (state === 'error') return 'ba-fix-stage ba-fix-stage-err';
+    if (state === 'interrupted') return 'ba-fix-stage ba-fix-stage-int';
+    if (state === 'done') return 'ba-fix-stage ba-fix-stage-ok';
+    return 'ba-fix-stage';
+  }
+
+  function _baFixStageHtml(entry) {
+    return '<span class="' + _baFixStageClass(entry) + '">' + _baFixStageInner(entry) + '</span>';
+  }
+
+  function _baFixRowInnerHtml(findingId, analysisId) {
+    var entry = _baFixEntry(findingId);
+    var state = _baFixStateOf(entry);
+    var head = '<span class="ba-fix-cap">' + baEsc(_baI18n('bug_analysis.fix_cap', 'Fix')) + '</span>';
+    if (state === 'idle') {
+      return head +
+        '<button class="ba-btn-fix" data-finding-id="' + baEsc(String(findingId)) + '" ' +
+        'onclick="baGenerateFix(' + (analysisId || 0) + ', this.dataset.findingId, this)">' +
+        '<i class="bi bi-git me-1"></i>' +
+        baEsc(_baI18n('bug_analysis.btn_generate_fix', 'Fix-PR erstellen')) + '</button>' +
+        _baFixStageHtml(null);
+    }
+    var body = _baFixBodyHtml(entry);
+    return head + _baFixStepsHtml(state) + _baFixResultHtml(entry) + _baFixStageHtml(entry) +
+      '<span class="ba-fix-acts">' + _baFixActionsHtml(entry) + '</span>' +
+      (body ? '<div class="ba-fix-result">' + body + '</div>' : '');
+  }
+
+  function _baFixRowHtml(findingId, analysisId) {
+    return '<div class="ba-fix-row" data-fix-fid="' + baEsc(String(findingId)) + '" tabindex="0">' +
+      _baFixRowInnerHtml(findingId, analysisId) + '</div>';
+  }
+
+  function _baFixHasRenderedFindings() {
+    return document.querySelectorAll('#baFindingsList .ba-finding').length > 0;
+  }
+
+  function _baFixStripHtml() {
+    var c = _baFixCounts();
+    if (c.total === 0) return '';
+    var navigable = _baFixHasRenderedFindings();
+    var inert = navigable ? '' : ' disabled aria-disabled="true" title="' +
+      baEsc(_baI18n('bug_analysis.fix_filter_needs_findings', 'Befunde erscheinen erst nach Abschluss der Analyse')) + '"';
+    var pct = function(n) { return (n / c.total * 100).toFixed(2); };
+    var track = '<span class="ba-fix-track">' +
+      '<i class="ba-fix-track-seg ba-fix-track-run" style="width:' + pct(c.running) + '%"></i>' +
+      '<i class="ba-fix-track-seg ba-fix-track-done" style="width:' + pct(c.done) + '%"></i>' +
+      '<i class="ba-fix-track-seg ba-fix-track-err" style="width:' + pct(c.error) + '%"></i>' +
+      '<i class="ba-fix-track-seg ba-fix-track-int" style="width:' + pct(c.interrupted) + '%"></i>' +
+      '</span>';
+    var chip = function(kind, label, count) {
+      var pressed = _baFixFilter === kind;
+      return '<button class="ba-fix-chip" data-fix-filter="' + kind + '" aria-pressed="' + (pressed ? 'true' : 'false') + '"' + inert + '>' +
+        (kind === 'ALL' ? '' : '<span class="ba-fix-chip-dot ba-fix-chip-' + kind + '"></span>') +
+        baEsc(label) + ' <b>' + count + '</b></button>';
+    };
+    var chips = '<span class="ba-fix-chips">' +
+      chip('ALL', _baI18n('bug_analysis.fix_filter_all', 'alle'), c.total) +
+      chip('running', _baI18n('bug_analysis.fix_filter_active', 'aktiv'), c.running) +
+      chip('done', _baI18n('bug_analysis.fix_filter_done', 'fertig'), c.done) +
+      chip('error', _baI18n('bug_analysis.fix_filter_error', 'Fehler'), c.error) +
+      (c.interrupted ? chip('interrupted', _baI18n('bug_analysis.fix_filter_interrupted', 'unterbrochen'), c.interrupted) : '') +
+      (c.running ? '<button class="ba-fix-chip" data-fix-act="jump"' + inert + '>' +
+        baEsc(_baI18n('bug_analysis.fix_jump_active', 'zum ersten aktiven')) + ' \u2192</button>' : '') +
+      '<button class="ba-fix-chip ba-fix-chip-quiet" data-fix-act="clear">' +
+      '<i class="bi bi-trash3 me-1"></i>' + baEsc(_baI18n('bug_analysis.fix_pr_clear', 'Leeren')) + '</button>' +
+      '</span>';
+    var clock = '<span class="ba-fix-clock">' +
+      (c.running
+        ? baEsc(_baI18n('bug_analysis.fix_since', 'seit')) + ' ' + _baFixClock(_baFixOldestRunningSeconds()) +
+          ' \u00b7 ' + c.running + ' ' + baEsc(_baI18n('bug_analysis.fix_runs', 'Läufen'))
+        : baEsc(_baI18n('bug_analysis.fix_no_runs', 'keine laufenden Fixes'))) +
+      '</span>';
+    return '<section class="ba-fix-strip" id="baFixStrip" aria-label="' +
+      baEsc(_baI18n('bug_analysis.fix_strip_label', 'Fix-Fortschritt')) + '">' +
+      '<span class="ba-fix-strip-title">' + baEsc(_baI18n('bug_analysis.fix_strip_label', 'Fix-Fortschritt')) + '</span>' +
+      track + chips + clock + '</section>';
+  }
+
+  function _baFixEnsureTicker() {
+    if (_baFixTickTimer || typeof setInterval !== 'function') return;
+    _baFixTickTimer = setInterval(function() {
+      if (_baFixRecomputeRunning() === 0) {
+        clearInterval(_baFixTickTimer);
+        _baFixTickTimer = null;
+        return;
+      }
+      _baFixPaintStrip();
+      _baFixPaintRunningRows();
+    }, 1000);
+  }
+
+  function _baFixPaintStrip() {
+    var host = document.getElementById('baMainArea');
+    if (!host) return;
+    var html = _baFixStripHtml();
+    var strip = document.getElementById('baFixStrip');
+    if (!html) { if (strip) strip.remove(); return; }
+    if (strip) { strip.outerHTML = html; return; }
+    var anchor = host.querySelector('.ba-summary-card');
+    if (anchor) anchor.insertAdjacentHTML('afterend', html);
+    else host.insertAdjacentHTML('afterbegin', html);
+  }
+
+  function _baFixPaintRunningRows() {
+    var now = Date.now();
+    document.querySelectorAll('.ba-fix-row[data-fix-fid]').forEach(function(row) {
+      var entry = _baFixEntry(row.getAttribute('data-fix-fid'));
+      if (_baFixStateOf(entry) !== 'running') return;
+      var stage = row.querySelector('.ba-fix-stage');
+      if (stage) { stage.className = _baFixStageClass(entry); stage.innerHTML = _baFixStageInner(entry); }
+    });
+  }
+
+  function _baFixUpdateRow(findingId) {
+    var row = document.querySelector('.ba-fix-row[data-fix-fid="' + CSS.escape(String(findingId)) + '"]');
+    if (!row) return;
+    row.innerHTML = _baFixRowInnerHtml(findingId, baCurrentAnalysisId);
+    row.setAttribute('tabindex', '0');
+  }
+
+  function _baFixAnnounce() {
+    var live = document.getElementById('baFixLive');
+    if (!live) return;
+    var c = _baFixCounts();
+    var text = c.running + ' ' + _baI18n('bug_analysis.fix_a_running', 'Fix-PRs aktiv, ') +
+      c.done + ' ' + _baI18n('bug_analysis.fix_a_done', 'fertig, ') +
+      c.error + ' ' + _baI18n('bug_analysis.fix_a_error', 'fehlgeschlagen.');
+    if (c.interrupted > 0) {
+      text += ' ' + c.interrupted + ' ' + _baI18n('bug_analysis.fix_a_interrupted', 'unterbrochen.');
+    }
+    live.textContent = text;
+  }
+
+  function _baFixPaintCardChip() {
+    var card = document.querySelector('.ba-repo-card.selected');
+    document.querySelectorAll('.ba-repo-card .ba-card-fixchip').forEach(function(stale) {
+      if (stale.closest('.ba-repo-card') !== card) stale.remove();
+    });
+    if (!card) return;
+    var chip = card.querySelector('.ba-card-fixchip');
+    var c = _baFixCounts();
+    if (c.total === 0) { if (chip) chip.remove(); return; }
+    if (!chip) {
+      chip = document.createElement('div');
+      chip.className = 'ba-card-fixchip';
+      var statusEl = card.querySelector('.ba-card-status');
+      if (statusEl) statusEl.insertAdjacentElement('afterend', chip);
+      else card.appendChild(chip);
+    }
+    if (c.running > 0) {
+      chip.className = 'ba-card-fixchip ba-card-fixchip-run';
+      chip.innerHTML = '<span class="ba-fix-pr-spinner"></span>' + c.running + ' ' +
+        baEsc(_baI18n('bug_analysis.fix_card_running', 'Fix-PRs aktiv'));
+    } else if (c.error > 0) {
+      chip.className = 'ba-card-fixchip ba-card-fixchip-err';
+      chip.innerHTML = '<i class="bi bi-exclamation-triangle-fill me-1"></i>' + c.error + ' ' +
+        baEsc(_baI18n('bug_analysis.fix_card_error', 'Fix-PRs fehlgeschlagen'));
+    } else if (c.interrupted > 0) {
+      chip.className = 'ba-card-fixchip ba-card-fixchip-int';
+      chip.innerHTML = '<i class="bi bi-pause-circle-fill me-1"></i>' + c.interrupted + ' ' +
+        baEsc(_baI18n('bug_analysis.fix_card_interrupted', 'Fixes unterbrochen'));
+    } else {
+      chip.className = 'ba-card-fixchip ba-card-fixchip-ok';
+      chip.innerHTML = '<i class="bi bi-check-circle-fill me-1"></i>' +
+        baEsc(_baI18n('bug_analysis.fix_card_done', 'alle Fixes fertig'));
+    }
+  }
+
+  function _baFixBucket(key) {
+    if (!key) return null;
+    if (!window._baFixPrs[key]) window._baFixPrs[key] = { details: _baFixPrDetails };
+    return window._baFixPrs[key];
+  }
+
+  function _baFixBindActiveList() {
+    var bucket = _baFixBucket(_baRepoKey());
+    if (bucket && bucket.details !== _baFixPrDetails) bucket.details = _baFixPrDetails;
+  }
+
+  function _baPersistFixPrs() {
+    try {
+      _baFixBindActiveList();
+      var all = {};
+      try { all = JSON.parse(localStorage.getItem('ba_fixpr') || '{}'); } catch (_) {}
+      Object.keys(window._baFixPrs).forEach(function(key) {
+        var details = (window._baFixPrs[key] && window._baFixPrs[key].details) || [];
+        if (details.length > 0) all[key] = details.map(_baFixSerializable);
+        else delete all[key];
+      });
+      localStorage.setItem('ba_fixpr', JSON.stringify(all));
+      var activeKey = _baRepoKey();
+      var activeEntries = (activeKey && window._baFixPrs[activeKey] && window._baFixPrs[activeKey].details) || [];
+      var state = JSON.parse(localStorage.getItem('ba_state') || 'null');
+      if (state && activeKey) {
+        state.fixPrKey = activeKey;
+        state.fixPrDetails = activeEntries.length > 0 ? activeEntries.map(_baFixSerializable) : undefined;
+        localStorage.setItem('ba_state', JSON.stringify(state));
+      }
+    } catch (_) {}
+  }
+
+  function _baFixSerializable(entry) {
+    var copy = {};
+    Object.keys(entry).forEach(function(k) {
+      if (k !== 'controller' && k !== 'inFlight') copy[k] = entry[k];
+    });
+    return copy;
+  }
+
+  function _baFixPrAction(act, findingId) {
+    if (act === 'open') {
+      var entry = _baFixEntry(findingId);
+      if (entry && entry.prUrl) baOpenFixPrUrl(entry.prUrl);
+      return;
+    }
+    if (act === 'changes') { _baShowLocalFixPrDiff(findingId); return; }
+    if (act === 'cancel') { baCancelFixPr(findingId); return; }
+    if (act === 'retry') {
+      _baFixDropEntry(findingId);
+      _baFixUpdateRow(findingId);
+      var btn = document.querySelector('.ba-fix-row[data-fix-fid="' + CSS.escape(String(findingId)) + '"] .ba-btn-fix');
+      if (btn) baGenerateFix(baCurrentAnalysisId, findingId, btn);
+      return;
+    }
+    if (act === 'clear') { baClearFixPrHistory(); return; }
+    if (act === 'jump') { _baFixJumpFirstRunning(); return; }
+  }
+
+  function _baFixDropEntry(findingId) {
+    var key = String(findingId);
+    for (var i = _baFixPrDetails.length - 1; i >= 0; i--) {
+      if (String(_baFixPrDetails[i].findingId) === key) {
+        var stale = _baFixPrDetails[i];
+        stale.cancelled = true;
+        stale.inFlight = false;
+        try { if (stale.controller) stale.controller.abort(); } catch (_) {}
+        _baFixPrDetails.splice(i, 1);
+        return;
+      }
+    }
+  }
+
+  function _baFixJumpFirstRunning() {
+    var entry = _baFixPrDetails.find(function(d) { return _baFixStateOf(d) === 'running'; });
+    if (!entry) return;
+    var row = document.querySelector('.ba-fix-row[data-fix-fid="' + CSS.escape(String(entry.findingId)) + '"]');
+    var card = row ? row.closest('.ba-finding') : null;
+    if (!card) return;
+    var header = card.querySelector('.ba-finding-header');
+    if (header && !header.classList.contains('open')) baToggleFinding(header);
+    card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    card.classList.add('ba-finding-fix-flash');
+    setTimeout(function() { card.classList.remove('ba-finding-fix-flash'); }, 1800);
+  }
+
+  function _baFixWireDelegation() {
+    var host = document.getElementById('baMainArea');
+    if (!host || host.__baFixWired) return;
+    host.__baFixWired = true;
+    host.addEventListener('click', function(ev) {
+      var chip = ev.target.closest ? ev.target.closest('[data-fix-filter]') : null;
+      if (chip && !chip.disabled) {
+        _baFixFilter = chip.getAttribute('data-fix-filter');
+        _baFixPaintStrip();
+        baApplyFilters();
+        return;
+      }
+      var act = ev.target.closest ? ev.target.closest('[data-fix-act]') : null;
+      if (act && !act.disabled) {
+        ev.stopPropagation();
+        _baFixPrAction(act.getAttribute('data-fix-act'), act.getAttribute('data-fix-fid'));
+      }
+    });
+    host.addEventListener('keydown', function(ev) {
+      if (ev.key !== 'x' && ev.key !== 'r' && ev.key !== 'Enter') return;
+      var row = ev.target.closest ? ev.target.closest('.ba-fix-row[data-fix-fid]') : null;
+      if (!row || ev.target !== row) return;
+      var fid = row.getAttribute('data-fix-fid');
+      var state = _baFixStateOf(_baFixEntry(fid));
+      if (ev.key === 'x' && state === 'running') { ev.preventDefault(); baCancelFixPr(fid); }
+      if (ev.key === 'r' && (state === 'error' || state === 'interrupted')) { ev.preventDefault(); _baFixPrAction('retry', fid); }
+      if (ev.key === 'Enter' && state === 'done') { ev.preventDefault(); _baFixPrAction('open', fid); _baFixPrAction('changes', fid); }
+    });
+  }
+
+  function _baFixMarkInterrupted() {
+    var changed = false;
+    _baFixPrDetails.forEach(function(entry) {
+      if (!entry.inFlight) return;
+      entry.inFlight = false;
+      entry.interrupted = true;
+      entry.step = null;
+      if (!entry.finishedAt) entry.finishedAt = Date.now();
+      changed = true;
+    });
+    if (changed) _baPersistFixPrs();
+    return changed;
+  }
+
+  function _baFixWireLifecycle() {
+    if (window.__baFixLifecycleWired || typeof window.addEventListener !== 'function') return;
+    window.__baFixLifecycleWired = true;
+    window.addEventListener('pagehide', _baFixMarkInterrupted);
+  }
+
+  function _baFixRestoreState(savedDetails) {
+    _baFixPrDetails = Array.isArray(savedDetails)
+      ? savedDetails.filter(function(d) { return d && d.findingId !== undefined && d.findingId !== null; })
+      : [];
+    var ownerKey = _baRepoKey();
+    _baFixPrDetails.forEach(function(entry) {
+      if (!entry.ownerRepoKey) entry.ownerRepoKey = ownerKey;
+      if (_baFixHasTerminalState(entry) || entry.inFlight) return;
+      entry.interrupted = true;
+      if (!entry.finishedAt) entry.finishedAt = Date.now();
+    });
+    _baFixBindActiveList();
+    _baFixFilter = 'ALL';
+    _baFixRecomputeRunning();
+    if (_baFixPrRunning > 0) _baRegisterFixPrHook();
+    return _baFixPrDetails;
+  }
+
+  function _baRegisterFixPrHook() {
+    window._baFixPrHook = function(completedEntry) {
+      _baFixRecomputeRunning();
+      if (completedEntry) _baFixUpdateRow(completedEntry.findingId);
+      _baUpdateFixPrBadge();
+    };
+  }
+
+  function _baUpdateFixPrBadge() {
+    _baFixRecomputeRunning();
+    _baFixPaintStrip();
+    _baFixPaintCardChip();
+    _baFixAnnounce();
+    _baFixWireDelegation();
+    _baFixWireLifecycle();
+    if (_baFixPrRunning > 0) _baFixEnsureTicker();
+    _baPersistFixPrs();
+  }
+
+  function baOpenFixPrUrl(url) {
+    if (window.desktopApp && typeof window.desktopApp.openInBrowser === 'function') {
+      window.desktopApp.openInBrowser(url);
+    } else {
+      window.open(url, '_blank', 'noopener,noreferrer');
+    }
+  }
+
+  function _baRenderDiffText(diffText) {
+    if (!diffText) return '<span class="ba-fix-empty">Keine Änderungen</span>';
+    return diffText.split('\n').map(function(line) {
+      var esc = line.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+      if (line.startsWith('--- ') || line.startsWith('+++ ')) return '<span class="ba-diff-hdr">' + esc + '\n</span>';
+      if (line.startsWith('@@ ')) return '<span class="ba-diff-at">' + esc + '\n</span>';
+      if (line.startsWith('+')) return '<span class="ba-diff-add">' + esc + '\n</span>';
+      if (line.startsWith('-')) return '<span class="ba-diff-del">' + esc + '\n</span>';
+      return '<span class="ba-diff-ctx">' + esc + '\n</span>';
+    }).join('');
+  }
+
+  function _baShowLocalFixPrDiff(findingId) {
+    var entry = _baFixEntry(findingId);
+    if (!entry) return;
+    var key = 'sl_secfix_view_' + Date.now();
+    try {
+      localStorage.setItem(key, JSON.stringify(entry));
+      window.open('/security-fix-diff.html?k=' + encodeURIComponent(key), '_blank', 'noopener');
+    } catch (_) {
+      baShowFixPrDiffOverlay(null, entry);
+    }
+  }
+
+  function baShowFixPrDiffOverlay(url, entry) {
+    var prev = document.getElementById('baFixPrDiffOverlay');
+    if (prev) prev.remove();
+
+    var branchName = entry.branchName || 'secfix-branch';
+    var explanation = entry.explanation || '';
+    var localChanges = entry.localChanges || [];
+    var filesChanged = entry.filesChanged || [];
+    var fileCount = localChanges.length > 0 ? localChanges.length : filesChanged.length;
+    var mrM = url ? url.match(/\/merge_requests\/(\d+)/) : null;
+    var prM = url ? url.match(/\/pull\/(\d+)/) : null;
+    var mrNum = mrM ? mrM[1] : (prM ? prM[1] : '');
+    var mrIid = mrM ? ('!' + mrNum) : (prM ? ('#' + mrNum) : '');
+    var repoPath = url
+        ? url.replace(/\/(-\/)?merge_requests.*$/, '').replace(/\/pull.*$/, '').replace(/^https?:\/\/[^/]+\//, '')
+        : '';
+    var label = entry.label || '';
+    var labelParts = label.trim().split(/\s+/);
+    var fixType = labelParts[labelParts.length - 1] || 'Security Fix';
+    var fixTypeHuman = fixType.replace(/_/g, ' ');
+    function esc(s) { return (window.slHelpers && window.slHelpers.esc) ? window.slHelpers.esc(s) : String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+    var navHtml =
+      '<div class="ba-smr-nav">' +
+        '<div class="ba-smr-nav-logo">' +
+          (url
+            ? '<svg width="16" height="16" viewBox="0 0 380 380" fill="none"><path d="M190 350L345 90L275 90L190 280L105 90L35 90Z" fill="#fc6d26"/><path d="M190 350L105 90L10 90L190 350Z" fill="#fca326" opacity=".6"/><path d="M190 350L275 90L370 90L190 350Z" fill="#fca326" opacity=".6"/></svg> GitLab'
+            : '<i class="bi bi-shield-check"></i> StackLens Security Fix') +
+        '</div>' +
+        '<div class="ba-smr-breadcrumb">' + (url ? esc(repoPath) + ' › MR ' + esc(mrIid) : 'Lokaler Fix') + '</div>' +
+        '<span class="ba-smr-sim-badge">Simuliert · StackLens</span>' +
+        '<button class="ba-smr-nav-close" onclick="document.getElementById(\'baFixPrDiffOverlay\').remove()">' +
+          '<i class="bi bi-x-lg"></i> Schließen</button>' +
+      '</div>';
+
+    var mrCardHtml =
+      '<div class="ba-smr-mr-card">' +
+        '<div class="ba-smr-title-row">' +
+          '<div class="ba-smr-title">fix: Security Fix – ' + esc(fixTypeHuman) + '</div>' +
+          (url && mrIid ? '<div class="ba-smr-iid">' + esc(mrIid) + '</div>' : '') +
+          '<span class="ba-smr-status-open">Open</span>' +
+        '</div>' +
+        '<div class="ba-smr-meta">' +
+          (url ? '<span class="ba-smr-branch-tag">' + esc(branchName) + '</span> → ' +
+                 '<span class="ba-smr-branch-tag">main</span><span class="ba-smr-dot">·</span>' : '') +
+          '<span>' + fileCount + ' Datei' + (fileCount !== 1 ? 'en' : '') + ' geändert</span>' +
+        '</div>' +
+      '</div>';
+
+    var actionBarHtml =
+      '<div class="ba-smr-action-bar"><span class="ba-smr-action-info">' +
+        '<i class="bi bi-check-circle-fill me-1"></i>' +
+        (url ? 'Merge Request erstellt' : 'Lokaler Fix generiert') +
+      '</span></div>';
+
+    var changesBodyHtml = '';
+    if (localChanges.length > 0) {
+      localChanges.forEach(function(c) {
+        var isDiff = c.changeType === 'DIFF';
+        changesBodyHtml +=
+          '<div class="ba-smr-file-block">' +
+            '<div class="ba-smr-file-header"><i class="bi bi-file-code me-1"></i>' + esc(c.path) + '</div>' +
+            '<pre class="ba-smr-file-code' + (isDiff ? ' ba-smr-file-diff' : '') + '">' +
+              (isDiff ? _baRenderDiffText(c.code) : esc(c.code)) +
+            '</pre>' +
+          '</div>';
+      });
+    } else if (filesChanged.length > 0) {
+      filesChanged.forEach(function(f) {
+        changesBodyHtml += '<div class="ba-smr-file-name"><i class="bi bi-file-code me-1"></i>' + esc(f) + '</div>';
+      });
+    } else {
+      changesBodyHtml = '<p class="ba-fix-empty">Keine Dateiänderungen verfügbar.</p>';
+    }
+
+    var overlay = document.createElement('div');
+    overlay.id = 'baFixPrDiffOverlay';
+    overlay.className = 'ba-smr-overlay';
+    overlay.innerHTML = navHtml + '<div class="ba-smr-main"><div class="ba-smr-inner">' +
+      mrCardHtml + actionBarHtml + '<div class="ba-smr-changes-wrap">' + changesBodyHtml + '</div>' +
+      '</div></div>';
+    document.body.appendChild(overlay);
+
+    var escHandler = function(e) {
+      if (e.key === 'Escape') { overlay.remove(); document.removeEventListener('keydown', escHandler); }
+    };
+    document.addEventListener('keydown', escHandler);
+  }
+
+  function baClearFixPrHistory() {
+    _baFixPrDetails.forEach(function(entry) {
+      if (!entry.inFlight) return;
+      entry.cancelled = true;
+      entry.inFlight = false;
+      try { if (entry.controller) entry.controller.abort(); } catch (_) {}
+    });
+    _baFixPrDetails.length = 0;
+    _baFixFilter = 'ALL';
+    _baUpdateFixPrBadge();
+    baApplyFilters();
+    _baFixRerenderRows();
+  }
+
+  function _baFixRerenderRows() {
+    document.querySelectorAll('.ba-fix-row[data-fix-fid]').forEach(function(row) {
+      _baFixUpdateRow(row.getAttribute('data-fix-fid'));
+    });
+  }
+
+  function baCancelFixPr(findingId, ev) {
+    if (ev) { ev.stopPropagation(); ev.preventDefault(); }
+    var entry = _baFixEntry(findingId);
+    if (!entry || _baFixStateOf(entry) !== 'running') return;
+    entry.cancelled = true;
+    try { if (entry.controller) entry.controller.abort(); } catch (_) {}
+    entry.error = _baI18n('bug_analysis.fix_cancelled', 'Vom Benutzer abgebrochen.');
+    entry.step = null;
+    entry.inFlight = false;
+    entry.finishedAt = Date.now();
+    entry.controller = null;
+    _baFixRecomputeRunning();
+    _baFixUpdateRow(findingId);
+    _baUpdateFixPrBadge();
+  }
+</script>
+</th:block>
+</body>
+</html>

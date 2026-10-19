@@ -1,0 +1,19 @@
+{
+  "name": "stacklens-frontend-tests",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test:frontend": "vitest run",
+    "test:frontend:live": "vitest run src/test/frontend/knowledgeTableLayout.test.js src/test/frontend/knowledgeSourceTableLayout.test.js src/test/frontend/historyProjectColumnLayout.test.js",
+    "test:e2e": "playwright test",
+    "test:e2e:ui": "playwright test --ui",
+    "test:e2e:report": "playwright show-report",
+    "test:e2e:headed": "playwright test --headed"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.52.0",
+    "jsdom": "^26.1.0",
+    "sharp": "^0.34.5",
+    "vitest": "^3.2.4"
+  }
+}

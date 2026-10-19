@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" lang="de">
+<body>
+<th:block th:fragment="scripts-monorepo">
+<script>
+
+  function caRenderMonorepoOverview() {
+    var _tabsEl = document.getElementById('analysisTabs');
+    if (_tabsEl) _tabsEl.classList.remove('d-none');
+    caSwitch('tabSummary', document.querySelector('.ca-tab-btn'));
+    caHideEl('caEmptyState');
+    caHideEl('caRunning');
+    caMonorRepoDone = 0;
+    var title = window.i18n ? window.i18n.t('code_analysis.monorepo_detected') : 'Monorepo erkannt';
+    var subtitle = window.i18n ? window.i18n.t('code_analysis.monorepo_analyzing') : 'Applikationen werden parallel analysiert\u2026';
+    var html = '<div style="padding:4px 0 8px;">';
+    html += '<div class="d-flex align-items-center gap-2 mb-3" style="color:var(--ca-accent);font-weight:700;font-size:1rem;"><i class="bi bi-layers"></i>' + caEsc(title) + ' &ndash; ' + caMonorepoApps.length + ' Apps</div>';
+    html += '<div class="text-muted small mb-3">' + caEsc(subtitle) + '</div>';
+    caMonorepoApps.forEach(function(app) {
+      html += '<div id="caMonoApp_' + app.id + '" style="border:1.5px solid var(--ca-line);border-radius:12px;padding:14px 18px;margin-bottom:12px;background:var(--ca-paper);">';
+      html += '<div class="d-flex align-items-center gap-2 mb-1">';
+      html += '<span class="spinner-border spinner-border-sm" style="color:var(--ca-accent);flex-shrink:0;"></span>';
+      html += '<strong style="font-size:14px;">' + caEsc(app.appName) + '</strong>';
+      html += '</div>';
+      html += '<div id="caMonoAppSummary_' + app.id + '" style="font-size:13px;color:var(--ca-muted);margin-top:4px;">';
+      html += window.i18n ? window.i18n.t('code_analysis.monorepo_app_analyzing') : 'Wird analysiert\u2026';
+      html += '</div>';
+      html += '</div>';
+    });
+    html += '</div>';
+    var sc = document.getElementById('caSummaryContent');
+    if (sc) { sc.innerHTML = html; sc.classList.remove('d-none'); }
+    var badge = document.getElementById('analysisStatusBadge');
+    if (badge) badge.innerHTML = '<span class="ca-status-badge ca-status-badge--running"><span class="spinner-border spinner-border-sm me-1"></span>' + caEsc(subtitle) + '</span>';
+  }
+
+  function caStartMonorepoPolling() {
+    caMonorRepoDone = 0;
+    caMonorepoApps.forEach(function(app) {
+      caMonorepoTimers[app.id] = setInterval(function() {
+        caFetchStatus(app.id).then(function(res) {
+          if (res.retry) return;
+          var data = res.gone ? { status: 'FAILED' } : res.data;
+          if (data.status === 'COMPLETED' || data.status === 'FAILED') {
+            clearInterval(caMonorepoTimers[app.id]);
+            delete caMonorepoTimers[app.id];
+            caUpdateMonorepoAppCard(app.id, app.appName, data);
+            caMonorRepoDone++;
+            if (caMonorRepoDone >= caMonorepoApps.length) {
+              var badge = document.getElementById('analysisStatusBadge');
+              if (badge) badge.innerHTML = '<span class="ca-status-badge ca-status-badge--completed"><i class="bi bi-check-circle-fill me-1"></i>' + (window.i18n ? window.i18n.t('code_analysis.status_completed') : 'Abgeschlossen') + '</span>';
+              caSetCardStatus(caCurrentRepoId, 'completed', caGitlabConfigId, caGitlabProjectId);
+              caRefreshCardStatuses();
+            }
+          } else {
+            caSyncHistoryProgress(data);
+          }
+        });
+      }, 3000);
+    });
+  }
+
+  function caUpdateMonorepoAppCard(id, appName, data) {
+    var card = document.getElementById('caMonoApp_' + id);
+    if (!card) return;
+    var hdr = card.querySelector('.d-flex');
+    if (hdr) {
+      var icon = data.status === 'COMPLETED'
+        ? '<i class="bi bi-check-circle-fill" style="color:var(--ca-accent);flex-shrink:0;"></i>'
+        : '<i class="bi bi-x-circle-fill" style="color:#b91c1c;flex-shrink:0;"></i>';
+      hdr.innerHTML = icon + '<strong style="font-size:14px;">' + caEsc(appName) + '</strong>';
+    }
+    var summary = document.getElementById('caMonoAppSummary_' + id);
+    if (summary) {
+      if (data.status === 'COMPLETED') {
+        var findings = 0;
+        try { findings = JSON.parse(data.findingsJson || '[]').length; } catch(_) {}
+        var shortSummary = data.summaryText ? data.summaryText.substring(0, 220) : '';
+        var findingsLabel = window.i18n ? window.i18n.t('code_analysis.monorepo_findings') : 'Befunde';
+        var detailsLabel = window.i18n ? window.i18n.t('code_analysis.monorepo_details') : 'Details';
+        summary.innerHTML =
+          '<div style="margin-bottom:8px;">' + caEsc(shortSummary) + (shortSummary.length >= 220 ? '\u2026' : '') + '</div>'
+          + '<div class="d-flex align-items-center gap-2 flex-wrap">'
+          + '<span class="badge" style="background:#f4efe4;color:var(--ca-ink);font-size:11px;font-weight:600;padding:3px 9px;">' + findings + ' ' + caEsc(findingsLabel) + '</span>'
+          + '<button class="btn btn-sm" style="font-size:11px;padding:2px 12px;border-radius:999px;background:var(--ca-accent);color:#fff;" onclick="caShowMonorepoAppDetail(' + id + ');">'
+          + '<i class="bi bi-eye me-1"></i>' + caEsc(detailsLabel) + '</button>'
+          + '</div>';
+      } else {
+        var failLabel = window.i18n ? window.i18n.t('code_analysis.monorepo_failed') : 'Analyse fehlgeschlagen';
+        summary.innerHTML = '<span style="color:#b91c1c;"><i class="bi bi-exclamation-triangle me-1"></i>' + caEsc(failLabel) + ': ' + caEsc(data.errorMessage || '') + '</span>';
+      }
+    }
+  }
+
+  function caShowMonorepoAppDetail(id) {
+    fetch('/api/code-analysis/analysis/' + id + '/status')
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        caIsMonorepo = false;
+        caCurrentAnalysisId = id;
+        caResetContent();
+        caHideEl('caEmptyState');
+        var _tabsEl = document.getElementById('analysisTabs');
+        if (_tabsEl) _tabsEl.classList.remove('d-none');
+        caApplyData(data);
+        caInitTokenUsageBar();
+      })
+      .catch(function(e) { caShowError((window.i18n ? window.i18n.t('common.error_loading') : 'Fehler beim Laden') + ': ' + e.message); });
+  }
+
+  function caSetCardBusy(card, busy) {
+    if (!card) return;
+    var btnRow = card.querySelector('.ca-btn-row');
+    if (!btnRow) return;
+    ['[data-action="edit"]','[data-action="delete"]','[data-action="play"]','[data-action="gl-play"]','[data-action="gh-play"]'].forEach(function(sel) {
+      var btn = btnRow.querySelector(sel);
+      if (!btn) return;
+      btn.disabled = !!busy;
+      btn.style.opacity = busy ? '0.5' : '';
+      btn.style.cursor  = busy ? 'not-allowed' : '';
+    });
+    ['[data-action="cancel"]','[data-action="gl-cancel"]','[data-action="gh-cancel"]'].forEach(function(sel) {
+      var btn = btnRow.querySelector(sel);
+      if (!btn) return;
+      btn.disabled = !busy;
+      btn.style.opacity = busy ? '' : '0.4';
+      btn.style.cursor  = busy ? '' : 'not-allowed';
+    });
+  }
+
+  function caSetCardStatus(repoId, type, glConfigId, glProjectId) {
+    caHideEl('caRunning');
+    caHideEl('caAborted');
+    if (type === 'running' || type === 'aborted') {
+      var tabs = document.getElementById('analysisTabs');
+      if (tabs) tabs.classList.remove('d-none');
+      caSwitch('tabSummary', document.querySelector('#analysisTabs .ca-tab-btn'));
+      caHideEl('caEmptyState');
+      if (type === 'running') caShowEl('caRunning');
+      if (type === 'aborted') caShowEl('caAborted');
+    }
+
+    var card;
+    if (repoId) {
+      card = document.getElementById('repoCard-' + repoId);
+    } else if (caGithubRepoConfigId) {
+      card = document.getElementById('caGhCard-' + caGithubRepoConfigId);
+    } else {
+      var cfgId  = (glConfigId  != null) ? glConfigId  : caGitlabConfigId;
+      var projId = (glProjectId != null) ? glProjectId : caGitlabProjectId;
+      if (cfgId != null) {
+        card = document.querySelector(
+          '[data-gl-config="' + cfgId + '"][data-gl-project="' + projId + '"]'
+        );
+      }
+    }
+    if (!card) return;
+    var statusEl = card.querySelector('.ca-card-status');
+    if (!statusEl) return;
+    if (!type) { statusEl.innerHTML = ''; caSetCardBusy(card, false); return; }
+    if (type === 'running') {
+      statusEl.innerHTML = '<span class="ca-card-status-pill ca-card-status--running"><span class="spinner-border spinner-border-sm" style="width:.75rem;height:.75rem;border-width:2px;"></span> ' + (window.i18n ? window.i18n.t('code_analysis.running_status') : 'Läuft…') + '</span>';
+    } else if (type === 'aborted') {
+      statusEl.innerHTML = '<span class="ca-card-status-pill ca-card-status--aborted"><i class="bi bi-x-circle-fill me-1"></i>' + (window.i18n ? window.i18n.t('code_analysis.status_aborted') : 'Abgebrochen') + '</span>';
+    } else if (type === 'completed') {
+      statusEl.innerHTML = '<span class="ca-card-status-pill ca-card-status--completed"><i class="bi bi-check-circle-fill me-1"></i>' + (window.i18n ? window.i18n.t('code_analysis.status_completed') : 'Abgeschlossen') + '</span>';
+    }
+    caSetCardBusy(card, type === 'running');
+  }
+
+  function caApplyCardStatusesFromHistory(list, force) {
+    var latestPerRepo = {};
+    var latestPerGl   = {};
+    (list || []).forEach(function(item) {
+      if (item.repoConfigId) {
+        var existing = latestPerRepo[item.repoConfigId];
+        if (!existing || (item.createdAt && (!existing.createdAt || item.createdAt > existing.createdAt))) {
+          latestPerRepo[item.repoConfigId] = item;
+        }
+      } else if (item.githubRepoConfigId) {
+        var ghKey = 'gh:' + item.githubRepoConfigId;
+        var existingGh = latestPerGl[ghKey];
+        if (!existingGh || (item.createdAt && (!existingGh.createdAt || item.createdAt > existingGh.createdAt))) {
+          latestPerGl[ghKey] = item;
+        }
+      } else if (item.gitlabConfigId && item.gitlabProjectId) {
+        var key = item.gitlabConfigId + ':' + item.gitlabProjectId;
+        var existingGl = latestPerGl[key];
+        if (!existingGl || (item.createdAt && (!existingGl.createdAt || item.createdAt > existingGl.createdAt))) {
+          latestPerGl[key] = item;
+        }
+      }
+    });
+
+    function applyPill(card, item) {
+      var statusEl = card.querySelector('.ca-card-status');
+      if (!statusEl) return;
+      if (!force && statusEl.innerHTML.trim() !== '') return;
+      if (item.status === 'COMPLETED') {
+        statusEl.innerHTML = '<span class="ca-card-status-pill ca-card-status--completed"><i class="bi bi-check-circle-fill me-1"></i>' + (window.i18n ? window.i18n.t('code_analysis.status_completed') : 'Abgeschlossen') + '</span>';
+      } else if (item.status === 'FAILED') {
+        var label = (item.errorMessage === 'Abgebrochen')
+          ? (window.i18n ? window.i18n.t('code_analysis.status_aborted') : 'Abgebrochen')
+          : (window.i18n ? window.i18n.t('code_analysis.status_error') : 'Fehler');
+        statusEl.innerHTML = '<span class="ca-card-status-pill ca-card-status--aborted"><i class="bi bi-x-circle-fill me-1"></i>' + label + '</span>';
+      } else if (item.status === 'RUNNING' || item.status === 'PENDING') {
+        statusEl.innerHTML = '<span class="ca-card-status-pill ca-card-status--running"><span class="spinner-border spinner-border-sm" style="width:.75rem;height:.75rem;border-width:2px;"></span> ' + (window.i18n ? window.i18n.t('code_analysis.running_status') : 'Läuft…') + '</span>';
+      }
+      caSetCardBusy(card, item.status === 'RUNNING' || item.status === 'PENDING');
+    }
+
+    Object.keys(latestPerRepo).forEach(function(repoId) {
+      var item = latestPerRepo[repoId];
+      var card = document.getElementById('repoCard-' + repoId);
+      if (!card) return;
+      applyPill(card, item);
+    });
+
+    Object.keys(latestPerGl).forEach(function(key) {
+      var item = latestPerGl[key];
+      var card;
+      if (key.startsWith('gh:')) {
+        card = document.getElementById('caGhCard-' + item.githubRepoConfigId);
+      } else {
+        card = document.querySelector(
+          '[data-gl-config="' + item.gitlabConfigId + '"][data-gl-project="' + item.gitlabProjectId + '"]'
+        );
+      }
+      if (!card) return;
+      applyPill(card, item);
+    });
+  }
+
+  function cancelCodeAnalysis() {
+    _caStartGen++;
+    _caSelectGen++;
+    caStopPolling();
+    var idToCancel = caCurrentAnalysisId;
+    var repoIdToCancel = caCurrentRepoId;
+    caCurrentAnalysisId = null;
+    var badge = document.getElementById('analysisStatusBadge');
+    if (badge) badge.innerHTML = '';
+    caSetCardStatus(repoIdToCancel, 'aborted');
+    if (idToCancel) {
+      _caCancelledIds.add(idToCancel);
+      fetch('/api/code-analysis/analysis/' + idToCancel + '/cancel', { method: 'POST' })
+        .then(function() { caRefreshCardStatuses(); });
+    } else if (repoIdToCancel) {
+      fetch('/api/code-analysis/cancel-latest-for-repo/' + repoIdToCancel, { method: 'POST' })
+        .then(function() { caRefreshCardStatuses(); });
+    } else {
+      caRefreshCardStatuses();
+    }
+  }
+</script>
+</th:block>
+</body>
+</html>

@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" lang="de">
+<body>
+<th:block th:fragment="tab-strip">
+  <div class="cf-tabs">
+    <div class="cf-tab-group-label" data-i18n="config.group.connections">Verbindungen</div>
+    <button class="cf-tab active" data-tab="gitlab" onclick="cfSwitchTab('gitlab', this)">
+      <i class="bi bi-gitlab"></i>
+      <span data-i18n="config.gitlab.section">GitLab</span>
+      <span class="tab-badge" th:text="${gitlabConfigs.size()}">0</span>
+    </button>
+    <button class="cf-tab" data-tab="db" onclick="cfSwitchTab('db', this)">
+      <i class="bi bi-database"></i>
+      <span data-i18n="config.database.section">Datenbank</span>
+      <span class="tab-badge" th:text="${dbConfigs.size()}">0</span>
+    </button>
+    <button class="cf-tab" data-tab="confluence" onclick="cfSwitchTab('confluence', this)">
+      <i class="bi bi-book"></i>
+      <span data-i18n="config.confluence.section">Confluence</span>
+      <span class="tab-badge" th:text="${confluenceConfigs.size()}">0</span>
+    </button>
+    <button class="cf-tab" data-tab="grafana" onclick="cfSwitchTab('grafana', this)">
+      <i class="bi bi-speedometer2"></i>
+      <span data-i18n="config.grafana.section">Grafana</span>
+      <span class="tab-badge" th:text="${grafanaConfigs.size()}">0</span>
+    </button>
+    <button class="cf-tab" data-tab="jira" onclick="cfSwitchTab('jira', this)">
+      <i class="bi bi-kanban"></i>
+      <span data-i18n="config.jira.section">Jira</span>
+      <span class="tab-badge" th:text="${jiraConfigs.size()}">0</span>
+    </button>
+    <button class="cf-tab" data-tab="github" onclick="cfSwitchTab('github', this)">
+      <i class="bi bi-github"></i>
+      <span>GitHub</span>
+      <span class="tab-badge" th:text="${githubRepoConfigs.size()}">0</span>
+    </button>
+    <button class="cf-tab" data-tab="mcp" onclick="cfSwitchTab('mcp', this); mcpRefresh();">
+      <i class="bi bi-hdd-network"></i>
+      <span>MCP</span>
+      <span class="tab-badge" th:text="${mcpServerConfigs != null ? mcpServerConfigs.size() : 0}">0</span>
+    </button>
+    <div class="cf-tab-group-sep"></div>
+    <div class="cf-tab-group-label" data-i18n="config.group.settings">Einstellungen</div>
+    <button class="cf-tab" data-tab="ki" onclick="cfSwitchTab('ki', this)">
+      <i class="bi bi-robot"></i>
+      <span data-i18n="config.ki.section_short">KI</span>
+    </button>
+    <button class="cf-tab" data-tab="lang" onclick="cfSwitchTab('lang', this)">
+      <i class="bi bi-translate"></i>
+      <span data-i18n="config.language.section_short">Sprache</span>
+    </button>
+    <button class="cf-tab" data-tab="theme" onclick="cfSwitchTab('theme', this)">
+      <i class="bi bi-palette"></i>
+      <span data-i18n="config.theme.section">Theme</span>
+    </button>
+    <button class="cf-tab" data-tab="autostart" onclick="cfSwitchTab('autostart', this)">
+      <i class="bi bi-power"></i>
+      <span data-i18n="config.autostart.section">Autostart</span>
+    </button>
+    <button class="cf-tab" data-tab="tools" onclick="cfSwitchTab('tools', this); cfLoadToolsStatus();">
+      <i class="bi bi-tools"></i>
+      <span data-i18n="config.tools.section">Tools</span>
+    </button>
+    <button class="cf-tab" data-tab="dev" onclick="cfSwitchTab('dev', this)">
+      <i class="bi bi-toggles"></i>
+      <span data-i18n="config.developer.section">Entwickleroptionen</span>
+    </button>
+    <button class="cf-tab" data-tab="reset" onclick="cfSwitchTab('reset', this)">
+      <i class="bi bi-arrow-counterclockwise"></i>
+      <span data-i18n="config.reset.section">Zurücksetzen</span>
+    </button>
+  </div>
+
+</th:block>
+</body>
+</html>

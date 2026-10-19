@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" lang="de">
+<body>
+<th:block th:fragment="scripts-panel-analyze">
+<script>
+
+  function doGenerateData(fromAnalyze) {
+    var sql = document.getElementById('dataSql').value.trim();
+    var ddl = document.getElementById('dataDdl').value.trim();
+    if (!sql) { document.getElementById('dataSql').focus(); return; }
+
+    _dataOk = false;
+    _allInserts = '';
+    saCheckTestBtn();
+
+    if (_saDataAbort) { try { _saDataAbort.abort(); } catch(e) {} }
+    _saDataAbort = new AbortController();
+    var _dataSignal = _saDataAbort.signal;
+
+    if (!fromAnalyze) {
+      saSetLoading('data', true);
+    }
+
+    fetch('/api/sql-analyse/generate-data', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sql: sql, ddl: ddl || null }),
+      signal: _dataSignal
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      if (data.analysisId != null && window.cfTokenUsage) {
+        window.cfTokenUsage.init('sql', Number(data.analysisId), {
+          anchor: document.querySelector('.sa-page-tabs, .sl-page-header')
+        });
+      }
+      if (data.error) {
+        if (!fromAnalyze) {
+          saShowError('data', data.error);
+        } else {
+          if (_saAnalyzeAbort) { try { _saAnalyzeAbort.abort(); } catch(e) {} _saAnalyzeAbort = null; }
+          _saSaveDataDone = true;
+          _dataGenPending = false;
+          var _dataPendErr = document.getElementById('analyzeDataPending');
+          if (_dataPendErr) _dataPendErr.classList.remove('visible');
+          saShowError('analyze', data.error);
+          saUpdateLiveHistoryRow('FAILED');
+          if (_saCurrentHistoryId) { saFinalizeHistoryRecord('FAILED', null); }
+          saScrollToAnalyzeBtn();
+          void document.body.offsetHeight;
+        }
+        return;
+      }
+      renderSampleData(data);
+      saSetLoading('data', false);
+      if (_allInserts && _allInserts.trim().length > 0) {
+        _dataOk = true;
+      } else {
+        _dataOk = false;
+        var _emptyMsgData = window.i18n ? window.i18n.t('sql_analysis.data_empty_error')
+          : 'Die KI hat keine verwertbaren Testdaten geliefert. Bitte erneut versuchen oder DDL ergänzen.';
+        if (!fromAnalyze) {
+          saShowError('data', _emptyMsgData);
+        } else {
+          saShowError('analyze', _emptyMsgData);
+        }
+      }
+      saCheckTestBtn();
+      var _drEl = document.getElementById('dataResult'); if (_drEl) _drEl.classList.add('visible');
+      if (fromAnalyze) {
+        _saSaveTestData = _allInserts;
+        _saSaveDataDone = true;
+        _dataGenPending = false;
+        var _dataPendOk = document.getElementById('analyzeDataPending');
+        if (_dataPendOk) _dataPendOk.classList.remove('visible');
+        if (_analyzeOk) { var _btnAnOk = document.getElementById('btnAnalyze'); if (_btnAnOk) _btnAnOk.disabled = false; }
+      }
+    })
+    .catch(function(e) {
+      if (e && e.name === 'AbortError') { return; }
+      if (!fromAnalyze) {
+        saShowError('data', (window.i18n ? window.i18n.t('common.network_error') : 'Netzwerkfehler: ') + (e.message || e));
+      } else {
+        if (_saAnalyzeAbort) { try { _saAnalyzeAbort.abort(); } catch(e2) {} _saAnalyzeAbort = null; }
+        _saSaveDataDone = true;
+        _dataGenPending = false;
+        var _dataPendCatch = document.getElementById('analyzeDataPending');
+        if (_dataPendCatch) _dataPendCatch.classList.remove('visible');
+        saShowError('analyze', (window.i18n ? window.i18n.t('common.network_error') : 'Netzwerkfehler: ') + (e.message || e));
+        saUpdateLiveHistoryRow('FAILED');
+        if (_saCurrentHistoryId) { saFinalizeHistoryRecord('FAILED', null); }
+        saScrollToAnalyzeBtn();
+        void document.body.offsetHeight;
+      }
+    });
+  }
+
+  function renderSampleData(data) {
+    var tables = data.tables || [];
+    var execOrder = data.executionOrder || [];
+    var allParts = [];
+
+    var execEl = document.getElementById('execOrder');
+    var execList = document.getElementById('execOrderList');
+    if (execOrder.length > 0) {
+      execList.innerHTML = execOrder.map(function(t, i) {
+        return '<span class="sa-badge sa-badge-table">' + (i + 1) + '. ' + saEsc(t) + '</span>';
+      }).join('');
+      execEl.style.display = '';
+    } else {
+      execEl.style.display = 'none';
+    }
+
+    var container = document.getElementById('tablesContainer');
+    container.innerHTML = '';
+    tables.forEach(function(tbl) {
+      var createId = 'create_' + Math.random().toString(36).slice(2, 7);
+      var insertId = 'insert_' + Math.random().toString(36).slice(2, 7);
+      var inserts = (tbl.insertStatements || []).join('\n');
+      allParts.push('-- Tabelle: ' + tbl.tableName);
+      if (tbl.createStatement) allParts.push(tbl.createStatement);
+      allParts.push(inserts);
+      allParts.push('');
+
+      var html =
+        '<div class="sa-table-section">' +
+        '<div class="sa-table-header">' +
+        '<span style="font-weight:700;font-size:14px;"><i class="bi bi-table me-1" style="color:var(--sa-accent)"></i>' + saEsc(tbl.tableName) + '</span>' +
+        (tbl.notes ? '<span style="font-size:12px;color:var(--sa-muted)">' + saEsc(tbl.notes) + '</span>' : '') +
+        '</div>' +
+        '<div class="sa-table-body">';
+
+      if (tbl.createStatement) {
+        html +=
+          '<div class="sa-code-header" style="margin-top:4px;">' +
+          '<span class="sa-code-label">CREATE TABLE</span>' +
+          '<button class="sa-btn-secondary" onclick="saCopyText(\'' + createId + '\')">' +
+          '<i class="bi bi-clipboard me-1"></i>' + (window.i18n ? window.i18n.t('sql_analysis.btn_copy') : 'Kopieren') + '</button>' +
+          '</div>' +
+          '<div class="sa-code" id="' + createId + '">' + saEsc(tbl.createStatement) + '</div>';
+      }
+
+      if (inserts) {
+        html +=
+          '<div class="sa-code-header">' +
+          '<span class="sa-code-label">INSERT Statements</span>' +
+          '<button class="sa-btn-secondary" onclick="saCopyText(\'' + insertId + '\')">' +
+          '<i class="bi bi-clipboard me-1"></i>' + (window.i18n ? window.i18n.t('sql_analysis.btn_copy') : 'Kopieren') + '</button>' +
+          '</div>' +
+          '<div class="sa-code" id="' + insertId + '">' + saEsc(inserts) + '</div>';
+      }
+
+      html += '</div></div>';
+      container.innerHTML += html;
+    });
+
+    _allInserts = allParts.join('\n');
+
+    if (data.notes) {
+      document.getElementById('dataNotes').style.display = '';
+      document.getElementById('dataNotesText').textContent = data.notes;
+    } else {
+      document.getElementById('dataNotes').style.display = 'none';
+    }
+    if (data.validationNotes) {
+      document.getElementById('dataValidation').style.display = '';
+      document.getElementById('dataValidationText').textContent = data.validationNotes;
+    } else {
+      document.getElementById('dataValidation').style.display = 'none';
+    }
+  }
+
+  function saCopyAll() {
+    if (_allInserts) { saCopyRaw(_allInserts); }
+  }
+</script>
+</th:block>
+</body>
+</html>

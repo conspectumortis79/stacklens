@@ -1,0 +1,350 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" lang="de">
+<body>
+<th:block th:fragment="scripts-history">
+<script>
+  var SA_SESSION_KEY = 'sa_analyse_state';
+  var SA_RUNNING_KEY = 'sa_analyse_running';
+
+  var _saCurrentHistoryId = null;
+  var _saSaveTestData = null;
+  var _saSaveDataDone = false;
+  var _saHistory = null;
+  var _saLiveItem = null;
+
+  function saSessionSave(sql, ddl, data) {
+    try { sessionStorage.setItem(SA_SESSION_KEY, JSON.stringify({ sql: sql, ddl: ddl || '', data: data })); } catch (e) {}
+  }
+
+  function saSessionLoad() {
+    try { return JSON.parse(sessionStorage.getItem(SA_SESSION_KEY) || 'null'); } catch (e) { return null; }
+  }
+
+  function saPreview(sql) {
+    var preview = String(sql || '').replace(/\s+/g, ' ').trim();
+    return preview.length > 90 ? preview.substring(0, 90) + '\u2026' : preview;
+  }
+
+  function saHistoryItems(list) {
+    var items = (list || []).slice();
+    if (_saLiveItem) items.unshift(_saLiveItem);
+    return items;
+  }
+
+  function saHistory() {
+    if (_saHistory) return _saHistory;
+    _saHistory = window.slHistory.mount({
+      root: 'hxCard-sql-analysis',
+      page: 'sql-analysis',
+      titleKey: 'sql_analysis.history_title',
+      emptyKey: 'sql_analysis.empty_history',
+      columns: {
+        title: { key: 'sql_analysis.col_sql', fallback: 'SQL' }
+      },
+      map: {
+        id: function(a) { return a.id; },
+        status: function(a) { return a.status; },
+        createdAt: function(a) { return a.createdAt; },
+        typeIcon: function() { return 'bi-database'; },
+        title: function(a) { return saPreview(a.sql); },
+        subtitle: function() { return ''; },
+        tags: function(a) {
+          var tags = [];
+          if (a.ddl) tags.push({ label: 'DDL' });
+          if (a.hasTestData) tags.push({ label: window.slHelpers.t('sql_analysis.badge_test_data', 'Testdaten'), tone: 'neutral' });
+          return tags;
+        },
+        note: function(a) { return ''; },
+        disabled: function(a) { return a.id == null; },
+        canCancel: function(a) { return a.id != null && a.id === _saCurrentHistoryId; },
+        isCurrent: function(a) { return _saCurrentHistoryId != null && a.id === _saCurrentHistoryId; }
+      },
+      actions: {
+        open: function(a) { saShowHistoryItem(a.id); },
+        cancel: function(a) { saCancelHistoryItem(a.id); },
+        rerun: function(a) { saRerunHistoryItem(a.id); },
+        remove: function(a) { saDeleteHistoryItem(a.id); },
+        deleteAll: function() { saDeleteAllHistory(); }
+      }
+    });
+    return _saHistory;
+  }
+
+  function saFinalizeHistoryRecord(status, testData, analysisResult) {
+    try { sessionStorage.removeItem(SA_RUNNING_KEY); } catch (e) {}
+    var id = _saCurrentHistoryId;
+    _saCurrentHistoryId = null;
+    if (id) { _saLastFinalizedId = id; _saLastFinalizedStatus = status; }
+    saDropLiveRow();
+    if (!id) { saLoadServerHistory(); return; }
+    fetch('/api/sql-analyse/history/' + id + '/status', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status: status, testData: testData || null, analysisResult: analysisResult ? JSON.stringify(analysisResult) : null })
+    })
+    .then(function() { setTimeout(function() { saLoadServerHistory(); }, 300); })
+    .catch(function() { setTimeout(function() { saLoadServerHistory(); }, 300); });
+  }
+
+  function saShowLiveHistoryRow(sql) {
+    _saLiveItem = { id: null, sql: sql, status: 'RUNNING', createdAt: new Date().toISOString(), ddl: '', hasTestData: false };
+    saHistory().setData(saHistoryItems(_saHistory ? _saHistory.items() : []));
+    var card = document.getElementById('hxCard-sql-analysis');
+    if (card) {
+      card.hidden = false;
+      card.classList.remove('is-collapsed');
+      var main = document.querySelector('main');
+      if (main) {
+        var cardTop = card.getBoundingClientRect().top - main.getBoundingClientRect().top;
+        main.scrollTop = main.scrollTop + cardTop - 20;
+      }
+    }
+  }
+
+  function saUpdateLiveHistoryRow(status) {
+    if (!_saLiveItem) return;
+    _saLiveItem.status = status;
+    saHistory().setData(saHistoryItems(_saHistory ? _saHistory.items().filter(function(a) { return a.id != null; }) : []));
+  }
+
+  function saDropLiveRow() {
+    if (!_saLiveItem) return;
+    _saLiveItem = null;
+    if (_saHistory) _saHistory.setData(_saHistory.items().filter(function(a) { return a.id != null; }));
+  }
+
+  function saLoadServerHistory() {
+    fetch('/api/sql-analyse/history')
+      .then(function(r) { return r.json(); })
+      .then(function(list) { saRenderServerHistory(list); })
+      .catch(function() {});
+  }
+
+  function saRenderServerHistory(list) {
+    var items = (list || []).filter(function(r) {
+      return !(_saLiveItem && String(r.sql).replace(/\s+/g, ' ').trim() === String(_saLiveItem.sql).replace(/\s+/g, ' ').trim());
+    });
+    saHistory().setData(saHistoryItems(items));
+  }
+
+  function saDeleteAllHistory() {
+    fetch('/api/sql-analyse/history', { method: 'DELETE' })
+      .then(function() { saLoadServerHistory(); })
+      .catch(function() {});
+  }
+
+  function saShowHistoryItem(id) {
+    fetch('/api/sql-analyse/history/' + id)
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        document.getElementById('analyzeSql').value = data.sql || '';
+        document.getElementById('analyzeDdl').value = data.ddl || '';
+        if (data.ddl) {
+          var wrap = document.getElementById('analyzeDdlWrap');
+          if (wrap && !wrap.classList.contains('open')) {
+            var btn = document.querySelector('[onclick*="analyzeDdlWrap"]');
+            wrap.classList.add('open');
+            if (btn) { var ch = btn.querySelector('.bi-chevron-right'); if (ch) ch.classList.replace('bi-chevron-right', 'bi-chevron-down'); }
+          }
+        }
+        if (data.testData) {
+          _allInserts = data.testData;
+          _dataOk = true;
+          document.getElementById('dataSql').value = data.sql || '';
+          document.getElementById('dataDdl').value = data.ddl || '';
+        }
+        _analyzeOk = true;
+        saCheckTestBtn();
+        if (data.analysisResult) {
+          try {
+            var parsedResult = JSON.parse(data.analysisResult);
+            renderAnalysis(parsedResult);
+            var _arElHist = document.getElementById('analyzeResult'); if (_arElHist) _arElHist.classList.add('visible');
+          } catch (_) {}
+        }
+        saSwitch('panelAnalyze', document.getElementById('tabBtnAnalyze'));
+        document.getElementById('analyzeSql').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      })
+      .catch(function() {});
+  }
+
+  function saCancelHistoryItem(id) {
+    if (id === _saCurrentHistoryId) cancelSqlAnalyze();
+  }
+
+  function saDeleteHistoryItem(id) {
+    fetch('/api/sql-analyse/history/' + id, { method: 'DELETE' })
+      .then(function() { saLoadServerHistory(); })
+      .catch(function() {});
+  }
+
+  function saRerunHistoryItem(id) {
+    fetch('/api/sql-analyse/history/' + id)
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        document.getElementById('analyzeSql').value = data.sql || '';
+        document.getElementById('analyzeDdl').value = data.ddl || '';
+        if (data.ddl) {
+          var wrap = document.getElementById('analyzeDdlWrap');
+          if (wrap && !wrap.classList.contains('open')) {
+            var btn = document.querySelector('[onclick*="analyzeDdlWrap"]');
+            wrap.classList.add('open');
+            if (btn) { var ch = btn.querySelector('.bi-chevron-right'); if (ch) ch.classList.replace('bi-chevron-right', 'bi-chevron-down'); }
+          }
+        }
+        saSwitch('panelAnalyze', document.getElementById('tabBtnAnalyze'));
+        document.getElementById('analyzeSql').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        doAnalyze();
+      })
+      .catch(function() {});
+  }
+
+  function saRestoreRunningRow() {
+    var raw;
+    try { raw = sessionStorage.getItem(SA_RUNNING_KEY); } catch (e) { return; }
+    if (!raw) return;
+    try {
+      var state = JSON.parse(raw);
+      if (state && state.sql) saShowLiveHistoryRow(state.sql);
+      var btn = document.getElementById('btnAnalyze');
+      if (btn) btn.disabled = true;
+      var loadEl = document.getElementById('analyzeLoading');
+      if (loadEl) loadEl.classList.add('visible');
+      if (state && state.id) {
+        _saCurrentHistoryId = state.id;
+        if (typeof saInitTokenUsageBar === 'function') saInitTokenUsageBar();
+        if (_saRestoredPollTimer) clearInterval(_saRestoredPollTimer);
+        _saRestoredPollTimer = setInterval(function() { _saPollRunningStatus(state.id); }, 3000);
+        _saPollRunningStatus(state.id);
+      } else {
+        if (_saRestoredPollTimer) clearInterval(_saRestoredPollTimer);
+        _saRestoredPollTimer = setInterval(function() { _saPollForAnyRunning(); }, 3000);
+        _saPollForAnyRunning();
+      }
+    } catch (e) {}
+  }
+
+  function _saPollForAnyRunning() {
+    fetch('/api/sql-analyse/history')
+      .then(function(r) { return r.json(); })
+      .then(function(list) {
+        var running = null;
+        for (var i = 0; i < list.length; i++) {
+          if (list[i].status === 'RUNNING') { running = list[i]; break; }
+        }
+        if (!running) {
+          if (_saRestoredPollTimer) { clearInterval(_saRestoredPollTimer); _saRestoredPollTimer = null; }
+          try { sessionStorage.removeItem(SA_RUNNING_KEY); } catch (_se) {}
+          var btn2 = document.getElementById('btnAnalyze');
+          var loadEl2 = document.getElementById('analyzeLoading');
+          if (loadEl2) loadEl2.classList.remove('visible');
+          if (btn2) btn2.disabled = false;
+          saDropLiveRow();
+          saLoadServerHistory();
+        } else {
+          if (_saRestoredPollTimer) { clearInterval(_saRestoredPollTimer); _saRestoredPollTimer = null; }
+          _saCurrentHistoryId = running.id;
+          try { sessionStorage.setItem(SA_RUNNING_KEY, JSON.stringify({ sql: running.sql || _saCurrentSql, id: running.id })); } catch (_se) {}
+          _saRestoredPollTimer = setInterval(function() { _saPollRunningStatus(running.id); }, 3000);
+          _saPollRunningStatus(running.id);
+        }
+      })
+      .catch(function() {});
+  }
+
+  function _saPollRunningStatus(historyId) {
+    fetch('/api/sql-analyse/history')
+      .then(function(r) { return r.json(); })
+      .then(function(list) {
+        var record = null;
+        for (var i = 0; i < list.length; i++) {
+          if (list[i].id == historyId) { record = list[i]; break; }
+        }
+        if (!record || record.status !== 'RUNNING') {
+          if (_saRestoredPollTimer) { clearInterval(_saRestoredPollTimer); _saRestoredPollTimer = null; }
+          try { sessionStorage.removeItem(SA_RUNNING_KEY); } catch (e) {}
+
+          var btn = document.getElementById('btnAnalyze');
+          var loadEl = document.getElementById('analyzeLoading');
+          if (loadEl) loadEl.classList.remove('visible');
+          if (btn) btn.disabled = false;
+
+          saDropLiveRow();
+          saLoadServerHistory();
+
+          if (record && record.status === 'COMPLETED') {
+            fetch('/api/sql-analyse/history/' + historyId)
+              .then(function(r) { return r.json(); })
+              .then(function(data) {
+                if (data.analysisResult) {
+                  try {
+                    var parsed = JSON.parse(data.analysisResult);
+                    renderAnalysis(parsed);
+                    var _arElPoll = document.getElementById('analyzeResult'); if (_arElPoll) _arElPoll.classList.add('visible');
+                    _analyzeOk = true;
+                    if (data.testData) { _allInserts = data.testData; _dataOk = true; }
+                    saCheckTestBtn();
+                    saSessionSave(data.sql || '', data.ddl || '', parsed);
+                  } catch (_) {}
+                }
+                saLoadServerHistory();
+              })
+              .catch(function() { saLoadServerHistory(); });
+          }
+        }
+      })
+      .catch(function() {});
+  }
+
+  document.addEventListener('DOMContentLoaded', function() {
+    saLoadServerHistory();
+    saRestoreRunningRow();
+    var sqlInputEl = document.getElementById('analyzeSql');
+    if (sqlInputEl) sqlInputEl.addEventListener('input', saResetAnalysisOutput);
+  });
+
+  if (window._saNavigateHandler) document.removeEventListener('app:navigate', window._saNavigateHandler);
+  window._saNavigateHandler = function() {
+    if (!document.getElementById('hxCard-sql-analysis')) return;
+    saLoadServerHistory();
+    saRestoreRunningRow();
+    var sqlEl = document.getElementById('analyzeSql');
+    if (sqlEl && !sqlEl.value) {
+      var sqlToRestore = _saCurrentSql;
+      if (!sqlToRestore) { var _s = saSessionLoad(); if (_s) sqlToRestore = _s.sql || ''; }
+      if (sqlToRestore) {
+        sqlEl.value = sqlToRestore;
+        var ddlEl = document.getElementById('analyzeDdl');
+        var ddlToRestore = _saCurrentDdl || (saSessionLoad() ? saSessionLoad().ddl || '' : '');
+        if (ddlEl && !ddlEl.value && ddlToRestore) ddlEl.value = ddlToRestore;
+      }
+    }
+  };
+  document.addEventListener('app:navigate', window._saNavigateHandler);
+
+  (function() {
+    var s = saSessionLoad();
+    if (!s || !s.sql) return;
+    try {
+      var sqlEl = document.getElementById('analyzeSql');
+      var ddlEl = document.getElementById('analyzeDdl');
+      if (sqlEl) { sqlEl.value = s.sql; _saCurrentSql = s.sql; }
+      if (ddlEl && s.ddl) {
+        ddlEl.value = s.ddl; _saCurrentDdl = s.ddl;
+        var wrap = document.getElementById('analyzeDdlWrap');
+        if (wrap && !wrap.classList.contains('open')) {
+          var btn = document.querySelector('[onclick*="analyzeDdlWrap"]');
+          wrap.classList.add('open');
+          if (btn) { var ch = btn.querySelector('.bi-chevron-right'); if (ch) ch.classList.replace('bi-chevron-right', 'bi-chevron-down'); }
+        }
+      }
+      if (s.data) {
+        renderAnalysis(s.data);
+        var _arElRestore = document.getElementById('analyzeResult'); if (_arElRestore) _arElRestore.classList.add('visible');
+      }
+    } catch (_) {}
+  })();
+</script>
+</th:block>
+</body>
+</html>

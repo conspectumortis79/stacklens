@@ -1,0 +1,10 @@
+global:
+  scrape_interval: 3s
+  evaluation_interval: 3s
+
+scrape_configs:
+  - job_name: demo-node
+    metrics_path: /metrics
+    static_configs:
+      - targets:
+          - fake-exporter:9100

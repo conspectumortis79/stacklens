@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org"
+      xmlns:layout="http://www.ultraq.net.nz/thymeleaf/layout"
+      layout:decorate="~{layout}" lang="de">
+<head><title>Konfiguration</title></head>
+<body>
+
+<th:block layout:fragment="page-title"><span data-i18n="page_titles.configuration">Konfiguration</span></th:block>
+
+<th:block layout:fragment="page-actions">
+  <div class="d-flex gap-2">
+    <button class="btn btn-outline-secondary btn-sm" onclick="openExportModal()">
+      <i class="bi bi-download me-1"></i><span data-i18n="config.export">Exportieren</span>
+    </button>
+    <button class="btn btn-outline-secondary btn-sm" onclick="openImportModal()">
+      <i class="bi bi-upload me-1"></i><span data-i18n="config.import">Importieren</span>
+    </button>
+  </div>
+</th:block>
+
+<div layout:fragment="content">
+<th:block th:replace="~{fragments/config/styles :: styles}"></th:block>
+
+<th:block th:replace="~{fragments/config/scripts-page :: scripts-page}"></th:block>
+
+<div class="cf-page">
+
+<div class="cf-layout">
+  <th:block th:replace="~{fragments/config/tab-strip :: tab-strip}"></th:block>
+  <div class="cf-tab-content">
+
+  <th:block th:replace="~{fragments/config/panes-connections :: panes-connections}"></th:block>
+  <th:block th:replace="~{fragments/config/panes-settings :: panes-settings}"></th:block>
+  <th:block th:replace="~{fragments/config/panes-system :: panes-system}"></th:block>
+  </div>
+</div>
+<th:block th:replace="~{fragments/config/modals-connections :: modals-connections}"></th:block>
+</div>
+<th:block th:replace="~{fragments/config/modals-io :: modals-io}"></th:block>
+
+<th:block layout:fragment="scripts">
+<th:block th:replace="~{fragments/config/scripts :: scripts}"></th:block>
+</th:block>
+
+</body>
+</html>

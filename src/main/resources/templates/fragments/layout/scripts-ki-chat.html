@@ -1,0 +1,1168 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" lang="de">
+<body>
+<th:block th:fragment="scripts-ki-chat">
+<script th:inline="none">
+
+window.__kiChatTabs           = window.__kiChatTabs           || {};
+window.__kiChatOpenTabs       = window.__kiChatOpenTabs       || {};
+if (typeof window.__kiChatLoadedTabId      === 'undefined') window.__kiChatLoadedTabId      = null;
+if (typeof window.__kiChatVisibleDotTimer  === 'undefined') window.__kiChatVisibleDotTimer  = null;
+if (typeof window.__kiChatMaximized         === 'undefined') window.__kiChatMaximized         = false;
+if (typeof window.__kiChatMaximizeBound     === 'undefined') window.__kiChatMaximizeBound     = false;
+if (typeof window.__kiChatPreMaxState       === 'undefined') window.__kiChatPreMaxState       = null;
+if (typeof window.__kiChatMinimized         === 'undefined') window.__kiChatMinimized         = false;
+var __KI_CHAT_MAX_STORAGE_KEY = '__kiChatMaximized';
+var __kiChatTabs          = window.__kiChatTabs;
+var __kiChatOpenTabs      = window.__kiChatOpenTabs;
+var __KI_CHAT_USAGE_STORAGE_KEY = 'dev_show_token_usage';
+var __KI_CHAT_USAGE_TOGGLE_EVENT = 'cf:dev-toggle-changed';
+
+function kiChatResolveConfig() {
+  var urlTabId = (function(){
+    try {
+      var p = (location.pathname || '/').replace(/\/+$/, '') || '/';
+      return 'url:' + p;
+    } catch(e) { return 'url:unknown'; }
+  })();
+  var c = window.kiChatConfig || {};
+  return {
+    tabId: urlTabId,
+    tabLabel: c.tabLabel || '',
+    tabLabelKey: c.tabLabelKey || '',
+    suggestions: c.suggestions || [],
+    suggestionsKey: c.suggestionsKey || '',
+    plainSuggestionsKey: c.plainSuggestionsKey || '',
+    contextProvider: (typeof c.contextProvider === 'function') ? c.contextProvider : function(){ return c.tabContext || ''; },
+    systemHint: c.systemHint || '',
+    introMessage: c.introMessage || '',
+    introMessageKey: c.introMessageKey || ''
+  };
+}
+function __kiChatStorageKeyFor(tabId) { return '__kiChatHist:' + (tabId || 'general'); }
+function __kiChatUsageStorageKeyFor(tabId) { return '__kiChatUsage:' + (tabId || 'general'); }
+
+function __kiChatCreateUsageId() {
+  try {
+    if (window.crypto && typeof window.crypto.getRandomValues === 'function') {
+      var words = new Uint32Array(2);
+      window.crypto.getRandomValues(words);
+      var high = words[0] & 0x1fffff;
+      var generated = high * 4294967296 + words[1];
+      if (generated > 0) return generated;
+    }
+  } catch(_){ }
+  return Date.now() * 4096 + Math.floor(Math.random() * 4096);
+}
+
+function __kiChatReadOrCreateUsageId(tabId) {
+  var usageId = 0;
+  try {
+    usageId = Number(localStorage.getItem(__kiChatUsageStorageKeyFor(tabId)) || 0);
+  } catch(_){ usageId = 0; }
+  if (!isFinite(usageId) || usageId <= 0 || usageId > 9007199254740991) {
+    usageId = __kiChatCreateUsageId();
+    try { localStorage.setItem(__kiChatUsageStorageKeyFor(tabId), String(usageId)); } catch(_){ }
+  }
+  return Math.floor(usageId);
+}
+
+function __kiChatPersistUsageId(tabId, usageId) {
+  try { localStorage.setItem(__kiChatUsageStorageKeyFor(tabId), String(usageId)); } catch(_){ }
+}
+
+function __kiChatEmptyUsage() {
+  return { promptTokens: 0, completionTokens: 0, totalTokens: 0, durationMs: 0 };
+}
+
+function __kiChatUsageEnabled() {
+  var value = null;
+  try { value = localStorage.getItem(__KI_CHAT_USAGE_STORAGE_KEY); } catch(_){ }
+  if (value === 'false' || value === '0') return false;
+  return true;
+}
+
+function __kiChatGetTab(tabId) {
+  if (!__kiChatTabs[tabId]) {
+    var hist = [];
+    try {
+      var raw = localStorage.getItem(__kiChatStorageKeyFor(tabId));
+      if (raw) hist = JSON.parse(raw) || [];
+    } catch(e){}
+    __kiChatTabs[tabId] = {
+      history: hist,
+      streaming: false,
+      partial: '',
+      dotCount: 1,
+      usageId: __kiChatReadOrCreateUsageId(tabId),
+      usage: __kiChatEmptyUsage(),
+      usageLoaded: false,
+      usagePollTimer: null
+    };
+  }
+  var tab = __kiChatTabs[tabId];
+  if (!tab.usageId) tab.usageId = __kiChatReadOrCreateUsageId(tabId);
+  if (!tab.usage) tab.usage = __kiChatEmptyUsage();
+  if (typeof tab.usageLoaded === 'undefined') tab.usageLoaded = false;
+  if (typeof tab.usagePollTimer === 'undefined') tab.usagePollTimer = null;
+  return tab;
+}
+
+function __kiChatUsageT(key, fallback) {
+  try {
+    if (window.i18n) {
+      var translated = window.i18n.t(key);
+      if (translated && translated !== key) return translated;
+    }
+  } catch(_){ }
+  return fallback;
+}
+
+function __kiChatFormatTokens(value) {
+  var n = Math.max(0, Math.floor(Number(value) || 0));
+  try {
+    var lang = (window.i18n && window.i18n.getLang) ? window.i18n.getLang() : 'de';
+    return n.toLocaleString(lang === 'en' ? 'en-US' : 'de-DE');
+  } catch(_){ return String(n).replace(/\B(?=(\d{3})+(?!\d))/g, '\u202f'); }
+}
+
+function __kiChatFormatDuration(value) {
+  var ms = Math.max(0, Number(value) || 0);
+  var sec = ms / 1000;
+  if (sec >= 60) {
+    var minutes = Math.floor(sec / 60);
+    var remaining = Math.round(sec % 60);
+    if (remaining === 60) { minutes += 1; remaining = 0; }
+    return minutes + ':' + (remaining < 10 ? '0' : '') + remaining + ' min';
+  }
+  try {
+    var lang = (window.i18n && window.i18n.getLang) ? window.i18n.getLang() : 'de';
+    return sec.toLocaleString(lang === 'en' ? 'en-US' : 'de-DE', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) + ' s';
+  } catch(_){ return sec.toFixed(1).replace('.', ',') + ' s'; }
+}
+
+function __kiChatRenderUsage(tabId) {
+  if (__kiChatLoadedTabId && __kiChatLoadedTabId !== tabId) return;
+  var panel = document.getElementById('kiChatUsage');
+  if (!panel) return;
+  var enabled = __kiChatUsageEnabled();
+  panel.style.display = enabled ? '' : 'none';
+  panel.setAttribute('aria-hidden', enabled ? 'false' : 'true');
+  if (!enabled) return;
+  var tab = __kiChatGetTab(tabId);
+  var usage = tab.usage || __kiChatEmptyUsage();
+  var input = document.getElementById('kiChatUsageInput');
+  var output = document.getElementById('kiChatUsageOutput');
+  var total = document.getElementById('kiChatUsageTotal');
+  var duration = document.getElementById('kiChatUsageDuration');
+  var state = document.getElementById('kiChatUsageState');
+  if (input) input.textContent = __kiChatFormatTokens(usage.promptTokens);
+  if (output) output.textContent = __kiChatFormatTokens(usage.completionTokens);
+  if (total) total.textContent = __kiChatFormatTokens(usage.totalTokens);
+  if (duration) duration.textContent = __kiChatFormatDuration(usage.durationMs);
+  panel.setAttribute('data-ki-chat-usage-id', String(tab.usageId));
+  panel.classList.toggle('is-live', !!tab.streaming);
+  if (state) {
+    state.textContent = tab.streaming
+      ? __kiChatUsageT('ki_chat.usage.live', 'Live')
+      : __kiChatUsageT('ki_chat.usage.current', 'Aktuell');
+  }
+}
+
+function __kiChatFetchUsage(tabId) {
+  if (!__kiChatUsageEnabled()) return Promise.resolve(null);
+  var tab = __kiChatGetTab(tabId);
+  var requestedUsageId = tab.usageId;
+  if (!requestedUsageId || typeof fetch !== 'function') return Promise.resolve(null);
+  return fetch('/api/ai-usage/kichat/' + encodeURIComponent(requestedUsageId), { credentials: 'same-origin' })
+    .then(function(resp){ return resp.ok ? resp.json() : null; })
+    .then(function(data){
+      if (!data || tab.usageId !== requestedUsageId) return null;
+      var prompt = Math.max(0, Number(data.promptTokens) || 0);
+      var completion = Math.max(0, Number(data.completionTokens) || 0);
+      tab.usage = {
+        promptTokens: prompt,
+        completionTokens: completion,
+        totalTokens: Math.max(0, Number(data.totalTokens) || (prompt + completion)),
+        durationMs: Math.max(0, Number(data.durationMs) || 0)
+      };
+      tab.usageLoaded = true;
+      __kiChatRenderUsage(tabId);
+      return tab.usage;
+    })
+    .catch(function(){ return null; });
+}
+
+function __kiChatStartUsagePolling(tabId) {
+  if (!__kiChatUsageEnabled()) return;
+  var tab = __kiChatGetTab(tabId);
+  if (tab.usagePollTimer) return;
+  __kiChatFetchUsage(tabId);
+  tab.usagePollTimer = setInterval(function(){ __kiChatFetchUsage(tabId); }, 2000);
+}
+
+function __kiChatStopUsagePolling(tabId) {
+  var tab = __kiChatGetTab(tabId);
+  if (!tab.usagePollTimer) return;
+  clearInterval(tab.usagePollTimer);
+  tab.usagePollTimer = null;
+}
+
+function __kiChatApplyUsageToggle() {
+  var tabId = __kiChatLoadedTabId || (kiChatResolveConfig().tabId || 'general');
+  var tab = __kiChatGetTab(tabId);
+  if (!__kiChatUsageEnabled()) {
+    __kiChatStopUsagePolling(tabId);
+    __kiChatRenderUsage(tabId);
+    return;
+  }
+  __kiChatRenderUsage(tabId);
+  __kiChatFetchUsage(tabId);
+  if (tab.streaming) __kiChatStartUsagePolling(tabId);
+}
+
+if (!window.__kiChatUsageToggleListenersBound) {
+  window.addEventListener('storage', function(event){
+    if (event && event.key === __KI_CHAT_USAGE_STORAGE_KEY) __kiChatApplyUsageToggle();
+  });
+  document.addEventListener(__KI_CHAT_USAGE_TOGGLE_EVENT, function(event){
+    if (!event || !event.detail || event.detail.key === __KI_CHAT_USAGE_STORAGE_KEY) {
+      __kiChatApplyUsageToggle();
+    }
+  });
+  window.__kiChatUsageToggleListenersBound = true;
+}
+
+function __kiChatUpdateDrawerScrollbar() {
+  var list = document.getElementById('kiChatMessages');
+  if (!list) return;
+  if (!list.__kiChatSlScroll && window.SLScroll) {
+    var track = document.getElementById('kiChatMessagesScrollTrack');
+    var thumb = document.getElementById('kiChatMessagesScrollThumb');
+    if (track && thumb) list.__kiChatSlScroll = window.SLScroll(list, track, thumb);
+  }
+  if (list.__kiChatSlScroll && typeof list.__kiChatSlScroll.update === 'function') {
+    list.__kiChatSlScroll.update();
+  }
+}
+
+var __kiChatDragBound = false;
+var __kiChatDragOffset = { x: 0, y: 0 };
+var __kiChatIsDragging = false;
+
+function __kiChatInitDrag() {
+  if (__kiChatDragBound) return;
+  var drawer = document.getElementById('kiChatDrawer');
+  var handle = document.getElementById('kiChatDragHandle');
+  if (!drawer || !handle) return;
+  __kiChatDragBound = true;
+  try {
+    var saved = JSON.parse(localStorage.getItem('__kiChatPos') || 'null');
+    if (saved && typeof saved.top === 'number' && typeof saved.left === 'number') {
+      var maxT = window.innerHeight - 60;
+      var maxL = window.innerWidth - 60;
+      drawer.style.bottom = '';
+      drawer.style.right  = '';
+      drawer.style.top    = Math.max(0, Math.min(saved.top,  maxT)) + 'px';
+      drawer.style.left   = Math.max(0, Math.min(saved.left, maxL)) + 'px';
+    }
+  } catch(_){}
+  handle.addEventListener('mousedown', function(e) {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    var rect = drawer.getBoundingClientRect();
+    if (drawer.style.bottom !== '' || drawer.style.right !== '') {
+      drawer.style.top    = rect.top  + 'px';
+      drawer.style.left   = rect.left + 'px';
+      drawer.style.bottom = '';
+      drawer.style.right  = '';
+    }
+    __kiChatDragOffset.x = e.clientX - rect.left;
+    __kiChatDragOffset.y = e.clientY - rect.top;
+    __kiChatIsDragging = true;
+    handle.style.cursor = 'grabbing';
+    document.addEventListener('mousemove', __kiChatOnDragMove);
+    document.addEventListener('mouseup',   __kiChatOnDragEnd);
+  });
+}
+function __kiChatOnDragMove(e) {
+  if (!__kiChatIsDragging) return;
+  var drawer = document.getElementById('kiChatDrawer');
+  if (!drawer) return;
+  var newLeft = e.clientX - __kiChatDragOffset.x;
+  var newTop  = e.clientY - __kiChatDragOffset.y;
+  newLeft = Math.max(-(drawer.offsetWidth - 60), Math.min(newLeft, window.innerWidth  - 60));
+  newTop  = Math.max(0,                          Math.min(newTop,  window.innerHeight - 60));
+  drawer.style.left = newLeft + 'px';
+  drawer.style.top  = newTop  + 'px';
+}
+function __kiChatOnDragEnd() {
+  if (!__kiChatIsDragging) return;
+  __kiChatIsDragging = false;
+  var handle = document.getElementById('kiChatDragHandle');
+  if (handle) handle.style.cursor = 'move';
+  document.removeEventListener('mousemove', __kiChatOnDragMove);
+  document.removeEventListener('mouseup',   __kiChatOnDragEnd);
+  var drawer = document.getElementById('kiChatDrawer');
+  if (drawer) {
+    try {
+      localStorage.setItem('__kiChatPos', JSON.stringify({
+        top:  parseFloat(drawer.style.top)  || 0,
+        left: parseFloat(drawer.style.left) || 0
+      }));
+    } catch(_){}
+  }
+}
+
+var __KI_CHAT_MAX_BTN_ICONS = { off: 'bi-arrows-fullscreen', on: 'bi-fullscreen-exit' };
+var __KI_CHAT_MAX_BTN_TITLES = { off: 'Maximieren', on: 'Wiederherstellen' };
+var __KI_CHAT_MAX_BTN_ARIAS = { off: 'KI-Chat maximieren', on: 'KI-Chat wiederherstellen' };
+
+function __kiChatCapturePreMax() {
+  var drawer = document.getElementById('kiChatDrawer');
+  if (!drawer) return null;
+  return {
+    top:        drawer.style.top        || '',
+    left:       drawer.style.left       || '',
+    bottom:     drawer.style.bottom     || '',
+    right:      drawer.style.right      || '',
+    width:      drawer.style.width      || '',
+    height:     drawer.style.height     || '',
+    borderRadius: drawer.style.borderRadius || '',
+    border:     drawer.style.border     || '',
+    boxShadow:  drawer.style.boxShadow  || ''
+  };
+}
+
+function __kiChatApplyPreMax(state) {
+  var drawer = document.getElementById('kiChatDrawer');
+  if (!drawer || !state) return;
+  ['top', 'left', 'bottom', 'right', 'width', 'height', 'borderRadius', 'border', 'boxShadow'].forEach(function(k){
+    drawer.style[k] = state[k] || '';
+  });
+}
+
+function __kiChatUpdateMaximizeButton(maximized) {
+  var btn   = document.getElementById('kiChatMaximizeBtn');
+  var icon  = document.getElementById('kiChatMaximizeIcon');
+  if (!btn || !icon) return;
+  var key = maximized ? 'on' : 'off';
+  icon.className = 'bi ' + __KI_CHAT_MAX_BTN_ICONS[key];
+  btn.title     = __KI_CHAT_MAX_BTN_TITLES[key];
+  btn.setAttribute('aria-label', __KI_CHAT_MAX_BTN_ARIAS[key]);
+}
+
+function kiChatToggleMaximize() {
+  var drawer = document.getElementById('kiChatDrawer');
+  if (!drawer) return;
+  if (window.__kiChatMaximized) {
+    var pre = window.__kiChatPreMaxState;
+    window.__kiChatPreMaxState = null;
+    drawer.classList.remove('ki-chat-maximized');
+    __kiChatApplyPreMax(pre);
+    window.__kiChatMaximized = false;
+    try { localStorage.setItem(__KI_CHAT_MAX_STORAGE_KEY, 'false'); } catch(_){}
+    __kiChatUpdateMaximizeButton(false);
+  } else {
+    window.__kiChatPreMaxState = __kiChatCapturePreMax();
+    drawer.classList.add('ki-chat-maximized');
+    window.__kiChatMaximized = true;
+    try { localStorage.setItem(__KI_CHAT_MAX_STORAGE_KEY, 'true'); } catch(_){}
+    __kiChatUpdateMaximizeButton(true);
+  }
+  var scrollHost = document.getElementById('kiChatMessages');
+  if (scrollHost && scrollHost.__kiChatSlScroll
+      && typeof scrollHost.__kiChatSlScroll.update === 'function') {
+    scrollHost.__kiChatSlScroll.update();
+  }
+  setTimeout(__kiChatUpdateDrawerScrollbar, 0);
+}
+
+function __kiChatInitMaximize() {
+  if (window.__kiChatMaximizeBound) return;
+  window.__kiChatMaximizeBound = true;
+  try {
+    var saved = localStorage.getItem(__KI_CHAT_MAX_STORAGE_KEY);
+    window.__kiChatMaximized = (saved === 'true');
+  } catch(_){ window.__kiChatMaximized = false; }
+  var drawer = document.getElementById('kiChatDrawer');
+  if (drawer && window.__kiChatMaximized) {
+    drawer.classList.add('ki-chat-maximized');
+  }
+  __kiChatUpdateMaximizeButton(!!window.__kiChatMaximized);
+}
+
+function __kiChatApplyTaskbarVisibility() {
+  var taskbar = document.getElementById('kiChatTaskbar');
+  if (!taskbar) return;
+  taskbar.style.display = window.__kiChatMinimized ? 'flex' : 'none';
+}
+
+function kiChatMinimize() {
+  var drawer = document.getElementById('kiChatDrawer');
+  if (!drawer) return;
+  drawer.classList.add('d-none');
+  window.__kiChatMinimized = true;
+  __kiChatApplyTaskbarVisibility();
+}
+
+function kiChatRestoreFromMinimize() {
+  var drawer = document.getElementById('kiChatDrawer');
+  if (!drawer) return;
+  drawer.classList.remove('d-none');
+  window.__kiChatMinimized = false;
+  __kiChatApplyTaskbarVisibility();
+  setTimeout(__kiChatUpdateDrawerScrollbar, 0);
+  setTimeout(function(){
+    var d = document.getElementById('kiChatDrawer');
+    var i = document.getElementById('kiChatInput');
+    if (!i || !d) return;
+    var active = document.activeElement;
+    if (active && d.contains(active)) return;
+    i.focus();
+  }, 50);
+}
+
+function kiChatRestoreAndMaximize() {
+  kiChatRestoreFromMinimize();
+  if (!window.__kiChatMaximized) kiChatToggleMaximize();
+}
+
+function kiChatCloseFromMinimized() {
+  window.__kiChatMinimized = false;
+  __kiChatApplyTaskbarVisibility();
+  kiChatClose();
+}
+
+function kiChatToggle() {
+  var d = document.getElementById('kiChatDrawer');
+  if (!d) return;
+  if (d.classList.contains('d-none')) kiChatOpen(); else kiChatClose();
+}
+function kiChatOpen() {
+  var d = document.getElementById('kiChatDrawer');
+  if (!d) return;
+  d.classList.remove('d-none');
+  __kiChatInitDrag();
+  __kiChatInitMaximize();
+  window.__kiChatMinimized = false;
+  __kiChatApplyTaskbarVisibility();
+  __kiChatUpdateDrawerScrollbar();
+  __kiChatBindDragDrop();
+  var cfg = kiChatResolveConfig();
+  var badge = document.getElementById('kiChatTabBadge');
+  if (badge) {
+    var label = cfg.tabLabel || '';
+    try {
+      if (cfg.tabLabelKey && window.i18n) {
+        var translated = window.i18n.t(cfg.tabLabelKey);
+        if (translated && translated !== cfg.tabLabelKey) label = translated;
+      }
+    } catch(e) {}
+    if (label) { badge.textContent = label; badge.style.display = ''; }
+    else badge.style.display = 'none';
+  }
+  __kiChatGetTab(cfg.tabId || 'general');
+  __kiChatLoadedTabId = cfg.tabId || 'general';
+  __kiChatOpenTabs[__kiChatLoadedTabId] = true;
+  __kiChatRenderDrawer();
+  __kiChatRenderAttachments(__kiChatLoadedTabId);
+  __kiChatFetchUsage(__kiChatLoadedTabId);
+  __kiChatRenderSuggestions();
+  __kiChatUpdateSendButton();
+  setTimeout(__kiChatUpdateDrawerScrollbar, 0);
+  setTimeout(function(){
+    var d = document.getElementById('kiChatDrawer');
+    var i = document.getElementById('kiChatInput');
+    if (!i || !d) return;
+    var active = document.activeElement;
+    if (active && d.contains(active)) return;
+    i.focus();
+  }, 50);
+}
+function kiChatClose() {
+  __kiChatStopVisibleDots();
+  var d = document.getElementById('kiChatDrawer');
+  if (d) d.classList.add('d-none');
+  window.__kiChatMinimized = false;
+  __kiChatApplyTaskbarVisibility();
+  var tabId = __kiChatLoadedTabId || (kiChatResolveConfig().tabId || 'general');
+  __kiChatOpenTabs[tabId] = false;
+}
+
+function kiChatHideForNavigation() {
+  __kiChatStopVisibleDots();
+  var d = document.getElementById('kiChatDrawer');
+  if (d) d.classList.add('d-none');
+  __kiChatApplyTaskbarVisibility();
+}
+
+function kiChatRestoreForCurrentTab() {
+  var cfg = kiChatResolveConfig();
+  var tabId = cfg.tabId || 'general';
+  if (__kiChatOpenTabs[tabId]) {
+    kiChatOpen();
+  } else {
+    var d = document.getElementById('kiChatDrawer');
+    if (d) d.classList.add('d-none');
+    __kiChatLoadedTabId = null;
+  }
+}
+window.kiChatHideForNavigation = kiChatHideForNavigation;
+window.kiChatRestoreForCurrentTab = kiChatRestoreForCurrentTab;
+window.kiChatResolveConfig = kiChatResolveConfig;
+window.kiChatToggleMaximize = kiChatToggleMaximize;
+window.kiChatMinimize = kiChatMinimize;
+window.kiChatRestoreFromMinimize = kiChatRestoreFromMinimize;
+window.kiChatRestoreAndMaximize = kiChatRestoreAndMaximize;
+window.kiChatCloseFromMinimized = kiChatCloseFromMinimized;
+function kiChatClear() {
+  var tabId = __kiChatLoadedTabId || (kiChatResolveConfig().tabId || 'general');
+  var t = __kiChatGetTab(tabId);
+  var clearedUsageId = t.usageId;
+  t.history = [];
+  t.usage = __kiChatEmptyUsage();
+  t.usageLoaded = true;
+  if (!t.streaming) {
+    __kiChatStopUsagePolling(tabId);
+    t.usageId = __kiChatCreateUsageId();
+    __kiChatPersistUsageId(tabId, t.usageId);
+  }
+  if (Array.isArray(t.attachments)) t.attachments = [];
+  try { localStorage.removeItem(__kiChatStorageKeyFor(tabId)); } catch(e){}
+  if (clearedUsageId && typeof fetch === 'function') {
+    fetch('/api/ki-chat/usage/' + encodeURIComponent(clearedUsageId), {
+      method: 'DELETE',
+      credentials: 'same-origin'
+    }).catch(function(){ });
+  }
+  __kiChatRenderDrawer();
+  __kiChatRenderAttachments(tabId);
+  __kiChatRenderUsage(tabId);
+}
+
+function __kiChatGetAttachments(tabId) {
+  var t = __kiChatGetTab(tabId);
+  if (!Array.isArray(t.attachments)) t.attachments = [];
+  return t.attachments;
+}
+function __kiChatAttachmentId() {
+  try {
+    if (window.crypto && typeof window.crypto.getRandomValues === 'function') {
+      var buf = new Uint32Array(2);
+      window.crypto.getRandomValues(buf);
+      return 'att_' + Date.now().toString(36) + '_' + buf[0].toString(36) + buf[1].toString(36);
+    }
+  } catch(_){ }
+  return 'att_' + Date.now() + '_' + Math.floor(Math.random() * 1e9).toString(36);
+}
+var __KI_CHAT_SUPPORTED_MIME_TYPES = {
+  'image/png':     ['.png'],
+  'image/jpeg':    ['.jpg', '.jpeg'],
+  'image/jpg':     ['.jpg', '.jpeg'],
+  'image/tiff':    ['.tif', '.tiff'],
+  'image/tif':     ['.tif', '.tiff'],
+  'image/svg+xml': ['.svg'],
+};
+var __KI_CHAT_SVG_RASTER_MAX_DIM = 1024;
+function __kiChatIsSupportedMimeType(mime) {
+  return Object.prototype.hasOwnProperty.call(__KI_CHAT_SUPPORTED_MIME_TYPES, String(mime || '').toLowerCase());
+}
+function __kiChatIsSvgMimeType(mime) {
+  return String(mime || '').toLowerCase() === 'image/svg+xml';
+}
+function __kiChatDetectMimeType(name) {
+  var lower = String(name || '').toLowerCase();
+  var dot = lower.lastIndexOf('.');
+  if (dot < 0) return '';
+  var ext = lower.slice(dot + 1);
+  if (ext === 'png')  return 'image/png';
+  if (ext === 'jpg' || ext === 'jpeg') return 'image/jpeg';
+  if (ext === 'tif' || ext === 'tiff') return 'image/tiff';
+  if (ext === 'svg')  return 'image/svg+xml';
+  return '';
+}
+function __kiChatAttachmentSize(bytes) {
+  var n = Math.max(0, Math.floor(Number(bytes) || 0));
+  if (n < 1024) return n + ' B';
+  if (n < 1024 * 1024) return (n / 1024).toFixed(1).replace('.', ',') + ' KB';
+  return (n / 1024 / 1024).toFixed(1).replace('.', ',') + ' MB';
+}
+function __kiChatSvgIntrinsicSize(svgText) {
+  var tag = /<svg[^>]*>/i.exec(String(svgText || ''));
+  var attrs = tag ? tag[0] : '';
+  var width = /\swidth\s*=\s*["']([0-9.]+)(?:px)?["']/i.exec(attrs);
+  var height = /\sheight\s*=\s*["']([0-9.]+)(?:px)?["']/i.exec(attrs);
+  if (width && height) return { width: parseFloat(width[1]), height: parseFloat(height[1]) };
+  var box = /\sviewBox\s*=\s*["']\s*[-0-9.]+[ ,]+[-0-9.]+[ ,]+([0-9.]+)[ ,]+([0-9.]+)/i.exec(attrs);
+  if (box) return { width: parseFloat(box[1]), height: parseFloat(box[2]) };
+  return { width: 0, height: 0 };
+}
+function __kiChatBase64ToText(base64Data) {
+  var binary = atob(String(base64Data || ''));
+  var bytes = new Uint8Array(binary.length);
+  for (var i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return new TextDecoder('utf-8').decode(bytes);
+}
+function __kiChatRasterizeSvgToPng(base64Data) {
+  return new Promise(function(resolve, reject){
+    var intrinsic;
+    try {
+      intrinsic = __kiChatSvgIntrinsicSize(__kiChatBase64ToText(base64Data));
+    } catch(_) {
+      reject(new Error('svg_render_failed'));
+      return;
+    }
+    var img = new Image();
+    img.onload = function(){
+      try {
+        var w = intrinsic.width > 0 ? intrinsic.width : (img.naturalWidth || 0);
+        var h = intrinsic.height > 0 ? intrinsic.height : (img.naturalHeight || 0);
+        if (!(w > 0) || !(h > 0)) { w = 1; h = 1; }
+        var scale = __KI_CHAT_SVG_RASTER_MAX_DIM / Math.max(w, h);
+        var canvas = document.createElement('canvas');
+        canvas.width = Math.max(1, Math.round(w * scale));
+        canvas.height = Math.max(1, Math.round(h * scale));
+        var ctx = canvas.getContext('2d');
+        if (!ctx) { reject(new Error('svg_render_failed')); return; }
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        var pngUrl = String(canvas.toDataURL('image/png') || '');
+        var pngBase64 = pngUrl.indexOf(',') >= 0 ? pngUrl.split(',')[1] : '';
+        if (!pngBase64) { reject(new Error('svg_render_failed')); return; }
+        resolve({ mimeType: 'image/png', base64Data: pngBase64 });
+      } catch(_) {
+        reject(new Error('svg_render_failed'));
+      }
+    };
+    img.onerror = function(){ reject(new Error('svg_render_failed')); };
+    img.src = 'data:image/svg+xml;base64,' + base64Data;
+  });
+}
+function __kiChatNormalizeImagePayload(mimeType, base64Data) {
+  if (!__kiChatIsSvgMimeType(mimeType)) {
+    return Promise.resolve({ mimeType: mimeType, base64Data: base64Data });
+  }
+  return __kiChatRasterizeSvgToPng(base64Data);
+}
+function __kiChatCreateImageAttachment(name, mimeType, base64Data, sizeBytes) {
+  return new Promise(function(resolve){
+    var dataUrl = 'data:' + mimeType + ';base64,' + base64Data;
+    function settle(thumbnailDataUrl) {
+      resolve({
+        id: __kiChatAttachmentId(),
+        name: name || 'image',
+        mimeType: mimeType,
+        size: sizeBytes || 0,
+        base64Data: base64Data,
+        thumbnailDataUrl: thumbnailDataUrl,
+      });
+    }
+    try {
+      var img = new Image();
+      img.onload = function(){
+        try {
+          var maxDim = 56;
+          var w = img.naturalWidth || maxDim;
+          var h = img.naturalHeight || maxDim;
+          var scale = Math.min(1, maxDim / Math.max(w, h));
+          var targetW = Math.max(1, Math.round(w * scale));
+          var targetH = Math.max(1, Math.round(h * scale));
+          var canvas = document.createElement('canvas');
+          canvas.width = targetW; canvas.height = targetH;
+          var ctx = canvas.getContext('2d');
+          if (ctx) {
+            ctx.drawImage(img, 0, 0, targetW, targetH);
+            settle(canvas.toDataURL('image/png'));
+            return;
+          }
+        } catch(_) {}
+        settle(dataUrl);
+      };
+      img.onerror = function(){ settle(dataUrl); };
+      img.src = dataUrl;
+    } catch(_) {
+      settle(dataUrl);
+    }
+  });
+}
+function __kiChatFileToAttachment(file) {
+  return new Promise(function(resolve, reject){
+    var detectedMime = (file && file.type) ? String(file.type).toLowerCase() : '';
+    var mime = detectedMime || __kiChatDetectMimeType(file && file.name);
+    if (!__kiChatIsSupportedMimeType(mime)) {
+      reject(new Error('unsupported_mime'));
+      return;
+    }
+    var reader = new FileReader();
+    reader.onerror = function(){ reject(new Error('read_failed')); };
+    reader.onload = function(){
+      var dataUrl = String(reader.result || '');
+      var base64 = dataUrl.indexOf(',') >= 0 ? dataUrl.split(',')[1] : '';
+      if (!base64) { reject(new Error('read_failed')); return; }
+      __kiChatNormalizeImagePayload(mime, base64)
+        .then(function(payload){
+          return __kiChatCreateImageAttachment(file.name, payload.mimeType, payload.base64Data, file.size);
+        })
+        .then(resolve)
+        .catch(reject);
+    };
+    reader.readAsDataURL(file);
+  });
+}
+function __kiChatAttachmentErrorText(err) {
+  var t = function(key, fallback){ return window.i18n ? window.i18n.t(key) : fallback; };
+  var code = (err && err.message) ? err.message : '';
+  if (code === 'unsupported_mime') return t('ki_chat.attachments.error_unsupported_type', 'Dateityp wird nicht unterstützt.');
+  if (code === 'svg_render_failed') return t('ki_chat.attachments.error_svg_render_failed', 'SVG konnte nicht als Bild umgewandelt werden.');
+  if (code === 'read_failed') return t('ki_chat.attachments.error_read_failed', 'Datei konnte nicht gelesen werden.');
+  return '';
+}
+function __kiChatAddAttachmentFromFile(file) {
+  var tabId = __kiChatLoadedTabId || (kiChatResolveConfig().tabId || 'general');
+  if (!file) return Promise.resolve(null);
+  return __kiChatFileToAttachment(file).then(function(att){
+    var list = __kiChatGetAttachments(tabId);
+    if (list.length >= __KI_CHAT_MAX_ATTACHMENTS) {
+      kiChatToast(window.i18n ? window.i18n.t('ki_chat.attachments.error_too_many') : 'Zu viele Anhänge.', 'warn');
+      return null;
+    }
+    list.push(att);
+    __kiChatRenderAttachments(tabId);
+    return att;
+  }).catch(function(err){
+    var msg = __kiChatAttachmentErrorText(err)
+      || (window.i18n ? window.i18n.t('ki_chat.attachments.error_send_failed') : 'Anhang konnte nicht verarbeitet werden.');
+    kiChatToast(msg, 'error');
+    return null;
+  });
+}
+function __kiChatAddAttachmentFromServerFile(fileMeta) {
+  var tabId = __kiChatLoadedTabId || (kiChatResolveConfig().tabId || 'general');
+  if (!fileMeta || !fileMeta.path) return;
+  var name = fileMeta.name || (fileMeta.path.split('/').pop() || 'image');
+  var mime = (fileMeta.mimeType || __kiChatDetectMimeType(name) || 'image/png').toLowerCase();
+  if (!__kiChatIsSupportedMimeType(mime)) {
+    kiChatToast(window.i18n ? window.i18n.t('ki_chat.attachments.error_unsupported_type') : 'Dateityp wird nicht unterstützt.', 'error');
+    return;
+  }
+  var list = __kiChatGetAttachments(tabId);
+  if (list.length >= __KI_CHAT_MAX_ATTACHMENTS) {
+    kiChatToast(window.i18n ? window.i18n.t('ki_chat.attachments.error_too_many') : 'Zu viele Anhänge.', 'warn');
+    return;
+  }
+  var placeholderId = __kiChatAttachmentId();
+  var placeholder =
+    {
+      id: placeholderId,
+      name: name,
+      mimeType: mime,
+      size: 0,
+      base64Data: '',
+      thumbnailDataUrl: '',
+      loading: true,
+    };
+  list.push(placeholder);
+  __kiChatRenderAttachments(tabId);
+  fetch('/api/image-extraction/files/read?path=' + encodeURIComponent(fileMeta.path), { credentials: 'same-origin' })
+    .then(function(resp){
+      if (!resp.ok) throw new Error('HTTP ' + resp.status);
+      return resp.json();
+    })
+    .then(function(data){
+      var bytes = (data && (data.bytes || data.base64Data)) || '';
+      if (!bytes) throw new Error('empty_payload');
+      var size = data && typeof data.size === 'number' ? data.size : 0;
+      return __kiChatNormalizeImagePayload(mime, bytes).then(function(payload){
+        return __kiChatCreateImageAttachment(name, payload.mimeType, payload.base64Data, size);
+      });
+    })
+    .then(function(att){
+      var found = list.findIndex(function(x){ return x.id === placeholderId; });
+      if (found < 0) return;
+      list[found] = att;
+      __kiChatRenderAttachments(tabId);
+    })
+    .catch(function(err){
+      var idx = list.findIndex(function(x){ return x.id === placeholderId; });
+      if (idx >= 0) { list.splice(idx, 1); __kiChatRenderAttachments(tabId); }
+      var msg = __kiChatAttachmentErrorText(err)
+        || ((window.i18n ? window.i18n.t('ki_chat.attachments.error_read_failed') : 'Datei konnte nicht gelesen werden.')
+          + ' (' + (err && err.message ? err.message : err) + ')');
+      kiChatToast(msg, 'error');
+    });
+}
+function __kiChatRemoveAttachment(attId) {
+  var tabId = __kiChatLoadedTabId || (kiChatResolveConfig().tabId || 'general');
+  var list = __kiChatGetAttachments(tabId);
+  var idx = list.findIndex(function(x){ return x.id === attId; });
+  if (idx >= 0) {
+    list.splice(idx, 1);
+    __kiChatRenderAttachments(tabId);
+  }
+}
+function __kiChatClearAttachments() {
+  var tabId = __kiChatLoadedTabId || (kiChatResolveConfig().tabId || 'general');
+  var list = __kiChatGetAttachments(tabId);
+  if (!list.length) return;
+  list.length = 0;
+  __kiChatRenderAttachments(tabId);
+}
+function __kiChatRenderAttachments(tabId) {
+  var strip = document.getElementById('kiChatAttachmentStrip');
+  var holder = document.getElementById('kiChatAttachmentList');
+  if (!strip || !holder) return;
+  var list = __kiChatGetAttachments(tabId);
+  holder.innerHTML = '';
+  if (!list.length) {
+    strip.classList.remove('is-visible');
+    strip.setAttribute('aria-hidden', 'true');
+    return;
+  }
+  strip.classList.add('is-visible');
+  strip.setAttribute('aria-hidden', 'false');
+  for (var i = 0; i < list.length; i++) {
+    (function(att){
+      var chip = document.createElement('div');
+      chip.className = 'ki-chat-attachment-chip';
+      chip.setAttribute('data-ki-attachment-id', att.id);
+      var thumb = document.createElement('img');
+      thumb.className = 'ki-chat-attachment-thumb';
+      thumb.alt = '';
+      thumb.src = att.thumbnailDataUrl || ('data:' + att.mimeType + ';base64,' + (att.base64Data || ''));
+      if (att.loading) thumb.style.opacity = '.45';
+      var name = document.createElement('span');
+      name.className = 'ki-chat-attachment-name';
+      name.textContent = att.name;
+      var size = document.createElement('span');
+      size.className = 'ki-chat-attachment-size';
+      size.textContent = att.loading
+        ? (window.i18n ? window.i18n.t('ki_chat.attachments.browser_loading') : 'Lädt…')
+        : __kiChatAttachmentSize(att.size);
+      var remove = document.createElement('button');
+      remove.type = 'button';
+      remove.className = 'ki-chat-attachment-remove';
+      remove.setAttribute('aria-label', window.i18n ? window.i18n.t('ki_chat.attachments.preview_remove_title') : 'Anhang entfernen');
+      remove.title = window.i18n ? window.i18n.t('ki_chat.attachments.preview_remove_title') : 'Anhang entfernen';
+      remove.innerHTML = '<i class="bi bi-x-lg" aria-hidden="true"></i>';
+      remove.onclick = function(){ __kiChatRemoveAttachment(att.id); };
+      chip.appendChild(thumb);
+      chip.appendChild(name);
+      chip.appendChild(size);
+      chip.appendChild(remove);
+      holder.appendChild(chip);
+    })(list[i]);
+  }
+  if (typeof __kiChatUpdateDrawerScrollbar === 'function') __kiChatUpdateDrawerScrollbar();
+}
+function __kiChatIsStreamingForVisibleTab() {
+  var tabId = __kiChatLoadedTabId || (kiChatResolveConfig().tabId || 'general');
+  var t = __kiChatGetTab(tabId);
+  return !!t.streaming;
+}
+
+function __kiChatBindDragDrop() {
+  var drawer = document.getElementById('kiChatDrawer');
+  var overlay = document.getElementById('kiChatDropOverlay');
+  if (!drawer || !overlay || drawer.__kiChatDragBound) return;
+  drawer.__kiChatDragBound = true;
+  var dragDepth = 0;
+  function hasFiles(evt) {
+    if (!evt || !evt.dataTransfer) return false;
+    var types = evt.dataTransfer.types;
+    if (!types) return false;
+    for (var i = 0; i < types.length; i++) {
+      if (types[i] === 'Files' || types[i] === 'application/x-moz-file') return true;
+    }
+    return false;
+  }
+  drawer.addEventListener('dragenter', function(evt){
+    if (!hasFiles(evt)) return;
+    evt.preventDefault();
+    dragDepth += 1;
+    overlay.classList.add('is-visible');
+  });
+  drawer.addEventListener('dragover', function(evt){
+    if (!hasFiles(evt)) return;
+    evt.preventDefault();
+    if (evt.dataTransfer) evt.dataTransfer.dropEffect = 'copy';
+  });
+  drawer.addEventListener('dragleave', function(evt){
+    if (!hasFiles(evt)) return;
+    dragDepth = Math.max(0, dragDepth - 1);
+    if (dragDepth === 0) overlay.classList.remove('is-visible');
+  });
+  drawer.addEventListener('drop', function(evt){
+    if (!hasFiles(evt)) return;
+    evt.preventDefault();
+    dragDepth = 0;
+    overlay.classList.remove('is-visible');
+    var files = evt.dataTransfer && evt.dataTransfer.files ? Array.from(evt.dataTransfer.files) : [];
+    if (!files.length) return;
+    if (__kiChatIsStreamingForVisibleTab()) {
+      kiChatToast(window.i18n ? window.i18n.t('ki_chat.attachments.error_send_failed') : 'Anhänge können während eines laufenden Aufrufs nicht hinzugefügt werden.', 'warn');
+      return;
+    }
+    var chain = Promise.resolve();
+    files.forEach(function(file){
+      chain = chain.then(function(){ return __kiChatAddAttachmentFromFile(file); });
+    });
+  });
+}
+
+var __KI_CHAT_IMAGE_EXTS = ['svg', 'png', 'jpg', 'jpeg', 'tif', 'tiff'];
+
+function __kiChatImageFileEntries(path) {
+  var url = '/api/image-extraction/files/browse?fileExtensions=' + __KI_CHAT_IMAGE_EXTS.join(',')
+    + (path ? '&path=' + encodeURIComponent(path) : '');
+  return fetch(url).then(function(r){
+    return r.json().then(function(data){
+      if (!r.ok || data.error) throw new Error(data.error || ('HTTP ' + r.status));
+      var items = data.items || [];
+      return {
+        current: data.currentPath || '',
+        parent: data.parentPath || null,
+        directories: items.filter(function(item){ return item.type === 'directory'; }),
+        files: items.filter(function(item){ return item.type !== 'directory'; }),
+      };
+    });
+  });
+}
+function __kiChatPickedFileName(path) {
+  return String(path || '').replace(/\\/g, '/').split('/').filter(Boolean).pop() || String(path || '');
+}
+function __kiChatOpenBrowser() {
+  if (__kiChatIsStreamingForVisibleTab()) {
+    kiChatToast(window.i18n ? window.i18n.t('ki_chat.attachments.error_send_failed') : 'Anhänge können während eines laufenden Aufrufs nicht hinzugefügt werden.', 'warn');
+    return;
+  }
+  __kiChatOpenDirBrowser(function(picked){
+    if (!picked) return;
+    __kiChatAddAttachmentFromServerFile({
+      path: picked,
+      name: __kiChatPickedFileName(picked),
+    });
+  }, {
+    files: __KI_CHAT_IMAGE_EXTS,
+    acceptHint: 'SVG, PNG, JPG, JPEG, TIF, TIFF',
+    storageKey: 'stacklens.fb.last.kiChat',
+    titleKey: 'ki_chat.attachments.browser_title',
+    titleFallback: 'Bild für den KI-Chat auswählen',
+    fileIcon: 'bi-file-earmark-image',
+    describe: function(file){ return __kiChatAttachmentSize(file.size); },
+    load: __kiChatImageFileEntries,
+  });
+}
+var __KI_CHAT_MAX_ATTACHMENTS = 8;
+
+function __kiChatPersist(tabId) {
+  var t = __kiChatTabs[tabId];
+  if (!t) return;
+  try { localStorage.setItem(__kiChatStorageKeyFor(tabId), JSON.stringify(t.history.slice(-100))); } catch(e){}
+}
+
+function __kiChatRenderDrawer() {
+  var list = document.getElementById('kiChatMessages');
+  if (!list) return;
+  __kiChatStopVisibleDots();
+  list.innerHTML = '';
+  var cfg = kiChatResolveConfig();
+  var tabId = __kiChatLoadedTabId || (cfg.tabId || 'general');
+  var t = __kiChatGetTab(tabId);
+  __kiChatRenderUsage(tabId);
+
+  if (t.history.length === 0 && !t.streaming) {
+    __kiChatRenderIntro(cfg);
+  } else {
+    t.history.forEach(function(m){
+      if (m.role === 'user') __kiChatAppendUser(m.content, false);
+      else __kiChatAppendAi(m.content, false);
+    });
+  }
+
+  if (t.streaming) {
+    var bubble = __kiChatAppendAi(t.partial || '.'.repeat(t.dotCount || 1), false, true );
+    if (bubble) {
+      bubble.classList.add('ki-chat-bubble-streaming');
+      bubble.setAttribute('data-ki-live', tabId);
+      if (!t.partial) {
+        __kiChatVisibleDotTimer = setInterval(function(){
+          var st = __kiChatTabs[tabId];
+          if (!st || !st.streaming || st.partial) { __kiChatStopVisibleDots(); return; }
+          st.dotCount = (st.dotCount % 3) + 1;
+          bubble.textContent = '.'.repeat(st.dotCount);
+        }, 1200);
+      }
+    }
+  }
+  list.scrollTop = list.scrollHeight;
+  __kiChatUpdateDrawerScrollbar();
+}
+function __kiChatStopVisibleDots() {
+  if (__kiChatVisibleDotTimer) { clearInterval(__kiChatVisibleDotTimer); __kiChatVisibleDotTimer = null; }
+}
+function __kiChatUpdateSendButton() {
+  var sendBtn = document.getElementById('kiChatSendBtn');
+  if (!sendBtn) return;
+  var tabId = __kiChatLoadedTabId || (kiChatResolveConfig().tabId || 'general');
+  var t = __kiChatGetTab(tabId);
+  sendBtn.disabled = !!t.streaming;
+  sendBtn.style.opacity = t.streaming ? '.5' : '';
+}
+function __kiChatRenderIntro(cfg) {
+  cfg = cfg || kiChatResolveConfig();
+  var intro = '';
+  if (cfg.introMessageKey && window.i18n) {
+    var translated = window.i18n.t(cfg.introMessageKey);
+    if (translated && translated !== cfg.introMessageKey) intro = translated;
+  }
+  if (!intro) intro = cfg.introMessage || (window.i18n ? window.i18n.t('ki_chat.default_intro') : '');
+  if (!intro || intro === 'ki_chat.default_intro') {
+    intro = (window.i18n && window.i18n.getLang() === 'en')
+      ? 'Hello! How can I help you on this page?'
+      : 'Hallo! Wie kann ich dir auf dieser Seite helfen?';
+  }
+  var list = document.getElementById('kiChatMessages');
+  if (!list) return;
+  var wrap = document.createElement('div');
+  wrap.style.cssText = 'align-self:flex-start;max-width:90%;';
+  wrap.innerHTML = '<div class="ki-chat-label-ai"><i class="bi bi-robot me-1"></i>KI Agent</div>' +
+    '<div class="ki-ai-bubble">' + __kiChatEsc(intro) + '</div>';
+  list.appendChild(wrap);
+}
+function __kiChatRenderSuggestions() {
+}
+
+function kiChatRunAction(item) {
+  if (!item || !item.action) return;
+  if (item.action === 'make') {
+    var repoPath = '';
+    try {
+      if (typeof item.repoPathProvider === 'function') repoPath = item.repoPathProvider() || '';
+      else if (item.repoPath) repoPath = item.repoPath;
+    } catch(e) { repoPath = ''; }
+    if (!repoPath) {
+      kiChatToast(window.i18n ? window.i18n.t('ki_chat.no_repo_selected') : 'Kein Repository ausgewählt. Bitte wähle erst ein Repository in diesem Reiter aus.', 'warn');
+      return;
+    }
+    __kiChatOpenActionModal('make ' + (item.target || 'test'),
+      'cwd: ' + repoPath,
+      function(appendLine, done){
+        var ctrl = (typeof AbortController === 'function') ? new AbortController() : null;
+        fetch('/api/make-runner', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Accept': 'text/event-stream' },
+          body: JSON.stringify({ repoPath: repoPath, target: (item.target || 'test') }),
+          signal: ctrl ? ctrl.signal : undefined
+        }).then(function(resp){
+          if (!resp.ok) { appendLine('HTTP ' + resp.status); done('error'); return; }
+          var reader = resp.body.getReader();
+          var decoder = new TextDecoder();
+          var sseBuf = '';
+          var ev = '';
+          function pump(){
+            return reader.read().then(function(r){
+              if (r.done) { done('ok'); return; }
+              sseBuf += decoder.decode(r.value, { stream:true });
+              var parts = sseBuf.split('\n');
+              sseBuf = parts.pop();
+              for (var i=0;i<parts.length;i++){
+                var ln = parts[i].replace(/\r$/,'');
+                if (ln.indexOf('event:') === 0) ev = ln.slice(6).trim();
+                else if (ln.indexOf('data:') === 0) {
+                  var d = ln.slice(5);
+                  if (ev === 'done') { done(d); return; }
+                  if (ev === 'line' || ev === '') appendLine(d);
+                  ev = '';
+                } else if (ln === '') { ev = ''; }
+              }
+              return pump();
+            });
+          }
+          return pump();
+        }).catch(function(err){
+          appendLine('\u2717 ' + (window.i18n ? window.i18n.t('ki_chat.network_error_line') : 'Netzwerkfehler') + ': ' + (err && err.message ? err.message : err));
+          done('error');
+        });
+        return ctrl;
+      }
+    );
+    return;
+  }
+  kiChatToast((window.i18n ? window.i18n.t('common.error') : 'Fehler') + ': ' + item.action, 'warn');
+}
+
+function __kiChatOpenActionModal(title, subtitle, runner) {
+  var existing = document.getElementById('kiChatActionModal');
+  if (existing) existing.remove();
+  var overlay = document.createElement('div');
+  overlay.id = 'kiChatActionModal';
+  overlay.style.cssText = 'position:fixed;inset:0;z-index:2000;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;';
+  overlay.innerHTML =
+    '<div style="background:#1e1e1e;color:#e8e8e8;width:min(820px,94vw);height:min(560px,82vh);border-radius:14px;display:flex;flex-direction:column;box-shadow:0 24px 60px rgba(0,0,0,.45);overflow:hidden;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;">'
+    + '  <div style="display:flex;align-items:center;gap:10px;padding:10px 14px;background:linear-gradient(135deg,#7c5cbf,#5b8ef0);color:#fff;flex-shrink:0;">'
+    + '    <i class="bi bi-terminal-fill"></i>'
+    + '    <span style="font-weight:800;font-size:13px;">' + __kiChatEsc(title) + '</span>'
+    + '    <span style="opacity:.85;font-size:11px;flex:1;">' + __kiChatEsc(subtitle || '') + '</span>'
+    + '    <span id="kiChatActionStatus" style="font-size:11px;font-weight:700;background:#fff3;padding:2px 8px;border-radius:6px;">' + (window.i18n ? window.i18n.t('ki_chat.action_running') : 'läuft…') + '</span>'
+    + '    <button id="kiChatActionStop" title="' + (window.i18n ? window.i18n.t('common.cancel') : 'Abbrechen') + '" style="background:transparent;border:1px solid #fff8;color:#fff;border-radius:6px;padding:2px 8px;font-size:11px;font-weight:700;cursor:pointer;">Stop</button>'
+    + '    <button id="kiChatActionClose" title="' + (window.i18n ? window.i18n.t('common.close') : 'Schließen') + '" style="background:transparent;border:none;color:#fff;font-size:20px;line-height:1;cursor:pointer;padding:0 2px;">&times;</button>'
+    + '  </div>'
+    + '  <pre id="kiChatActionOut" style="margin:0;padding:12px 14px;flex:1;overflow:auto;background:#1e1e1e;color:#e8e8e8;font-size:12px;line-height:1.5;white-space:pre-wrap;word-break:break-word;"></pre>'
+    + '  <div style="padding:8px 14px;background:#2a2a2a;border-top:1px solid #444;display:flex;justify-content:flex-end;gap:8px;flex-shrink:0;">'
+    + '    <button id="kiChatActionCopy" style="background:#444;color:#eee;border:none;border-radius:6px;padding:5px 12px;font-size:11px;font-weight:700;cursor:pointer;">' + (window.i18n ? window.i18n.t('ki_chat.action_copy_output') : 'Ausgabe kopieren') + '</button>'
+    + '    <button id="kiChatActionToChat" style="background:linear-gradient(135deg,#7c5cbf,#5b8ef0);color:#fff;border:none;border-radius:6px;padding:5px 12px;font-size:11px;font-weight:700;cursor:pointer;">' + (window.i18n ? window.i18n.t('ki_chat.action_send_to_chat') : 'An KI-Chat senden') + '</button>'
+    + '  </div>'
+    + '</div>';
+  document.body.appendChild(overlay);
+  var out = overlay.querySelector('#kiChatActionOut');
+  var statusEl = overlay.querySelector('#kiChatActionStatus');
+  var stopBtn = overlay.querySelector('#kiChatActionStop');
+  var closeBtn = overlay.querySelector('#kiChatActionClose');
+  var copyBtn = overlay.querySelector('#kiChatActionCopy');
+  var toChatBtn = overlay.querySelector('#kiChatActionToChat');
+  var finished = false;
+  var ctrl = null;
+  function appendLine(line){
+    var atBottom = (out.scrollTop + out.clientHeight + 16 >= out.scrollHeight);
+    out.textContent += (out.textContent ? '\n' : '') + line;
+    if (atBottom) out.scrollTop = out.scrollHeight;
+  }
+  function done(status){
+    if (finished) return;
+    finished = true;
+    var t = window.i18n ? window.i18n.t : function(k){ return k; };
+    statusEl.textContent = (status === 'ok') ? t('ki_chat.action_done') : (status === 'fail' ? t('ki_chat.action_failed') : (status === 'timeout' ? t('ki_chat.action_timeout') : (status === 'abgebrochen' || status === 'cancelled' ? t('ki_chat.action_cancelled') : (status || 'ende'))));
+    statusEl.style.background = (status === 'ok') ? '#43a04766' : '#b91c1c66';
+    stopBtn.disabled = true; stopBtn.style.opacity = '.5';
+  }
+  closeBtn.onclick = function(){ try { if (ctrl && !finished) ctrl.abort(); } catch(_){} overlay.remove(); };
+  stopBtn.onclick  = function(){ try { if (ctrl) ctrl.abort(); } catch(_){} done('cancelled'); };
+  copyBtn.onclick  = function(){
+    var t = window.i18n ? window.i18n.t : function(k){ return k; };
+    try { navigator.clipboard.writeText(out.textContent || ''); copyBtn.textContent = t('ki_chat.action_copied'); setTimeout(function(){ copyBtn.textContent = t('ki_chat.action_copy_output'); }, 1500); } catch(_){}
+  };
+  toChatBtn.onclick = function(){
+    var text = out.textContent || '';
+    if (!text) { return; }
+    var inp = document.getElementById('kiChatInput');
+    if (inp) {
+      var prefix = window.i18n ? window.i18n.t('ki_chat.action_analyze_prefix') : 'Bitte analysiere folgende Ausgabe von';
+      inp.value = prefix + ' "' + title + '":\n\n```\n' + text.slice(-6000) + '\n```';
+      var d = document.getElementById('kiChatDrawer');
+      if (d) d.classList.remove('d-none');
+      inp.focus();
+      overlay.remove();
+    }
+  };
+  ctrl = runner(appendLine, done);
+}
+
+
+</script>
+<th:block th:replace="~{fragments/layout/scripts-ki-chat-window :: scripts-ki-chat-window}"></th:block>
+<th:block th:replace="~{fragments/layout/scripts-ki-chat-send :: scripts-ki-chat-send}"></th:block>
+</th:block>
+</body>
+</html>

@@ -1,0 +1,372 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" lang="de">
+<body>
+<th:block th:fragment="scripts-gitlab">
+<script th:inline="none">
+function openGitlabModal(cfg) {
+    resetForm(['glId','glName','glUrl','glToken','glGroup','glProjects','glBranch']);
+
+    var glId = document.getElementById('glId');
+    var glName = document.getElementById('glName');
+    var glUrl = document.getElementById('glUrl');
+    var glToken = document.getElementById('glToken');
+    var glGroup = document.getElementById('glGroup');
+    var glProjects = document.getElementById('glProjects');
+    var glBranch = document.getElementById('glBranch');
+    var glActive = document.getElementById('glActive');
+    var gitlabModalTitle = document.getElementById('gitlabModalTitle');
+
+    if (glActive) glActive.checked = true;
+    if (gitlabModalTitle) gitlabModalTitle.textContent = cfg ? _t('config.gitlab.edit') : _t('config.gitlab.new');
+    var glTestResult = document.getElementById('glTestResult');
+    if (glTestResult) { glTestResult.style.display = 'none'; glTestResult.innerHTML = ''; }
+
+    if (cfg) {
+      if (glId) glId.value = cfg.id;
+      if (glName) glName.value = cfg.name;
+      if (glUrl) glUrl.value = cfg.baseUrl;
+      if (glToken) glToken.value = cfg.accessToken;
+      if (glGroup) glGroup.value = cfg.groupId || '';
+      if (glProjects) glProjects.value = cfg.projectIds || '';
+      if (glBranch) glBranch.value = cfg.defaultBranch || '';
+      if (glActive) glActive.checked = cfg.active;
+    }
+
+    showModalById('gitlabModal');
+}
+function editGitlab(id) { openGitlabModal(gitlabConfigs[id]); }
+async function saveGitlab() {
+    const glId = document.getElementById('glId');
+    const glName = document.getElementById('glName');
+    const glUrl = document.getElementById('glUrl');
+    const glToken = document.getElementById('glToken');
+    const glGroup = document.getElementById('glGroup');
+    const glProjects = document.getElementById('glProjects');
+    const glBranch = document.getElementById('glBranch');
+    const glActive = document.getElementById('glActive');
+
+    const p = {
+      id: +((glId && glId.value) || '') || null,
+      name: (((glName && glName.value) || '') + '').trim(),
+      baseUrl: (((glUrl && glUrl.value) || '') + '').trim(),
+      accessToken: (((glToken && glToken.value) || '') + '').trim(),
+      groupId: ((((glGroup && glGroup.value) || '') + '').trim()) || null,
+      projectIds: ((((glProjects && glProjects.value) || '') + '').trim()) || null,
+      defaultBranch: ((((glBranch && glBranch.value) || '') + '').trim()) || null,
+      active: glActive ? glActive.checked : true
+    };
+    if (!p.name||!p.baseUrl||!p.accessToken) { showAlert(_t('config.fill_required'),'danger'); return; }
+    const res = await fetch('/api/config/gitlab', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(p) });
+    if (res.ok) { showAlert(_t('config.gitlab.saved'),'success'); location.reload(); } else showAlert(_t('config.error_save'),'danger');
+}
+function deleteGitlab(id) { showConfirm(_t('config.gitlab.delete_confirm'), _t('config.gitlab.delete_title'), async function() { const res=await fetch(`/api/config/gitlab/${id}`,{method:'DELETE'}); if(res.ok){showAlert(_t('config.deleted'),'success');location.reload();}else showAlert(_t('config.error_delete'),'danger'); }); }
+async function testGitlabConnection() {
+  await window.slHelpers.testConnection({ idElement: 'glId', resultElement: 'glTestResult', buttonElement: 'glTestBtn', endpoint: '/api/config/gitlab/{id}/test' });
+}
+function openDbModal(cfg) {
+    resetForm(['dbId','dbName','dbHost','dbDatabase','dbUser','dbPass','dbSchemas']);
+
+    const dbId = document.getElementById('dbId');
+    const dbName = document.getElementById('dbName');
+    const dbType = document.getElementById('dbType');
+    const dbHost = document.getElementById('dbHost');
+    const dbPort = document.getElementById('dbPort');
+    const dbDatabase = document.getElementById('dbDatabase');
+    const dbUser = document.getElementById('dbUser');
+    const dbPass = document.getElementById('dbPass');
+    const dbSchemas = document.getElementById('dbSchemas');
+    const dbActive = document.getElementById('dbActive');
+    const dbModalTitle = document.getElementById('dbModalTitle');
+
+    if (dbType) dbType.value = 'POSTGRESQL';
+    if (dbPort) dbPort.value = 5432;
+    if (dbActive) dbActive.checked = true;
+    if (dbModalTitle) dbModalTitle.textContent = cfg ? _t('config.database.edit') : _t('config.database.new');
+    var dbTestResult = document.getElementById('dbTestResult');
+    if (dbTestResult) { dbTestResult.style.display = 'none'; dbTestResult.innerHTML = ''; }
+
+    if (cfg) {
+      if (dbId) dbId.value = cfg.id;
+      if (dbName) dbName.value = cfg.name;
+      if (dbType) dbType.value = cfg.dbType;
+      if (dbHost) dbHost.value = cfg.host;
+      if (dbPort) dbPort.value = cfg.port;
+      if (dbDatabase) dbDatabase.value = cfg.databaseName;
+      if (dbUser) dbUser.value = cfg.username;
+      if (dbPass) dbPass.value = cfg.password;
+      if (dbSchemas) dbSchemas.value = cfg.schemas || '';
+      if (dbActive) dbActive.checked = cfg.active;
+    }
+
+    showModalById('dbModal');
+}
+function editDb(id) { openDbModal(dbConfigs[id]); }
+async function saveDb() {
+    const dbId = document.getElementById('dbId');
+    const dbName = document.getElementById('dbName');
+    const dbType = document.getElementById('dbType');
+    const dbHost = document.getElementById('dbHost');
+    const dbPort = document.getElementById('dbPort');
+    const dbDatabase = document.getElementById('dbDatabase');
+    const dbUser = document.getElementById('dbUser');
+    const dbPass = document.getElementById('dbPass');
+    const dbSchemas = document.getElementById('dbSchemas');
+    const dbActive = document.getElementById('dbActive');
+
+    const p = {
+      id: +((dbId && dbId.value) || '') || null,
+      name: (((dbName && dbName.value) || '') + '').trim(),
+      dbType: (dbType && dbType.value) || 'POSTGRESQL',
+      host: (((dbHost && dbHost.value) || '') + '').trim(),
+      port: +((dbPort && dbPort.value) || '') || 5432,
+      databaseName: (((dbDatabase && dbDatabase.value) || '') + '').trim(),
+      username: (((dbUser && dbUser.value) || '') + '').trim(),
+      password: (dbPass && dbPass.value) || '',
+      schemas: ((((dbSchemas && dbSchemas.value) || '') + '').trim()) || null,
+      active: dbActive ? dbActive.checked : true
+    };
+    if (!p.name||!p.host||!p.username) { showAlert(_t('config.fill_required'),'danger'); return; }
+    const res = await fetch('/api/config/database', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(p) });
+    if (res.ok) { showAlert(_t('config.database.saved'),'success'); location.reload(); } else showAlert(_t('config.error_save'),'danger');
+}
+function deleteDb(id) { showConfirm(_t('config.database.delete_confirm'), _t('config.database.delete_title'), async function() { const res=await fetch(`/api/config/database/${id}`,{method:'DELETE'}); if(res.ok){showAlert(_t('config.deleted'),'success');location.reload();}else showAlert(_t('config.error_delete'),'danger'); }); }
+async function testDbConnection() {
+  await window.slHelpers.testConnection({ idElement: 'dbId', resultElement: 'dbTestResult', buttonElement: 'dbTestBtn', endpoint: '/api/config/database/{id}/test' });
+}
+
+
+var _kpParsedEntries = [];
+
+function kpReset() {
+  var step1 = document.getElementById('kpStep1');
+  var step2 = document.getElementById('kpStep2');
+  var importBtn = document.getElementById('kpImportBtn');
+  var importResult = document.getElementById('kpImportResult');
+  if (step1) step1.style.display = '';
+  if (step2) step2.style.display = 'none';
+  if (importBtn) importBtn.style.display = 'none';
+  if (importResult) { importResult.style.display = 'none'; importResult.innerHTML = ''; }
+  _kpParsedEntries = [];
+  __hideModal('keepassImportModal');
+  if (typeof cfOpenKeepassBrowser === 'function') cfOpenKeepassBrowser();
+}
+
+function kpHandleXmlContent(xmlStr) {
+  var errEl = document.getElementById('kpFileError');
+  function showErr(msg) {
+    if (typeof __showModal === 'function') __showModal('keepassImportModal');
+    if (errEl) { errEl.textContent = msg; errEl.style.display = 'block'; }
+    else showAlert(msg, 'danger');
+  }
+  try {
+    var parser = new DOMParser();
+    var xmlDoc = parser.parseFromString(xmlStr, 'text/xml');
+    var root = xmlDoc.documentElement;
+    if (!root || root.nodeName === 'parsererror' || root.getElementsByTagName('parsererror').length > 0) {
+      showErr('Die Datei konnte nicht als XML gelesen werden. Bitte pr\u00fcfen Sie das Format.');
+      return;
+    }
+    var entries = kpParseXml(xmlDoc);
+    if (!entries || entries.length === 0) {
+      showErr('Keine Datenbankeintr\u00e4ge in der Datei gefunden. Bitte pr\u00fcfen Sie das Format.');
+      return;
+    }
+    if (errEl) errEl.style.display = 'none';
+    kpShowPreview(entries);
+  } catch(ex) {
+    showErr('Fehler beim Lesen der Datei: ' + escHtml(String(ex.message || ex)));
+  }
+}
+
+function kpGetText(parent, tagName) {
+  var el = parent.querySelector(tagName);
+  return el ? (el.textContent || '').trim() : '';
+}
+
+function kpParseXml(xmlDoc) {
+  var root = xmlDoc.documentElement;
+  var entries = [];
+
+  if (root.tagName === 'database') {
+    var legacyEntries = xmlDoc.querySelectorAll('entry');
+    for (var i = 0; i < legacyEntries.length; i++) {
+      var le = legacyEntries[i];
+      var ltitle    = kpGetText(le, 'title');
+      var lusername = kpGetText(le, 'username');
+      var lpassword = kpGetText(le, 'password');
+      var lurl      = kpGetText(le, 'url');
+      if (!ltitle && !lusername && !lurl) continue;
+      var lp = kpParseUrl(lurl);
+      entries.push({ name: ltitle || lurl || 'Unbekannt', username: lusername, password: lpassword, host: lp.host, port: lp.port, dbName: lp.dbName, dbType: lp.dbType });
+    }
+    return entries;
+  }
+
+  var rootName = root.localName || root.tagName;
+  if (rootName === 'KeePassFile') {
+    var kpxEntries = xmlDoc.getElementsByTagName('Entry');
+    for (var j = 0; j < kpxEntries.length; j++) {
+      var ke = kpxEntries[j];
+      var kePar = ke.parentElement || ke.parentNode;
+      if (kePar && ((kePar.localName || kePar.tagName) === 'History')) continue;
+      var fields = {};
+      var keChildren = ke.childNodes || ke.children || [];
+      for (var c = 0; c < keChildren.length; c++) {
+        var kc = keChildren[c];
+        if ((kc.localName || kc.tagName || '') !== 'String') continue;
+        var keyEls = kc.getElementsByTagName('Key');
+        var valEls = kc.getElementsByTagName('Value');
+        if (keyEls.length > 0 && valEls.length > 0) {
+          fields[(keyEls[0].textContent || '').trim()] = valEls[0].textContent || '';
+        }
+      }
+      var ktitle    = (fields['Title']    || '').trim();
+      var kusername = (fields['UserName'] || '').trim();
+      var kpassword =  fields['Password'] || '';
+      var kurl      = (fields['URL']      || '').trim();
+      if (!ktitle && !kusername && !kurl) continue;
+      var kp = kpParseUrl(kurl);
+      entries.push({ name: ktitle || kurl || 'Unbekannt', username: kusername, password: kpassword, host: kp.host, port: kp.port, dbName: kp.dbName, dbType: kp.dbType });
+    }
+    return entries;
+  }
+
+  return entries;
+}
+
+function kpParseUrl(rawUrl) {
+  var url = (rawUrl || '').trim();
+  if (!url) { return { host: '', port: 3306, dbName: '', dbType: 'MYSQL' }; }
+
+  var dbType = 'MYSQL';
+  var defaultPort = 3306;
+
+  var work = url.replace(/^jdbc:/i, '');
+
+  if (/^[a-z][a-z0-9+\-.]*:\/\//i.test(work)) {
+    try {
+      var parsed = new URL(work.replace(/^[a-z][a-z0-9+\-.]*:\/\//i, 'http://'));
+      var host = parsed.hostname;
+      var port = parsed.port ? parseInt(parsed.port, 10) : defaultPort;
+      var dbName = (parsed.pathname || '').replace(/^\//, '').split('?')[0];
+      return { host: host, port: port || defaultPort, dbName: dbName, dbType: dbType };
+    } catch (err) {
+      work = work.replace(/^[a-z][a-z0-9+\-.]*:\/\//i, '');
+    }
+  }
+
+  var pathParts = work.split('/');
+  var hostPart  = pathParts[0];
+  var dbName2   = pathParts.length > 1 ? pathParts[1].split('?')[0] : '';
+  var colonIdx  = hostPart.lastIndexOf(':');
+  var host2, port2;
+  if (colonIdx !== -1) {
+    host2 = hostPart.substring(0, colonIdx);
+    port2 = parseInt(hostPart.substring(colonIdx + 1), 10) || defaultPort;
+  } else {
+    host2 = hostPart;
+    port2 = defaultPort;
+  }
+  return { host: host2, port: port2, dbName: dbName2, dbType: dbType };
+}
+
+function kpShowPreview(entries) {
+  _kpParsedEntries = entries;
+  if (typeof __showModal === 'function') __showModal('keepassImportModal');
+
+  var step1     = document.getElementById('kpStep1');
+  var step2     = document.getElementById('kpStep2');
+  var importBtn = document.getElementById('kpImportBtn');
+  var countEl   = document.getElementById('kpEntryCount');
+  var tbody     = document.getElementById('kpPreviewBody');
+  var result    = document.getElementById('kpImportResult');
+
+  if (step1) step1.style.display = 'none';
+  if (step2) step2.style.display = '';
+  if (importBtn) importBtn.style.display = '';
+  if (result) { result.style.display = 'none'; result.innerHTML = ''; }
+  if (countEl) countEl.textContent = entries.length + ' Eintr\u00e4ge gefunden';
+
+  if (!tbody) return;
+  tbody.innerHTML = '';
+
+  var typeOpts = [['POSTGRESQL','PostgreSQL'],['MYSQL','MySQL / MariaDB'],['MSSQL','MS SQL Server']];
+
+  for (var i = 0; i < entries.length; i++) {
+    var e = entries[i];
+    var options = typeOpts.map(function(o) {
+      return '<option value="' + o[0] + '"' + (o[0] === e.dbType ? ' selected' : '') + '>' + o[1] + '</option>';
+    }).join('');
+    var row = document.createElement('tr');
+    row.setAttribute('data-idx', String(i));
+    row.innerHTML =
+      '<td><input type="checkbox" class="form-check-input kp-row-chk" checked/></td>' +
+      '<td><input type="text"   class="form-control form-control-sm kp-name" value="' + escHtml(e.name)     + '"/></td>' +
+      '<td><input type="text"   class="form-control form-control-sm kp-user" value="' + escHtml(e.username) + '"/></td>' +
+      '<td><input type="text"   class="form-control form-control-sm kp-host" value="' + escHtml(e.host)     + '"/></td>' +
+      '<td><input type="number" class="form-control form-control-sm kp-port" value="' + e.port              + '"/></td>' +
+      '<td><input type="text"   class="form-control form-control-sm kp-db"   value="' + escHtml(e.dbName)   + '"/></td>' +
+      '<td><select class="form-select form-select-sm kp-type">' + options + '</select></td>';
+    tbody.appendChild(row);
+  }
+}
+
+function kpSelectAll(checked) {
+  var boxes = document.querySelectorAll('.kp-row-chk');
+  for (var i = 0; i < boxes.length; i++) { boxes[i].checked = !!checked; }
+  var allChk = document.getElementById('kpSelectAllChk');
+  if (allChk) allChk.checked = !!checked;
+}
+
+async function kpImportSelected() {
+  var rows = document.querySelectorAll('#kpPreviewBody tr');
+  var toImport = [];
+
+  for (var i = 0; i < rows.length; i++) {
+    var row  = rows[i];
+    var chk  = row.querySelector('.kp-row-chk');
+    if (!chk || !chk.checked) continue;
+
+    var idx  = parseInt(row.getAttribute('data-idx'), 10);
+    var pass = (_kpParsedEntries[idx] && _kpParsedEntries[idx].password) || '';
+    var name = ((row.querySelector('.kp-name') || {}).value || '').trim();
+    var user = ((row.querySelector('.kp-user') || {}).value || '').trim();
+    var host = ((row.querySelector('.kp-host') || {}).value || '').trim();
+    var port = parseInt(((row.querySelector('.kp-port') || {}).value || '3306'), 10) || 3306;
+    var db   = ((row.querySelector('.kp-db')   || {}).value || '').trim();
+    var type = ((row.querySelector('.kp-type') || {}).value || 'MYSQL');
+
+    if (!name || !host) continue;
+    toImport.push({ name: name, username: user, password: pass, host: host, port: port, databaseName: db, dbType: type, active: true });
+  }
+
+  if (toImport.length === 0) { showAlert(window.i18n ? window.i18n.t('config.keepass_select_hint') : 'Bitte mindestens einen Eintrag mit Name und Host auswählen.', 'warning'); return; }
+
+  var btn    = document.getElementById('kpImportBtn');
+  var result = document.getElementById('kpImportResult');
+  if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>' + (window.i18n ? window.i18n.t('config.keepass_importing') : 'Importiere\u2026'); }
+
+  var ok = 0, fail = 0;
+  for (var k = 0; k < toImport.length; k++) {
+    try {
+      var res = await fetch('/api/config/database', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(toImport[k]) });
+      if (res.ok) { ok++; } else { fail++; }
+    } catch(ex) { fail++; }
+  }
+
+  if (btn) { btn.disabled = false; btn.innerHTML = '<i class="bi bi-download me-1"></i>' + (window.i18n ? window.i18n.t('config.keepass_import_selected') : 'Ausgew\u00e4hlte importieren'); }
+
+  if (result) {
+    result.style.display = '';
+    if (fail === 0) {
+      result.innerHTML = '<div class="alert alert-success py-2 mb-0"><i class="bi bi-check-circle me-1"></i>' + ok + ' ' + (window.i18n ? window.i18n.t('config.keepass_imported_ok') : 'Verbindung(en) erfolgreich importiert.') + '</div>';
+      setTimeout(function() { __hideModal('keepassImportModal'); location.reload(); }, 1400);
+    } else {
+      result.innerHTML = '<div class="alert alert-warning py-2 mb-0"><i class="bi bi-exclamation-triangle me-1"></i>' + ok + ' ' + (window.i18n ? window.i18n.t('config.keepass_imported_count') : 'importiert,') + ' ' + fail + ' ' + (window.i18n ? window.i18n.t('config.keepass_failed_count') : 'fehlgeschlagen.') + '</div>';
+    }
+  }
+}
+</script>
+</th:block>
+</body>
+</html>

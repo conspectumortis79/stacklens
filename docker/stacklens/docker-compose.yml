@@ -1,0 +1,104 @@
+
+services:
+
+  stacklens:
+    build:
+      context: ../..
+      dockerfile: docker/stacklens/Dockerfile
+    image: stacklens:latest
+    pull_policy: build
+    container_name: stacklens
+    restart: unless-stopped
+
+    ports:
+      - "${SERVER_PORT:-8090}:${SERVER_PORT:-8090}"
+
+    environment:
+      GITHUB_TOKEN: "${GITHUB_TOKEN:-}"
+      GH_TOKEN: "${GH_TOKEN:-}"
+      COPILOT_GITHUB_TOKEN: "${COPILOT_GITHUB_TOKEN:-}"
+
+      AI_PROVIDER: "${AI_PROVIDER:-auto}"
+
+      ANTHROPIC_API_KEY: "${ANTHROPIC_API_KEY:-}"
+      CLAUDE_CODE_OAUTH_TOKEN: "${CLAUDE_CODE_OAUTH_TOKEN:-}"
+      ANTHROPIC_MODEL: "${ANTHROPIC_MODEL:-}"
+
+      COPILOT_MODEL: "${COPILOT_MODEL:-}"
+
+      SERVER_PORT: "${SERVER_PORT:-8090}"
+
+      JAVA_MAX_HEAP: "${JAVA_MAX_HEAP:-1g}"
+
+      LOG_LEVEL: "${LOG_LEVEL:-INFO}"
+
+      SPRING_DATASOURCE_URL: "${SPRING_DATASOURCE_URL:-jdbc:h2:file:/home/stacklens/.stacklens/data/stacklens;MODE=PostgreSQL;WRITE_DELAY=0;AUTO_SERVER=TRUE}"
+
+      OLLAMA_URL: "${OLLAMA_URL:-http://host.docker.internal:11434}"
+      LM_STUDIO_URL: "${LM_STUDIO_URL:-http://host.docker.internal:1234}"
+
+      STACKLENS_DATA_DIR: /home/stacklens/.stacklens
+
+      STACKLENS_HOST_HOME: "${HOME}"
+      STACKLENS_HOST_USER: "${USER}"
+
+      STACKLENS_HOST_DOCKER_DIR: "${PWD}/.."
+
+      STACKLENS_SEED_DEMO_DATA: "${STACKLENS_SEED_DEMO_DATA:-true}"
+
+      GRAFANA_DEMO_PORT: "${GRAFANA_DEMO_PORT:-3000}"
+
+      STACKLENS_RUNNING_IN_CONTAINER: "true"
+
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+    volumes:
+      - stacklens-data:/home/stacklens/.stacklens
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ../../docker:/home/stacklens/.stacklens/docker
+      - ../../mcp-server:/home/stacklens/.stacklens/mcp-server
+      - ${HOME}:${HOME}
+
+    group_add:
+      - "${DOCKER_GID:-999}"
+    healthcheck:
+      test:
+        - "CMD-SHELL"
+        - |
+          curl -sf http://localhost:${SERVER_PORT:-8090}/ \
+            -o /dev/null --max-time 5 || exit 1
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 90s
+
+  stacklens-mcp:
+    build:
+      context: ../../mcp-server
+    container_name: stacklens-mcp
+    ports:
+      - "7456:7456"
+    environment:
+      MCP_PORT: "7456"
+      MCP_HOST: "0.0.0.0"
+      MCP_AUTH_TOKEN: "${MCP_AUTH_TOKEN:-}"
+      JIRA_BASE_URL: "${JIRA_BASE_URL:-}"
+      JIRA_USERNAME: "${JIRA_USERNAME:-}"
+      JIRA_API_TOKEN: "${JIRA_API_TOKEN:-}"
+      CONFLUENCE_BASE_URL: "${CONFLUENCE_BASE_URL:-}"
+      CONFLUENCE_USERNAME: "${CONFLUENCE_USERNAME:-}"
+      CONFLUENCE_API_TOKEN: "${CONFLUENCE_API_TOKEN:-}"
+      GITLAB_BASE_URL: "${GITLAB_BASE_URL:-https://gitlab.com}"
+      GITLAB_ACCESS_TOKEN: "${GITLAB_ACCESS_TOKEN:-}"
+      GITHUB_TOKEN: "${GITHUB_TOKEN:-}"
+      NODE_OPTIONS: "--max-old-space-size=256"
+    mem_limit: 384m
+    mem_reservation: 128m
+    restart: always
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+volumes:
+  stacklens-data:
+    driver: local

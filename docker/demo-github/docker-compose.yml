@@ -1,0 +1,12 @@
+services:
+  fake-github:
+    build: ./fake-github
+    container_name: fake-github
+    ports:
+      - "8082:8082"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "/app/healthcheck.sh"]
+      interval: 30s
+      timeout: 5s
+      retries: 3

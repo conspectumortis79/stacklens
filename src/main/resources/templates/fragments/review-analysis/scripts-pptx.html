@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" lang="de">
+<body>
+<th:block th:fragment="scripts">
+<script>
+/*<![CDATA[*/
+
+window._ra = window._ra || {};
+if (!window._ra.pptx) {
+  window._ra.pptx = {
+    file: null,
+    serverPath: null,
+    serverName: null,
+  };
+}
+
+function raPptxFileSelected(input) {
+  var files = input && input.files;
+  if (!files || !files.length) return;
+  var f = files[0];
+  var lower = f.name.toLowerCase();
+  if (!lower.endsWith('.pptx') && !lower.endsWith('.ppt')) {
+    showAlert(window.i18n.t('review_analysis.pptx_invalid_type'), 'danger');
+    return;
+  }
+  if (f.size > 50 * 1024 * 1024) {
+    showAlert(window.i18n.t('review_analysis.pptx_too_large'), 'danger');
+    return;
+  }
+  window._ra.pptx.file = f;
+  window._ra.pptx.serverPath = null;
+  window._ra.pptx.serverName = f.name;
+  renderPptxChip();
+}
+
+function renderPptxChip() {
+  var chip = document.getElementById('raPptxChip');
+  var nameEl = chip ? chip.querySelector('.ra-pptx-chip-name') : null;
+  if (!chip || !nameEl) return;
+  var pptx = window._ra.pptx || {};
+  var label = pptx.serverName || (pptx.file && pptx.file.name);
+  if (label) {
+    nameEl.textContent = label;
+    chip.style.display = 'inline-flex';
+  } else {
+    nameEl.textContent = '';
+    chip.style.display = 'none';
+  }
+}
+
+function raPptxClear(event) {
+  if (event) event.stopPropagation();
+  window._ra.pptx = { file: null, serverPath: null, serverName: null };
+  var input = document.getElementById('raPptxFileInput');
+  if (input) input.value = '';
+  renderPptxChip();
+}
+
+function raPptxFileEntries(path) {
+  var url = '/api/review-analyse/files/browse?directoriesOnly=false'
+    + (path ? ('&path=' + encodeURIComponent(path)) : '');
+  return fetch(url).then(function (r) {
+    return r.json().then(function (body) {
+      if (!r.ok || (body && body.error)) {
+        throw new Error((body && body.error) || 'HTTP ' + r.status);
+      }
+      var items = body.items || [];
+      return {
+        current: body.currentPath || '',
+        parent: body.parentPath || null,
+        directories: items.filter(function (i) { return i.type === 'directory'; }),
+        files: items.filter(function (i) { return i.type !== 'directory' && /\.pptx?$/i.test(i.name); }),
+      };
+    });
+  });
+}
+
+function raPptxOpenBrowser() {
+  __kiChatOpenDirBrowser(function (picked) {
+    if (!picked) return;
+    window._ra.pptx.file = null;
+    window._ra.pptx.serverPath = picked;
+    window._ra.pptx.serverName = picked.replace(/\\/g, '/').split('/').filter(Boolean).pop() || picked;
+    renderPptxChip();
+  }, {
+    files: ['ppt', 'pptx'],
+    acceptHint: 'PPT, PPTX',
+    storageKey: 'stacklens.fb.last.pptx',
+    titleKey: 'review_analysis.pptx_browser_title',
+    titleFallback: 'PPTX-Datei wählen',
+    load: raPptxFileEntries,
+  });
+}
+
+(function initPptxDropzone() {
+  function onOver(e) {
+    e.preventDefault(); e.stopPropagation();
+    e.currentTarget.classList.add('ra-drop-over');
+  }
+  function onLeave(e) {
+    e.preventDefault(); e.stopPropagation();
+    e.currentTarget.classList.remove('ra-drop-over');
+  }
+  function onDrop(e) {
+    e.preventDefault(); e.stopPropagation();
+    e.currentTarget.classList.remove('ra-drop-over');
+    var dt = e.dataTransfer;
+    if (!dt || !dt.files || !dt.files.length) {
+      raPptxOpenBrowser();
+      return;
+    }
+    var f = dt.files[0];
+    var fakeInput = { files: [f] };
+    raPptxFileSelected(fakeInput);
+  }
+  var dz = document.getElementById('raPptxDropzone');
+  if (dz) {
+    dz.addEventListener('dragover', onOver);
+    dz.addEventListener('dragenter', onOver);
+    dz.addEventListener('dragleave', onLeave);
+    dz.addEventListener('drop', onDrop);
+  }
+})();
+
+async function startReviewAnalysis() {
+  var sprintUrl    = document.getElementById('inputSprintUrl').value.trim();
+  var jiraConfigId = document.getElementById('selectJiraConfig').value;
+  var instructions = document.getElementById('inputAnalysisInstructions').value.trim();
+  if (!sprintUrl)    { showAlert(window.i18n.t('review_analysis.alert_enter_url'), 'warning'); return; }
+  if (!jiraConfigId) { showAlert(window.i18n.t('review_analysis.alert_select_config'), 'warning'); return; }
+  if (!instructions) { showAlert(window.i18n.t('review_analysis.alert_enter_instructions'), 'warning'); return; }
+
+  raUpdateButtonState(true);
+
+  var pptx = window._ra.pptx || {};
+  try {
+    var resp;
+    if (pptx.file || pptx.serverPath) {
+      var fd = new FormData();
+      fd.append('jiraSprintUrl', sprintUrl);
+      fd.append('jiraConfigId', jiraConfigId);
+      fd.append('analysisInstructions', instructions);
+      if (pptx.file) fd.append('pptxFile', pptx.file);
+      if (pptx.serverPath) fd.append('pptxServerPath', pptx.serverPath);
+      resp = await fetch('/api/review-analyse', { method: 'POST', body: fd });
+    } else {
+      resp = await fetch('/api/review-analyse', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ jiraSprintUrl: sprintUrl, jiraConfigId: parseInt(jiraConfigId), analysisInstructions: instructions })
+      });
+    }
+    if (!resp.ok) {
+      var errText = await resp.text();
+      var errMsg  = errText;
+      try { var parsed = JSON.parse(errText); errMsg = parsed.error || errText; } catch(_) {}
+      showAlert(window.i18n.t('review_analysis.start_error') + errMsg, 'danger');
+      raUpdateButtonState(false);
+      return;
+    }
+    var data = await resp.json();
+    _raAnalysisId = data.id;
+    window._ra.analysisId = _raAnalysisId;
+    if (typeof raInitTokenUsageBar === 'function') raInitTokenUsageBar();
+    window._ra.runningId = data.id;
+    showProgress();
+    startPolling();
+    loadHistory();
+  } catch (e) {
+    showAlert(window.i18n.t('common.network_error') + e.message, 'danger');
+    raUpdateButtonState(false);
+  }
+}
+
+/*]]>*/
+</script>
+</th:block>
+</body>
+</html>

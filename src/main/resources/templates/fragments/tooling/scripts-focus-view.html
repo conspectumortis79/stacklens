@@ -1,0 +1,426 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" lang="de">
+<body>
+<th:block th:fragment="scripts-focus-view">
+<script>
+var focusPollInterval = window._tlFocusPollInterval || null;
+var _tlPromptPollInterval = window._tlPromptPollInterval || null;
+
+function _tlSetFocusPoll(id) {
+  focusPollInterval = id;
+  window._tlFocusPollInterval = id;
+}
+
+function _tlSetPromptPoll(id) {
+  _tlPromptPollInterval = id;
+  window._tlPromptPollInterval = id;
+}
+
+function tlFetchStatus(toolId) {
+  return fetch(`/api/tooling/${toolId}/status`)
+    .then(function(r) {
+      if (!r.ok) return { gone: true };
+      return r.json().then(function(data) { return { data: data }; },
+                            function() { return { gone: true }; });
+    }, function() { return { retry: true }; });
+}
+
+function tlStopToolPolls() {
+  if (focusPollInterval) { clearInterval(focusPollInterval); _tlSetFocusPoll(null); }
+  if (_tlPromptPollInterval) { clearInterval(_tlPromptPollInterval); _tlSetPromptPoll(null); }
+}
+
+if (window._tlPollCleanupHandler) document.removeEventListener('app:navigate', window._tlPollCleanupHandler);
+window._tlPollCleanupHandler = function(e) {
+  if (e.detail && e.detail.url && e.detail.url.indexOf('tooling') !== -1) return;
+  tlStopToolPolls();
+};
+document.addEventListener('app:navigate', window._tlPollCleanupHandler);
+
+async function showFocusedTool(id) {
+  document.querySelectorAll('.tl-card').forEach(c => { c.style.display = 'none'; });
+  const focusView = document.getElementById('focusView');
+  const focusCard = document.getElementById('focusCard');
+  if (!focusView || !focusCard) return;
+  focusView.style.display = 'block';
+  focusCard.innerHTML = `<div class="tl-tool" style="color:var(--tl-muted);font-size:13px;"><i class="bi bi-arrow-clockwise spin me-2"></i>${window.i18n ? window.i18n.t('tooling.loading') : 'Wird geladen…'}</div>`;
+  try {
+    const res = await fetch(`/api/tooling/${id}`);
+    if (!res.ok) { focusCard.innerHTML = `<div class="tl-tool"><div class="text-danger">${window.i18n ? window.i18n.t('tooling.not_found') : 'Tool nicht gefunden.'}</div></div>`; return; }
+    renderFocusCard(await res.json());
+  } catch (e) {
+    focusCard.innerHTML = '<div class="tl-tool"><div class="text-danger">Fehler: ' + escHtml(e.message) + '</div></div>';
+  }
+}
+
+function renderFocusCard(t) {
+  const focusCard = document.getElementById('focusCard');
+  if (!focusCard) return;
+  const badgeCls  = 'tl-badge tl-badge-' + t.status.toLowerCase();
+  const createdAt = t.createdAt ? t.createdAt.substring(0, 16).replace('T', ' ') : '';
+  const lastRun   = t.lastRunAt ? t.lastRunAt.substring(0, 16).replace('T', ' ') : '';
+  const srcLabel  = t.confluencePageUrl === 'SCRIPT' ? (window.i18n ? window.i18n.t('tooling.type_script') : 'Skript/Code')
+                  : (t.confluencePageUrl === 'IMPORTED' ? (window.i18n ? window.i18n.t('tooling.type_imported') : 'Importiert')
+                  : escHtml(t.confluencePageUrl || ''));
+  const runBtn    = t.status === 'READY'
+    ? `<button class="tl-btn-run" id="focusBtnRun" onclick="runFocusedTool(${t.id})"><i class="bi bi-play-fill me-1"></i>${window.i18n ? window.i18n.t('tooling.run') : 'Ausführen'}</button>` : '';
+  const editBtn   = (t.status === 'READY' || t.status === 'FAILED' || t.status === 'CANCELLED')
+    ? `<button class="tl-btn-outline" onclick="editTool(${t.id})"><i class="bi bi-pencil me-1"></i>${window.i18n ? window.i18n.t('tooling.edit') : 'Bearbeiten'}</button>` : '';
+  const exportBtn = t.status === 'READY'
+    ? `<button class="tl-btn-outline" onclick="exportTool(${t.id},'${escHtml(t.name).replace(/'/g,"\\'")}')"><i class="bi bi-download me-1"></i>Export</button>` : '';
+  const promptBtn = t.generationPrompt
+    ? `<button class="tl-btn-outline" onclick="showPrompt(${t.id})"><i class="bi bi-chat-left-text me-1"></i>Prompt</button>` : '';
+  const showsError = t.errorMessage && (t.status === 'FAILED' || t.status === 'CANCELLED');
+  const errHtml   = showsError
+    ? `<div class="text-danger mt-2" style="font-size:12px">${escHtml(t.errorMessage)}</div>` : '';
+  const codeHtml  = t.generatedCode ? `
+    <div class="mt-4 d-flex align-items-center gap-2 flex-wrap">
+      <span style="font-size:13px;font-weight:600">${window.i18n ? window.i18n.t('tooling.generated_code_title') : 'Generierter Kotlin-Code'}</span>
+      <button class="tl-btn-outline" style="padding:3px 10px;font-size:12px" onclick="copyFocusCode()"><i class="bi bi-clipboard me-1"></i>${window.i18n ? window.i18n.t('tooling.copy') : 'Kopieren'}</button>
+      <button class="tl-btn-outline" style="padding:3px 10px;font-size:12px" id="focusCodeToggle" onclick="toggleFocusCode()"><i class="bi bi-chevron-up me-1"></i>${window.i18n ? window.i18n.t('tooling.hide') : 'Ausblenden'}</button>
+    </div>
+    <pre class="tl-code mt-2" id="focusCodePre">${escHtml(t.generatedCode)}</pre>` : '';
+  const outHtml   = t.lastRunOutput ? `
+    <div class="mt-4"><div style="font-size:13px;font-weight:600">${window.i18n ? window.i18n.t('tooling.last_output') : 'Letzte Ausgabe'}</div>
+    <pre class="tl-output mt-2">${escHtml(t.lastRunOutput)}</pre></div>` : '';
+  const h1 = document.querySelector('main h1');
+  if (h1) h1.textContent = t.name;
+  focusCard.innerHTML = `
+    <div class="tl-card">
+      <div class="d-flex justify-content-between align-items-center mb-3">
+        <h4 style="margin:0;font-size:1.1rem;font-weight:700;display:flex;align-items:center;gap:10px">
+          <span class="tl-tool-icon-badge"><i class="bi ${escHtml(t.icon || 'bi-play-circle')}"></i></span>${escHtml(t.name)}
+          <span class="${escHtml(badgeCls)}" style="margin-left:4px;font-size:12px;vertical-align:middle">${escHtml(t.status)}</span>
+        </h4>
+      </div>
+      <div class="tl-tool-url mb-1"><i class="bi bi-file-earmark-code me-1"></i><span style="color:var(--tl-muted)">${srcLabel}</span></div>
+      <div class="tl-tool-meta mb-3">${window.i18n ? window.i18n.t('tooling.created_at') : 'Erstellt:'} ${escHtml(createdAt)}${lastRun ? ' · ' + (window.i18n ? window.i18n.t('tooling.last_run') : 'Zuletzt ausgeführt:') + ' ' + escHtml(lastRun) : ''}</div>
+      ${errHtml}
+      <div class="d-flex gap-2 flex-shrink-0 flex-wrap">
+        ${runBtn}${editBtn}${exportBtn}${promptBtn}
+        <button class="btn btn-sm btn-outline-danger" onclick="deleteFocusedTool(${t.id})"><i class="bi bi-trash"></i></button>
+      </div>
+      <div id="focusRunArea" style="display:none" class="mt-3">
+        <div style="font-size:13px;font-weight:600">${window.i18n ? window.i18n.t('tooling.output') : 'Ausgabe'}</div>
+        <pre id="focusRunOutput" class="tl-output mt-2"></pre>
+      </div>
+      ${codeHtml}${outHtml}
+    </div>`;
+}
+
+async function runFocusedTool(id) {
+  const btn       = document.getElementById('focusBtnRun');
+  const runArea   = document.getElementById('focusRunArea');
+  const runOutput = document.getElementById('focusRunOutput');
+  if (btn) btn.disabled = true;
+  if (runArea) runArea.style.display = 'block';
+  if (runOutput) runOutput.textContent = window.i18n ? window.i18n.t('tooling.running_output') : 'Wird ausgeführt…';
+  try {
+    const res  = await fetch(`/api/tooling/${id}/run`, { method: 'POST' });
+    const data = await res.json();
+    if (runOutput) runOutput.textContent = res.ok
+      ? (data.output || (window.i18n ? window.i18n.t('tooling.no_output') : '(Keine Ausgabe)'))
+      : ((window.i18n ? window.i18n.t('tooling.error_run') : 'Fehler:') + ' ' + (data.error || ''));
+  } catch (e) {
+    if (runOutput) runOutput.textContent = (window.i18n ? window.i18n.t('tooling.error_network') : 'Netzwerkfehler:') + ' ' + e.message;
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+function deleteFocusedTool(id) {
+  showConfirm(
+    window.i18n ? window.i18n.t('tooling.delete_confirm') : 'Tool und JAR-Datei löschen?',
+    window.i18n ? window.i18n.t('tooling.delete_title') : 'Tool löschen',
+    async function() {
+    await fetch(`/api/tooling/${id}`, { method: 'DELETE' });
+    loadSidebarTools();
+    if (typeof window.navigateTo === 'function') {
+      await window.navigateTo('/tooling');
+    } else {
+      window.location.href = '/tooling';
+    }
+  });
+}
+
+function copyFocusCode() {
+  const el = document.getElementById('focusCodePre');
+  if (!el) return;
+  navigator.clipboard.writeText(el.textContent || '')
+    .then(() => showAlert(window.i18n ? window.i18n.t('tooling.copied_clipboard') : 'Code kopiert.', 'success'))
+    .catch(() => showAlert(window.i18n ? window.i18n.t('tooling.copy_failed') : 'Kopieren nicht möglich.', 'warning'));
+}
+
+function toggleFocusCode() {
+  const pre = document.getElementById('focusCodePre');
+  const btn = document.getElementById('focusCodeToggle');
+  if (!pre) return;
+  const hidden = pre.style.display === 'none';
+  pre.style.display = hidden ? '' : 'none';
+  if (btn) btn.innerHTML = hidden
+    ? `<i class="bi bi-chevron-up me-1"></i>${window.i18n ? window.i18n.t('tooling.hide') : 'Ausblenden'}`
+    : `<i class="bi bi-chevron-down me-1"></i>${window.i18n ? window.i18n.t('tooling.show_code') : 'Einblenden'}`;
+}
+
+function pollFocusedTool(id) {
+  if (focusPollInterval) clearInterval(focusPollInterval);
+  _tlSetFocusPoll(setInterval(async () => {
+    const res = await tlFetchStatus(id);
+    if (res.retry) return;
+    if (res.gone) {
+      clearInterval(focusPollInterval);
+      _tlSetFocusPoll(null);
+      loadSidebarTools();
+      return;
+    }
+    const data = res.data;
+    if (data.status === 'READY' || data.status === 'FAILED') {
+      clearInterval(focusPollInterval); _tlSetFocusPoll(null);
+      const full = await fetch(`/api/tooling/${id}`);
+      if (full.ok) renderFocusCard(await full.json());
+      loadSidebarTools();
+      const ok = data.status === 'READY';
+      showAlert(ok ? (window.i18n ? window.i18n.t('tooling.compiled_ok') : 'Tool erfolgreich kompiliert!') : ((window.i18n ? window.i18n.t('tooling.compiled_fail') : 'Kompilierungsfehler:') + ' ' + (data.errorMessage || '')), ok ? 'success' : 'danger');
+    }
+  }, 2000));
+}
+
+var _editOverlayToolId = null;
+
+async function editTool(id) {
+  _editOverlayToolId = id;
+  const overlay = document.getElementById('editOverlay');
+  if (!overlay) return;
+  try {
+    const res = await fetch(`/api/tooling/${id}`);
+    if (!res.ok) return;
+    const t = await res.json();
+    const nameEl = document.getElementById('editOverlayName');
+    const codeEl = document.getElementById('editOverlayCode');
+    const alertEl = document.getElementById('editOverlayAlert');
+    if (nameEl) nameEl.value = t.name || '';
+    if (codeEl) codeEl.value = t.generatedCode || '';
+    if (alertEl) alertEl.style.display = 'none';
+    switchEditMode('manual');
+    overlay.style.display = 'flex';
+    document.body.style.overflow = 'hidden';
+    setTimeout(() => { if (nameEl) nameEl.focus(); }, 50);
+  } catch (e) {  }
+}
+
+function closeEditOverlay() {
+  const overlay = document.getElementById('editOverlay');
+  if (overlay) overlay.style.display = 'none';
+  document.body.style.overflow = '';
+  _editOverlayToolId = null;
+}
+
+function switchEditMode(mode) {
+  const manualBtn = document.getElementById('editModeManualBtn');
+  const aiBtn     = document.getElementById('editModeAiBtn');
+  const manualSec = document.getElementById('editManualSection');
+  const aiSec     = document.getElementById('editAiSection');
+  if (mode === 'manual') {
+    if (manualBtn) manualBtn.classList.add('active');
+    if (aiBtn)     aiBtn.classList.remove('active');
+    if (manualSec) manualSec.style.display = '';
+    if (aiSec)     aiSec.style.display = 'none';
+  } else {
+    if (manualBtn) manualBtn.classList.remove('active');
+    if (aiBtn)     aiBtn.classList.add('active');
+    if (manualSec) manualSec.style.display = 'none';
+    if (aiSec)     aiSec.style.display = '';
+  }
+}
+
+async function handleEditSave() {
+  if (!_editOverlayToolId) return;
+  const manualSec = document.getElementById('editManualSection');
+  const isAiMode  = manualSec && manualSec.style.display === 'none';
+  const alertEl   = document.getElementById('editOverlayAlert');
+  const saveBtn   = document.getElementById('editOverlaySaveBtn');
+  if (alertEl) alertEl.style.display = 'none';
+
+  if (isAiMode) {
+    const instructions = (document.getElementById('editAiInstructions').value || '').trim();
+    if (!instructions) {
+      if (alertEl) { alertEl.textContent = window.i18n ? window.i18n.t('tooling.ai_instructions_empty') : 'Please enter AI instructions.'; alertEl.style.display = 'block'; }
+      return;
+    }
+    if (saveBtn) { saveBtn.disabled = true; saveBtn.innerHTML = `<i class="bi bi-arrow-clockwise spin me-2"></i>${window.i18n ? window.i18n.t('tooling.generating_title') : 'Generating…'}`; }
+    try {
+      const res = await fetch(`/api/tooling/${_editOverlayToolId}/ai-rework`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ instructions })
+      });
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        if (alertEl) { alertEl.textContent = d.error || 'Error'; alertEl.style.display = 'block'; }
+        return;
+      }
+      closeEditOverlay();
+      showAlert(window.i18n ? window.i18n.t('tooling.saved_compiling') : 'Saved – compiling…', 'success');
+      await reloadToolList(true);
+    } catch (e) {
+      if (alertEl) { alertEl.textContent = e.message; alertEl.style.display = 'block'; }
+    } finally {
+      if (saveBtn) { saveBtn.disabled = false; saveBtn.innerHTML = `<i class="bi bi-floppy me-2"></i>${window.i18n ? window.i18n.t('tooling.save_compile') : 'Save & Compile'}`; }
+    }
+  } else {
+    const name = (document.getElementById('editOverlayName').value || '').trim();
+    const code = (document.getElementById('editOverlayCode').value || '').trim();
+    if (!name) {
+      if (alertEl) { alertEl.textContent = window.i18n ? window.i18n.t('tooling.enter_tool_name') : 'Please enter a tool name.'; alertEl.style.display = 'block'; }
+      return;
+    }
+    if (saveBtn) { saveBtn.disabled = true; saveBtn.innerHTML = `<i class="bi bi-arrow-clockwise spin me-2"></i>${window.i18n ? window.i18n.t('tooling.saving') : 'Saving…'}`; }
+    try {
+      const res = await fetch(`/api/tooling/${_editOverlayToolId}/code`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, code })
+      });
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        if (alertEl) { alertEl.textContent = d.error || 'Error'; alertEl.style.display = 'block'; }
+        return;
+      }
+      closeEditOverlay();
+      showAlert(window.i18n ? window.i18n.t('tooling.saved_compiling') : 'Saved – compiling…', 'success');
+      await reloadToolList(true);
+    } catch (e) {
+      if (alertEl) { alertEl.textContent = e.message; alertEl.style.display = 'block'; }
+    } finally {
+      if (saveBtn) { saveBtn.disabled = false; saveBtn.innerHTML = `<i class="bi bi-floppy me-2"></i>${window.i18n ? window.i18n.t('tooling.save_compile') : 'Save & Compile'}`; }
+    }
+  }
+}
+
+var promptOverlayToolId = null;
+
+async function showPrompt(id) {
+  try {
+    const res = await fetch(`/api/tooling/${id}`);
+    if (!res.ok) return;
+    const t = await res.json();
+    promptOverlayToolId = id;
+    document.getElementById('promptContent').value = t.generationPrompt ?? '';
+    document.getElementById('promptOverlayAlert').style.display = 'none';
+    const saveBtn = document.getElementById('promptSaveBtn');
+    const runBtn  = document.getElementById('promptRunBtn');
+    if (saveBtn) { saveBtn.disabled = false; saveBtn.innerHTML = '<i class="bi bi-floppy me-1"></i>Speichern'; }
+    if (runBtn)  { runBtn.disabled  = false; runBtn.innerHTML  = `<i class="bi bi-cpu me-1"></i>${_t('tooling.save_ki_run')}`; }
+    document.getElementById('promptOverlay').style.display = 'flex';
+    document.body.style.overflow = 'hidden';
+    setTimeout(() => document.getElementById('promptContent').focus(), 50);
+  } catch (e) {  }
+}
+
+function closePromptOverlay() {
+  document.getElementById('promptOverlay').style.display = 'none';
+  document.body.style.overflow = '';
+  promptOverlayToolId = null;
+}
+
+function copyPrompt() {
+  const text = document.getElementById('promptContent').value;
+  navigator.clipboard.writeText(text).catch(() => {});
+}
+
+async function savePrompt() {
+  if (!promptOverlayToolId) return;
+  const prompt  = document.getElementById('promptContent').value.trim();
+  const alertEl = document.getElementById('promptOverlayAlert');
+  alertEl.style.display = 'none';
+  if (!prompt) {
+    alertEl.textContent = _t('tooling.prompt_empty');
+    alertEl.style.display = 'block';
+    return;
+  }
+  const btn = document.getElementById('promptSaveBtn');
+  btn.disabled = true;
+  btn.innerHTML = `<i class="bi bi-arrow-clockwise spin me-2"></i>${_t('tooling.prompt_saving')}`;
+  try {
+    const res = await fetch(`/api/tooling/${promptOverlayToolId}/prompt`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ prompt })
+    });
+    if (!res.ok) {
+      let err = window.i18n ? window.i18n.t('common.error_save') : 'Fehler beim Speichern.';
+      try { const d = await res.json(); if (d.error) err = d.error; } catch(_) {}
+      alertEl.textContent = err; alertEl.style.display = 'block';
+      return;
+    }
+    showAlert(window.i18n ? window.i18n.t('tooling.prompt_saving') : 'Prompt gespeichert.', 'success');
+  } catch (e) {
+    alertEl.textContent = (window.i18n ? window.i18n.t('common.network_error') : 'Netzwerkfehler: ') + e.message; alertEl.style.display = 'block';
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = '<i class="bi bi-floppy me-1"></i>' + (window.i18n ? window.i18n.t('common.save') : 'Speichern');
+  }
+}
+
+async function runWithPrompt() {
+  if (!promptOverlayToolId) return;
+  const prompt  = document.getElementById('promptContent').value.trim();
+  const alertEl = document.getElementById('promptOverlayAlert');
+  alertEl.style.display = 'none';
+  if (!prompt) {
+    alertEl.textContent = _t('tooling.prompt_empty');
+    alertEl.style.display = 'block';
+    return;
+  }
+  const btn = document.getElementById('promptRunBtn');
+  btn.disabled = true;
+  btn.innerHTML = `<i class="bi bi-arrow-clockwise spin me-2"></i>${_t('tooling.ki_starting_prompt')}`;
+  const savedId = promptOverlayToolId;
+  try {
+    const res = await fetch(`/api/tooling/${savedId}/run-prompt`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ prompt })
+    });
+    if (!res.ok) {
+      let err = _t('tooling.start_error');
+      try { const d = await res.json(); if (d.error) err = d.error; } catch(_) {}
+      alertEl.textContent = err; alertEl.style.display = 'block';
+      btn.disabled = false; btn.innerHTML = `<i class="bi bi-cpu me-1"></i>${_t('tooling.save_ki_run')}`;
+      return;
+    }
+    closePromptOverlay();
+    showAlert(_t('tooling.ki_generating_prompt'), 'info');
+    const focusId = parseInt(new URLSearchParams(window.location.search).get('focus'), 10);
+    if (focusId && focusId === savedId) {
+      pollFocusedTool(savedId);
+    } else {
+      await reloadToolList(true);
+      _tlSetPromptPoll(setInterval(async () => {
+        const sr = await tlFetchStatus(savedId);
+        if (sr.retry) return;
+        if (sr.gone) {
+          clearInterval(_tlPromptPollInterval);
+          _tlSetPromptPoll(null);
+          await reloadToolList(true);
+          return;
+        }
+        const sd = sr.data;
+        if (sd.status === 'READY' || sd.status === 'FAILED') {
+          clearInterval(_tlPromptPollInterval);
+          _tlSetPromptPoll(null);
+          await reloadToolList(true);
+          const ok = sd.status === 'READY';
+          showAlert(ok ? _t('tooling.regen_ok') : ((window.i18n ? window.i18n.t('common.error') : 'Fehler') + ': ' + (sd.errorMessage || '')), ok ? 'success' : 'danger');
+        }
+      }, 2000));
+    }
+  } catch (e) {
+    alertEl.textContent = (window.i18n ? window.i18n.t('common.network_error') : 'Netzwerkfehler: ') + e.message; alertEl.style.display = 'block';
+    btn.disabled = false; btn.innerHTML = `<i class="bi bi-cpu me-1"></i>${_t('tooling.save_ki_run')}`;
+  }
+}
+</script>
+</th:block>
+</body>
+</html>

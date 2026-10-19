@@ -1,0 +1,277 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" lang="de">
+<body>
+<th:block th:fragment="scripts-helpers">
+<script>
+
+  function baEsc(str) {
+    return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+
+  function _baI18n(key, fallback) {
+    try {
+      if (window.i18n && typeof window.i18n.t === 'function') {
+        var val = window.i18n.t(key);
+        if (val !== key) return val;
+      }
+    } catch(_) {}
+    return (fallback === undefined) ? key : fallback;
+  }
+
+  function _baJsonResponse(r) {
+    return r.json().catch(function() { return { error: 'HTTP ' + r.status }; });
+  }
+
+  var _baPROVIDER_ICONS = { local: 'bi-folder2', gitlab: 'bi-gitlab', github: 'bi-github' };
+
+  function _baProviderFromKey(repoKey) {
+    var key = repoKey || '';
+    if (key.indexOf('gitlab:') === 0) return 'gitlab';
+    if (key.indexOf('github:') === 0) return 'github';
+    return 'local';
+  }
+
+  function _baProviderLabel(provider) {
+    if (provider === 'gitlab') return _baI18n('bug_analysis.provider_gitlab', 'GitLab');
+    if (provider === 'github') return _baI18n('bug_analysis.provider_github', 'GitHub');
+    return _baI18n('bug_analysis.provider_local', 'Lokal');
+  }
+
+  function _baProviderIcon(provider) {
+    return _baPROVIDER_ICONS[provider] || _baPROVIDER_ICONS.local;
+  }
+
+  function _baRepoPath(provider) {
+    if (provider === 'gitlab') return baGitlabProjectPath || '';
+    if (provider === 'github') return baGithubRepoName || '';
+    var card = (baCurrentRepoId === null || baCurrentRepoId === undefined)
+      ? null : document.getElementById('baRepoCard-' + baCurrentRepoId);
+    return (card && card.dataset.repoPath) || '';
+  }
+
+  function _baRepoContext(nameOverride) {
+    var provider = _baProviderFromKey(_baRepoKey());
+    var name = nameOverride || baCurrentRepoName || '';
+    var path = _baRepoPath(provider);
+    return {
+      provider:   provider,
+      icon:       _baProviderIcon(provider),
+      label:      _baProviderLabel(provider),
+      name:       name || path,
+      path:       path === name ? '' : path,
+      analysisId: baCurrentAnalysisId || null
+    };
+  }
+
+  function _baApplyI18n() {
+    document.querySelectorAll('#baMainArea [data-i18n]').forEach(function(el) {
+      var key = el.getAttribute('data-i18n');
+      var val = _baI18n(key, null);
+      if (val) el.textContent = val;
+    });
+  }
+
+  function baSaveState() {
+    try {
+      if (baCurrentRepoId !== null || baGitlabConfigId !== null || baGithubRepoConfigId !== null) {
+        localStorage.setItem('ba_state', JSON.stringify({
+          analysisId:         baCurrentAnalysisId,
+          repoId:             baCurrentRepoId,
+          repoName:           baCurrentRepoName,
+          gitlabConfigId:     baGitlabConfigId,
+          gitlabProjectId:    baGitlabProjectId,
+          gitlabProjectPath:  baGitlabProjectPath,
+          githubRepoConfigId: baGithubRepoConfigId,
+          githubRepoName:     baGithubRepoName
+        }));
+      } else {
+        localStorage.removeItem('ba_state');
+      }
+    } catch(_) {}
+  }
+  window.saveState = baSaveState;
+
+  function baRestoreState() {
+    var saved;
+    try { saved = JSON.parse(localStorage.getItem('ba_state') || 'null'); } catch(_) { return; }
+    baRestoreGithubAccordion();
+
+    try {
+      var _allSaved = JSON.parse(localStorage.getItem('ba_fixpr') || '{}');
+      Object.keys(_allSaved).forEach(function(k) {
+        if (Array.isArray(_allSaved[k]) && _allSaved[k].length > 0) {
+          var _ex = window._baFixPrs[k] && window._baFixPrs[k].details;
+          if (!_ex || !_ex.length) window._baFixPrs[k] = { details: _allSaved[k] };
+        }
+      });
+    } catch(_) {}
+    if (!saved) return;
+
+    if (saved.fixPrKey && Array.isArray(saved.fixPrDetails) && saved.fixPrDetails.length > 0) {
+      var _existingDetails = window._baFixPrs[saved.fixPrKey] && window._baFixPrs[saved.fixPrKey].details;
+      if (!_existingDetails || !_existingDetails.length) {
+        window._baFixPrs[saved.fixPrKey] = { details: saved.fixPrDetails };
+      }
+    }
+
+    var _aid = saved.analysisId || null;
+    if (saved.githubRepoConfigId) {
+      var ghCard = document.getElementById('baGhCard-' + saved.githubRepoConfigId);
+      if (ghCard) baSelectGithub(saved.githubRepoConfigId, saved.githubRepoName || ghCard.dataset.githubRepoName, _aid);
+    } else if (saved.repoId) {
+      var localCard = document.getElementById('baRepoCard-' + saved.repoId);
+      if (localCard) baSelectLocal(saved.repoId, saved.repoName || localCard.dataset.repoName, _aid);
+    }
+  }
+
+  function baRestoreGithubAccordion() {
+    var ghReposDiv = document.getElementById('baGithubRepoList');
+    if (!ghReposDiv) return;
+    var ghOpen;
+    try { ghOpen = localStorage.getItem('ba_gh_open'); } catch(_) {}
+    var isCurrentlyOpen = !ghReposDiv.classList.contains('d-none');
+    if (ghOpen === '1' && !isCurrentlyOpen) {
+      var ghHeader = ghReposDiv.previousElementSibling;
+      if (ghHeader) baToggleGithubAccordion(ghHeader);
+    } else if (ghOpen === '0' && isCurrentlyOpen) {
+      var ghHeader2 = ghReposDiv.previousElementSibling;
+      if (ghHeader2) baToggleGithubAccordion(ghHeader2);
+    }
+  }
+
+  function baCardStatusType(status) {
+    var key = String(status || '').toUpperCase();
+    if (key === 'RUNNING' || key === 'PENDING') return 'running';
+    if (key === 'COMPLETED') return 'completed';
+    if (key === 'FAILED' || key === 'CANCELLED') return 'aborted';
+    return null;
+  }
+
+  function baCardStatusPill(type) {
+    if (type === 'running') {
+      return '<span class="ba-card-status-pill ba-card-status--running">' +
+        '<span class="spinner-border spinner-border-sm" style="width:.75rem;height:.75rem;border-width:2px;"></span> ' +
+        _baI18n('bug_analysis.running_status', 'L\u00e4uft\u2026') + '</span>';
+    }
+    if (type === 'completed') {
+      return '<span class="ba-card-status-pill ba-card-status--completed">' +
+        '<i class="bi bi-check-circle-fill me-1"></i>' + _baI18n('bug_analysis.status_completed', 'Abgeschlossen') + '</span>';
+    }
+    if (type === 'aborted') {
+      return '<span class="ba-card-status-pill ba-card-status--aborted">' +
+        '<i class="bi bi-x-circle-fill me-1"></i>' + _baI18n('bug_analysis.status_aborted', 'Abgebrochen') + '</span>';
+    }
+    return '';
+  }
+
+  function baApplyCardStatus(card, status) {
+    if (!card) return;
+    var statusEl = card.querySelector('.ba-card-status');
+    if (!statusEl) return;
+    var type = baCardStatusType(status);
+    statusEl.innerHTML = baCardStatusPill(type);
+    baSetCardBusy(card, type === 'running');
+  }
+
+  function baRefreshCardStatuses() {
+    fetch('/api/bug-analysis/all')
+      .then(function(r) { return (window.slHelpers || {}).jsonArray ? (window.slHelpers || {}).jsonArray(r) : r.json(); })
+      .then(function(all) {
+        var latestPerLocal = {};
+        var latestPerGl    = {};
+        var latestPerGh    = {};
+        all.forEach(function(a) {
+          function keepLatest(map, key) {
+            if (!map[key] || a.id > map[key].id) map[key] = a;
+          }
+          if (a.repoConfigId)                              keepLatest(latestPerLocal, a.repoConfigId);
+          if (a.gitlabConfigId != null && a.gitlabProjectId != null)
+                                                           keepLatest(latestPerGl, a.gitlabConfigId + ':' + a.gitlabProjectId);
+          if (a.githubRepoConfigId != null)                keepLatest(latestPerGh, a.githubRepoConfigId);
+        });
+
+        Object.keys(latestPerLocal).forEach(function(repoId) {
+          var card = document.getElementById('baRepoCard-' + repoId);
+          if (card) baApplyCardStatus(card, latestPerLocal[repoId].status);
+        });
+        Object.keys(latestPerGl).forEach(function(key) {
+          var a = latestPerGl[key];
+          var card = document.querySelector('[data-cfg-id="' + a.gitlabConfigId + '"][data-project-id="' + a.gitlabProjectId + '"]');
+          if (card) baApplyCardStatus(card, a.status);
+        });
+        Object.keys(latestPerGh).forEach(function(configId) {
+          var card = document.getElementById('baGhCard-' + configId);
+          if (card) baApplyCardStatus(card, latestPerGh[configId].status);
+        });
+        window._baLastAnalysesList = all;
+        _baListReady = true;
+        _baMaybeAutoOpen();
+      })
+      .catch(function() {});
+  }
+
+  var _baAutoOpened      = false;
+  var _baListReady       = false;
+  var _baConfigsDomReady = false;
+
+  function _baMaybeAutoOpen() {
+    if (_baAutoOpened || !_baListReady || !_baConfigsDomReady) return;
+    _baAutoOpened = true;
+    var list = window._baLastAnalysesList || [];
+    var completedGlConfigs = new Set();
+    var hasCompletedGithub = false;
+    list.forEach(function(item) {
+      if (item.status !== 'COMPLETED') return;
+      if (item.gitlabConfigId) completedGlConfigs.add(String(item.gitlabConfigId));
+      if (item.githubRepoConfigId) hasCompletedGithub = true;
+    });
+    completedGlConfigs.forEach(function(cfgId) {
+      var div = document.querySelector('.ba-gitlab-projects[data-config-id="' + cfgId + '"]');
+      var glExplicit; try { glExplicit = localStorage.getItem('ba_gl_open_' + cfgId); } catch(_) {}
+      if (div && div.classList.contains('d-none') && glExplicit !== '0') {
+        var hdr = document.getElementById('baGlHeader-' + cfgId);
+        if (hdr) baToggleGitlabConfig(hdr, cfgId);
+      }
+    });
+    if (hasCompletedGithub) {
+      var ghDiv = document.getElementById('baGithubRepoList');
+      var ghExplicit; try { ghExplicit = localStorage.getItem('ba_gh_open'); } catch(_) {}
+      if (ghDiv && ghDiv.classList.contains('d-none') && ghExplicit !== '0') {
+        var ghHdr = ghDiv.previousElementSibling;
+        if (ghHdr) baToggleGithubAccordion(ghHdr);
+      }
+    }
+  }
+
+  if (window._baNavigateHandler) document.removeEventListener('app:navigate', window._baNavigateHandler);
+  window._baNavigateHandler = function() {
+    if (!document.getElementById('baGitlabConfigList')) return;
+    SLScroll(
+      document.getElementById('baRepoScrollContent'),
+      document.getElementById('baRepoScrollTrack'),
+      document.getElementById('baRepoScrollThumb')
+    );
+    baLoadGitlabConfigs(); baRestoreState();
+  };
+  document.addEventListener('app:navigate', window._baNavigateHandler);
+  if (window._baNavigateCardStatusHandler) document.removeEventListener('app:navigate', window._baNavigateCardStatusHandler);
+  window._baNavigateCardStatusHandler = function() {
+    if (!document.getElementById('baGitlabConfigList')) return;
+    baRefreshCardStatuses(); baLoadHistory();
+  };
+  document.addEventListener('app:navigate', window._baNavigateCardStatusHandler);
+  document.addEventListener('DOMContentLoaded', function() {
+    SLScroll(
+      document.getElementById('baRepoScrollContent'),
+      document.getElementById('baRepoScrollTrack'),
+      document.getElementById('baRepoScrollThumb')
+    );
+    baLoadGitlabConfigs();
+    baRefreshCardStatuses();
+    baRestoreState();
+    baLoadHistory();
+  });
+</script>
+</th:block>
+</body>
+</html>

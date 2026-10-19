@@ -1,0 +1,537 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org"
+      xmlns:layout="http://www.ultraq.net.nz/thymeleaf/layout"
+      layout:decorate="~{layout}" lang="de">
+<head><title>Logging</title></head>
+<body>
+
+<th:block layout:fragment="page-title"><span data-i18n="page_titles.logging">Log-Analyse</span></th:block>
+
+<th:block layout:fragment="page-subtitle"><p class="page-subtitle"><span data-i18n="page_subtitles.logging">Log-Ausgaben einfügen und "Analysieren" klicken: alle relevanten Probleme (Fehler, Warnungen, Exceptions, Timeouts) werden farblich markiert.</span></p></th:block>
+
+<th:block layout:fragment="page-actions">
+  <div style="display:flex;gap:8px;align-items:center;">
+  <button class="btn btn-sm btn-outline-secondary" style="border-color:#ddd7cb;color:#5b564d;"
+          data-prompt-prefix="logging" disabled
+          onclick="openPromptEditorForPrefix('logging', 'Log-Analyse', 'de', 'logging.analyze', function(){ lgAnalyze(); })">
+    <i class="bi bi-cpu me-1"></i><span data-i18n="common.ai_prompt">KI-Prompt</span>
+  </button>
+  <button class="btn btn-sm" style="background:linear-gradient(135deg,#7c5cbf,#5b8ef0);color:#fff;border:none;"
+          onclick="kiChatToggle()" title="KI Chat">
+    <i class="bi bi-chat-dots-fill me-1"></i><span data-i18n="common.ki_chat_btn">KI Chat</span>
+  </button>
+  </div>
+</th:block>
+
+<th:block layout:fragment="head-extra">
+<script th:inline="javascript">
+/*<![CDATA[*/
+window.kiChatConfig = {
+  tabId: 'logging-analysis',
+  tabLabel: 'Log-Analyse',
+  tabLabelKey: 'ki_chat.logging.tab_label',
+  introMessage: 'Hi! Ich helfe dir beim Lesen von Logs: Stack-Traces, Timeouts, Datenbank-Fehlern und CI-Output. Wenn du oben Log-Text einfügst, beziehe ich mich beim Antworten direkt darauf.',
+  introMessageKey: 'ki_chat.logging.intro',
+  suggestionsKey: 'ki_chat.logging.suggestions',
+  suggestions: [
+    'Was ist in diesem Log-Text das eigentliche Grundproblem?',
+    'Erkläre mir den Stack-Trace Schritt für Schritt',
+    'Welche Zeilen sind hier kritisch und welche harmlos?',
+    'Wie finde ich die Ursache einer Connection Timeout?',
+    'Wie konfiguriere ich das Log-Level in Spring Boot?',
+    'Wie lese ich einen Java GC-Log?'
+  ],
+  systemHint: 'You are a senior software engineer specializing in log analysis and incident diagnosis (Java/Spring, Node.js, Python, Docker, CI pipelines). Explain stack traces, error cascades and timeouts concretely and reference the exact log lines the user pasted.',
+  contextProvider: function(){
+    var parts = [];
+    try {
+      var ta = document.getElementById('lgInput');
+      if (ta && ta.value) parts.push('Aktueller Log-Text (Auszug):\n' + ta.value.slice(0, 6000));
+    } catch(e){}
+    return parts.join('\n');
+  }
+};
+/*]]>*/
+</script>
+</th:block>
+
+<div layout:fragment="content">
+<th:block th:replace="~{fragments/logging/styles :: styles}"></th:block>
+<th:block th:replace="~{fragments/logging/modals :: modals}"></th:block>
+<th:block th:replace="~{fragments/shared/token-usage :: styles}"></th:block>
+
+<div class="lg-page" data-cf-token-usage-anchor="">
+
+  <div class="lg-card">
+    <h2><i class="bi bi-journal-text me-2" style="color:var(--lg-accent)"></i><span data-i18n="logging.input_title">Log-Eingabe</span></h2>
+    <div class="mb-3">
+      <div class="lg-label" data-i18n="logging.input_label">Log-Text</div>
+      <textarea id="lgInput" class="lg-textarea"
+                data-i18n-placeholder="logging.input_placeholder"
+                placeholder="Log-Zeilen einfügen… (Terminal, .log-Datei oder CI-Ausgabe)"
+                onkeydown="if(event.ctrlKey&&event.key==='Enter')lgAnalyze()"></textarea>
+    </div>
+    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+      <button id="lgBtnAnalyze" class="lg-btn" onclick="lgAnalyze()">
+        <i class="bi bi-play-circle me-1"></i><span data-i18n="logging.btn_analyze">Analysieren</span>
+      </button>
+      <button class="lg-btn-secondary" type="button" onclick="lgClear()">
+        <i class="bi bi-eraser me-1"></i><span data-i18n="logging.btn_clear">Leeren</span>
+      </button>
+      <div id="lgDonePill" class="lg-status-pill lg-status-done">
+        <i class="bi bi-check-circle-fill"></i>
+        <span data-i18n="logging.done_pill">Analyse abgeschlossen</span>
+      </div>
+    </div>
+
+  </div>
+
+  <div id="lgError" class="lg-error"></div>
+
+  <div class="lg-card" id="lgRepoCard">
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
+      <h2 style="margin:0;"><i class="bi bi-folder2 me-2" style="color:var(--lg-accent)"></i><span data-i18n="logging.repo_section_title">Repository (optional)</span></h2>
+      <span class="ta-info-icon" tabindex="0"
+            aria-label="Repository Hinweis"
+            data-tooltip="Wähle ein Repository aus, in dem die Fixes für die erkannten Probleme erstellt werden sollen. Ohne Repository läuft nur die Diagnose; mit Repo zusätzlich Architektur-Plan, Code-Fix und Tests.">
+        <i class="bi bi-info-circle-fill"></i>
+      </span>
+      <button type="button" class="lg-repo-add-btn" onclick="lgFbOpen()" data-i18n-title="logging.repo_add_title">
+        <i class="bi bi-plus"></i>
+        <span data-i18n="logging.add_inline">Hinzufügen</span>
+      </button>
+    </div>
+    <div style="font-size:12px;color:var(--lg-muted);margin-bottom:8px;">
+      <span data-i18n="logging.repo_section_hint">— ohne Repo: nur Diagnose · mit Repo: Diagnose + Architektur + Code-Fix + Tests</span>
+    </div>
+    <div id="lgLocalRepoList" style="display:flex;flex-direction:column;gap:5px;">
+      <div th:each="repo : ${localRepoConfigs}"
+           class="lg-local-repo-card"
+           th:data-repo-id="${repo.id}"
+           th:data-repo-path="${repo.path}"
+           onclick="lgToggleLocalRepo(this)">
+        <span class="lg-local-repo-checkbox"><i class="bi bi-circle lg-local-repo-cb-icon"></i></span>
+        <i class="bi bi-folder2 lg-local-repo-icon"></i>
+        <div style="min-width:0;flex:1;">
+          <div style="display:flex;align-items:center;gap:4px;min-width:0;">
+            <div class="lg-local-repo-name" style="min-width:0;" th:text="${repo.name}"></div>
+            <button class="lg-local-repo-del"
+                    th:onclick="'lgDeleteLocalRepo(event,this,' + ${repo.id} + ')'"
+                    data-i18n="logging.remove_title"
+                    data-i18n-title="logging.repo_remove_tooltip">Entfernen</button>
+          </div>
+          <div class="lg-local-repo-path" th:text="${repo.path}"></div>
+        </div>
+      </div>
+      <div id="lgNoRepoHint" class="lg-repo-hint" th:if="${#lists.isEmpty(localRepoConfigs)}">
+        <i class="bi bi-info-circle me-1"></i><span data-i18n="logging.no_local_repo_hint">Noch kein lokales Repository hinzugefügt.</span>
+      </div>
+    </div>
+    <div id="lgRepoMismatchWarn" class="lg-repo-mismatch-warn" style="display:none;">
+      <i class="bi bi-exclamation-triangle-fill"></i>
+      <div>
+        <strong data-i18n="logging.repo_mismatch_title">Repository passt nicht zu den Logs</strong>
+        <div class="lg-repo-mismatch-detail" data-i18n="logging.repo_mismatch_hint">Die Logs stammen vermutlich nicht aus diesem Repository. Der Fix-Button ist deaktiviert.</div>
+      </div>
+    </div>
+  </div>
+
+  <div id="lgResult" class="lg-result">
+
+    <div class="lg-card">
+      <h2><i class="bi bi-graph-up me-2" style="color:var(--lg-accent2)"></i><span data-i18n="logging.result_title">Analyse-Ergebnis</span></h2>
+      <div class="lg-summary-badges" id="lgSummaryBadges"></div>
+      <div class="lg-fix-toolbar">
+        <span class="lg-fix-toolbar-note" style="font-size:12px;color:var(--lg-muted);flex:1;display:inline-flex;align-items:center;gap:6px;">
+          <i class="bi bi-info-circle"></i>
+          <span data-i18n="logging.fix_no_repo_note">Kein Repository ausgewählt — es läuft nur die Diagnose.</span>
+        </span>
+        <span class="lg-fix-summary-pill" id="lgFixSelectionPill" style="display:none;">
+          <i class="bi bi-funnel-fill"></i><span id="lgFixSelectionCount">0</span>
+          <span data-i18n="logging.fix_btn_label">Fix für ausgewählte Probleme</span>
+        </span>
+        <button id="lgBtnStartFix" type="button" class="lg-fix-start-btn" onclick="lgStartFix()" disabled data-i18n-title="logging.fix_btn_title">
+          <i class="bi bi-lightning-charge-fill"></i><span data-i18n="logging.fix_btn_label_count">Fix für ausgewählte Probleme (0)</span>
+        </button>
+      </div>
+      <div class="lg-summary-hint" id="lgSummaryHint" style="display:none;"><i class="bi bi-hand-index"></i><span data-i18n="logging.summary_filter_hint">Auf ein Badge klicken, um die zugehörigen Zeilen ein- oder auszublenden.</span></div>
+      <div class="lg-summary-info" id="lgSummaryInfo"></div>
+    </div>
+
+    <div class="lg-card">
+      <h2><i class="bi bi-palette me-2" style="color:var(--lg-accent)"></i><span data-i18n="logging.legend_title">Legende</span></h2>
+      <div class="lg-legend">
+        <span class="lg-legend-item"><span class="lg-legend-swatch" style="background:rgba(248,113,113,.55);"></span><span data-i18n="logging.cat_critical">CRITICAL</span></span>
+        <span class="lg-legend-item"><span class="lg-legend-swatch" style="background:rgba(239,68,68,.45);"></span><span data-i18n="logging.cat_error">ERROR</span></span>
+        <span class="lg-legend-item"><span class="lg-legend-swatch" style="background:rgba(156,66,33,.45);"></span><span data-i18n="logging.cat_exception">Exception</span></span>
+        <span class="lg-legend-item"><span class="lg-legend-swatch" style="background:rgba(156,66,33,.30);"></span><span data-i18n="logging.cat_stack">Stack Trace</span></span>
+        <span class="lg-legend-item"><span class="lg-legend-swatch" style="background:rgba(134,25,143,.45);"></span><span data-i18n="logging.cat_oom">Speicher/Ressource</span></span>
+        <span class="lg-legend-item"><span class="lg-legend-swatch" style="background:rgba(13,79,140,.45);"></span><span data-i18n="logging.cat_connection">Connection</span></span>
+        <span class="lg-legend-item"><span class="lg-legend-swatch" style="background:rgba(7,89,133,.45);"></span><span data-i18n="logging.cat_http">HTTP-Fehler</span></span>
+        <span class="lg-legend-item"><span class="lg-legend-swatch" style="background:rgba(12,84,96,.45);"></span><span data-i18n="logging.cat_database">Datenbank</span></span>
+        <span class="lg-legend-item"><span class="lg-legend-swatch" style="background:rgba(76,44,146,.45);"></span><span data-i18n="logging.cat_timeout">Timeout</span></span>
+        <span class="lg-legend-item"><span class="lg-legend-swatch" style="background:rgba(122,90,10,.45);"></span><span data-i18n="logging.cat_warn">WARNING</span></span>
+        <span class="lg-legend-item"><span class="lg-legend-swatch" style="background:rgba(73,80,87,.40);"></span><span data-i18n="logging.cat_deprecated">Deprecated</span></span>
+      </div>
+    </div>
+
+    <div class="lg-card">
+      <h2><i class="bi bi-file-earmark-text me-2" style="color:var(--lg-accent)"></i><span data-i18n="logging.view_title">Log-Ansicht</span></h2>
+      <div class="lg-log-toolbar">
+        <label>
+          <input type="checkbox" id="lgOnlyIssues" onchange="lgRenderView()">
+          <span data-i18n="logging.only_issues">Nur Problemlinien anzeigen</span>
+        </label>
+        <button class="lg-btn-secondary" type="button" id="lgCopyBtn" onclick="lgCopy()">
+          <i class="bi bi-clipboard me-1"></i><span data-i18n="logging.copy">Rohtext kopieren</span>
+        </button>
+      </div>
+      <div class="lg-log-view-wrap">
+        <div class="lg-log-view" id="lgLogView"></div>
+        <div class="sl-scroll-track lg-log-view-track"><div class="sl-scroll-thumb" id="lgLogViewThumb"></div></div>
+      </div>
+      <div class="lg-limit-note" id="lgLimitNote" style="display:none;"></div>
+    </div>
+
+  </div>
+
+  <div id="lgFixPanel">
+    <div class="lg-fix-panel-card">
+      <div class="lg-fix-panel-head">
+        <h2>
+          <i class="bi bi-robot"></i>
+          <span data-i18n="logging.fix_pipeline_running">KI-Fix-Pipeline läuft…</span>
+          <span class="lg-fix-summary-pill" id="lgFixTimerDisplay" style="display:inline-flex;align-items:center;gap:6px;">
+            <i class="bi bi-stopwatch"></i>0:00
+          </span>
+        </h2>
+        <button type="button" class="lg-fix-write-cancel-btn" onclick="lgCancelFix()">
+          <i class="bi bi-x-circle me-1"></i><span data-i18n="common.cancel">Abbrechen</span>
+        </button>
+      </div>
+
+      <div id="lgFixError" class="lg-fix-error"></div>
+
+      <div class="lg-fix-stage" data-stage="diagnose">
+        <div class="lg-fix-stage-head lg-fix-stage-pending" onclick="lgToggleFixStage(this)">
+          <i class="bi bi-hourglass lg-fix-stage-icon"></i>
+          <span class="lg-fix-stage-title" data-i18n="logging.fix_stage_diagnose">① Diagnose — Root Cause</span>
+          <span class="lg-fix-stage-badge lg-fix-stage-badge-pending" data-i18n="logging.fix_status_pending">Ausstehend</span>
+          <i class="bi bi-chevron-down lg-fix-stage-chevron"></i>
+        </div>
+        <div class="lg-fix-stage-body-wrap">
+          <div class="lg-fix-stage-body"></div>
+          <div class="sl-scroll-track lg-fix-stage-body-track"><div class="sl-scroll-thumb" id="lgFixStageDiagnoseThumb"></div></div>
+        </div>
+      </div>
+
+      <div class="lg-fix-stage" data-stage="plan">
+        <div class="lg-fix-stage-head lg-fix-stage-pending" onclick="lgToggleFixStage(this)">
+          <i class="bi bi-hourglass lg-fix-stage-icon"></i>
+          <span class="lg-fix-stage-title" data-i18n="logging.fix_stage_plan">② Architektur &amp; Coding-Guidelines</span>
+          <span class="lg-fix-stage-badge lg-fix-stage-badge-pending" data-i18n="logging.fix_status_pending">Ausstehend</span>
+          <i class="bi bi-chevron-down lg-fix-stage-chevron"></i>
+        </div>
+        <div class="lg-fix-stage-body-wrap">
+          <div class="lg-fix-stage-body"></div>
+          <div class="sl-scroll-track lg-fix-stage-body-track"><div class="sl-scroll-thumb" id="lgFixStagePlanThumb"></div></div>
+        </div>
+      </div>
+
+      <div class="lg-fix-stage" data-stage="code">
+        <div class="lg-fix-stage-head lg-fix-stage-pending" onclick="lgToggleFixStage(this)">
+          <i class="bi bi-hourglass lg-fix-stage-icon"></i>
+          <span class="lg-fix-stage-title" data-i18n="logging.fix_stage_code">③ Code-Fix</span>
+          <span class="lg-fix-stage-badge lg-fix-stage-badge-pending" data-i18n="logging.fix_status_pending">Ausstehend</span>
+          <i class="bi bi-chevron-down lg-fix-stage-chevron"></i>
+        </div>
+        <div class="lg-fix-stage-body-wrap">
+          <div class="lg-fix-stage-body"></div>
+          <div class="sl-scroll-track lg-fix-stage-body-track"><div class="sl-scroll-thumb" id="lgFixStageCodeThumb"></div></div>
+        </div>
+      </div>
+
+      <div class="lg-fix-stage" data-stage="tests">
+        <div class="lg-fix-stage-head lg-fix-stage-pending" onclick="lgToggleFixStage(this)">
+          <i class="bi bi-hourglass lg-fix-stage-icon"></i>
+          <span class="lg-fix-stage-title" data-i18n="logging.fix_stage_tests">④ Unit- &amp; Systemtests</span>
+          <span class="lg-fix-stage-badge lg-fix-stage-badge-pending" data-i18n="logging.fix_status_pending">Ausstehend</span>
+          <i class="bi bi-chevron-down lg-fix-stage-chevron"></i>
+        </div>
+        <div class="lg-fix-stage-body-wrap">
+          <div class="lg-fix-stage-body"></div>
+          <div class="sl-scroll-track lg-fix-stage-body-track"><div class="sl-scroll-thumb" id="lgFixStageTestsThumb"></div></div>
+        </div>
+      </div>
+
+      <div class="lg-fix-status-bar">
+        <span id="lgFixStatusText" class="lg-fix-status-text" data-i18n="logging.fix_status_waiting">Warte auf Start…</span>
+      </div>
+
+      <div class="lg-fix-write-section">
+        <button id="lgBtnFixWrite" type="button" class="lg-fix-write-btn" onclick="lgOpenFixWriteModal()" disabled>
+          <i class="bi bi-folder-symlink"></i><span data-i18n="logging.fix_write_btn">Dateien in Repository schreiben</span>
+        </button>
+        <span class="lg-fix-write-info"><i class="bi bi-info-circle"></i><span data-i18n="logging.fix_no_repo_note">Kein Repository ausgewählt — es läuft nur die Diagnose.</span></span>
+      </div>
+    </div>
+  </div>
+
+  <th:block th:replace="~{fragments/shared/history :: card('logging', '')}"></th:block>
+
+</div>
+
+<script th:src="@{/js/logging-analysis.js}" data-page-script="1"></script>
+<th:block th:replace="~{fragments/logging/scripts-history :: scripts-history}"></th:block>
+<th:block th:replace="~{fragments/logging/scripts-repo :: scripts-repo}"></th:block>
+<th:block th:replace="~{fragments/logging/scripts-fix :: scripts-fix}"></th:block>
+<th:block th:replace="~{fragments/logging/scripts-stack-detection :: scripts-stack-detection}"></th:block>
+<th:block th:replace="~{fragments/shared/token-usage :: scripts}"></th:block>
+
+<script th:fragment="lgTokenUsageInit">
+/*<![CDATA[*/
+(function () {
+  'use strict';
+  if (window.cfTokenUsage) {
+    window.cfTokenUsage.init('logging_fix', null, {
+      anchor: document.querySelector('.sl-page-header')
+    });
+  }
+})();
+/*]]>*/
+</script>
+<div id="lgRestoreToast" class="lg-restore-toast"></div>
+<div id="lgToastContainer" class="lg-toast-container" aria-live="polite" aria-atomic="false"></div>
+<script>
+  var _lgLastResult = null;
+  var _lgSelectedBadges = {};
+  var _lgLogScroll = null;
+
+  function lgInitScroll() {
+    if (_lgLogScroll) return;
+    var wrap = document.querySelector('.lg-log-view-wrap');
+    var box = document.getElementById('lgLogView');
+    var track = wrap ? wrap.querySelector('.sl-scroll-track') : null;
+    var thumb = document.getElementById('lgLogViewThumb');
+    if (!box || !track || !thumb || typeof window.SLScroll !== 'function') return;
+    _lgLogScroll = window.SLScroll(box, track, thumb);
+  }
+
+  function lgAnalyze(opts) {
+    opts = opts || {};
+    var skipPersist = opts.save === false;
+    var input = document.getElementById('lgInput');
+    var text = input ? input.value : '';
+    var errorEl = document.getElementById('lgError');
+    var resultEl = document.getElementById('lgResult');
+    var donePill = document.getElementById('lgDonePill');
+    var t = window.i18n ? window.i18n.t.bind(window.i18n) : function(k) { return k; };
+
+    errorEl.classList.remove('visible');
+    resultEl.classList.remove('visible');
+    donePill.classList.remove('visible');
+
+    if (!text || !text.trim()) {
+      errorEl.textContent = t('logging.error_empty');
+      errorEl.classList.add('visible');
+      return;
+    }
+
+    var result = window.loggingLogScanner.analyzeLogs(text);
+    _lgLastResult = result;
+    lgRenderSummary(result);
+    lgRenderView();
+    resultEl.classList.add('visible');
+    donePill.classList.add('visible');
+    if (!skipPersist && typeof lgSaveToHistory === 'function') lgSaveToHistory(text, result);
+    resultEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    if (typeof lgDetectLogStacks === 'function' && window._lgStack) {
+      var info = lgDetectLogStacks(text);
+      window._lgStack.logStacks = info.stacks || [];
+      window._lgStack.logIndicators = info.indicators || [];
+      if (window._lgStack.repoStacks && window._lgStack.repoStacks.length) {
+        window._lgStack.repoMatch = lgComputeMatch(window._lgStack.logStacks, window._lgStack.repoStacks);
+        var card = document.querySelector('#lgLocalRepoList .lg-local-repo-card.selected');
+        if (card) lgRenderRepoMatchBadge(card, window._lgStack.repoMatch);
+      }
+    }
+    if (typeof lgUpdateFixButtonState === 'function') lgUpdateFixButtonState();
+  }
+
+  function lgRenderSummary(result) {
+    var t = window.i18n ? window.i18n.t.bind(window.i18n) : function(k) { return k; };
+    var badgeBox = document.getElementById('lgSummaryBadges');
+    var hintEl = document.getElementById('lgSummaryHint');
+    var infoBox = document.getElementById('lgSummaryInfo');
+
+    var sevCount = result.bySeverity;
+    var badgeDefs = [];
+    if (sevCount.critical) badgeDefs.push({ cls: 'critical', label: t('logging.cat_critical'), count: sevCount.critical, kind: 'severity' });
+    if (sevCount.error)    badgeDefs.push({ cls: 'error',    label: t('logging.cat_error'),    count: sevCount.error,    kind: 'severity' });
+    if (sevCount.warn)     badgeDefs.push({ cls: 'warn',     label: t('logging.cat_warn'),     count: sevCount.warn,     kind: 'severity' });
+    var catCounts = result.byCategory;
+    var extraCats = ['exception', 'stack', 'oom', 'connection', 'http', 'database', 'timeout', 'deprecated'];
+    for (var i = 0; i < extraCats.length; i++) {
+      if (catCounts[extraCats[i]]) badgeDefs.push({ cls: extraCats[i], label: t('logging.cat_' + extraCats[i]), count: catCounts[extraCats[i]], kind: 'category' });
+    }
+    if (sevCount.info && sevCount.info > 0) {
+      badgeDefs.push({ cls: 'info', label: 'INFO', count: sevCount.info, kind: 'info' });
+    }
+
+    if (result.issueLines === 0 && (!sevCount.info || sevCount.info === 0)) {
+      badgeBox.innerHTML = '<span class="lg-badge lg-badge-ok"><i class="bi bi-check-circle me-1"></i>' + escapeHtml(t('logging.no_issues')) + '</span>';
+      if (hintEl) hintEl.style.display = 'none';
+    } else {
+      var html = '';
+      for (var b = 0; b < badgeDefs.length; b++) {
+        var def = badgeDefs[b];
+        var isActive = _lgIsBadgeActive(def.cls);
+        var stateCls = isActive ? 'lg-summary-badge-active' : 'lg-summary-badge-inactive';
+        var ariaPressed = isActive ? 'true' : 'false';
+        html += '<button type="button" class="lg-summary-badge ' + stateCls + '" data-category="' + escapeHtml(def.cls) + '" aria-pressed="' + ariaPressed + '" onclick="lgToggleBadge(\'' + def.cls + '\')">' +
+          '<span class="lg-badge lg-badge-' + def.cls + '">' + escapeHtml(def.label) + '</span>' +
+          '<span class="lg-summary-badge-count">' + def.count + '</span>' +
+        '</button>';
+      }
+      badgeBox.innerHTML = html;
+      if (hintEl) hintEl.style.display = '';
+    }
+
+    infoBox.innerHTML =
+      '<span><i class="bi bi-file-earmark-text me-1"></i>' + escapeHtml(t('logging.summary_lines_label')) + ': ' + result.totalLines + '</span>' +
+      '<span><i class="bi bi-exclamation-circle me-1"></i>' + escapeHtml(t('logging.summary_issues_label')) + ': ' + result.issueLines + '</span>';
+
+    var note = document.getElementById('lgLimitNote');
+    if (result.totalLines > result.maxRenderLines) {
+      note.textContent = t('logging.render_limit').replace('{0}', String(result.maxRenderLines));
+      note.style.display = 'block';
+    } else {
+      note.style.display = 'none';
+    }
+  }
+
+  function lgRenderView() {
+    if (!_lgLastResult) return;
+    var t = window.i18n ? window.i18n.t.bind(window.i18n) : function(k) { return k; };
+    var onlyIssues = document.getElementById('lgOnlyIssues').checked;
+    var view = document.getElementById('lgLogView');
+    var lines = _lgLastResult.lines;
+    var maxLines = Math.min(lines.length, _lgLastResult.maxRenderLines);
+
+    var html = '';
+    for (var i = 0; i < maxLines; i++) {
+      var line = lines[i];
+      var matches = lgLineMatchesBadges(line);
+      var hidden = (!matches || (onlyIssues && line.severity === 'info')) ? ' lg-hidden' : '';
+      var badges = '';
+      for (var c = 0; c < line.categories.length; c++) {
+        badges += '<span class="lg-badge lg-badge-' + line.categories[c] + '">' + escapeHtml(t('logging.cat_' + line.categories[c])) + '</span>';
+      }
+      html += '<div class="lg-line lg-sev-' + line.severity + hidden + '">' +
+        '<span class="lg-line-no">' + line.no + '</span>' +
+        '<span class="lg-line-badges">' + badges + '</span>' +
+        '<span class="lg-line-text">' + escapeHtml(line.text) + '</span>' +
+        '</div>';
+    }
+    view.innerHTML = html;
+    if (_lgLogScroll && typeof _lgLogScroll.update === 'function') {
+      _lgLogScroll.update();
+    }
+  }
+
+  function lgLineMatchesBadges(line) {
+    if (line.severity === 'info' && (!line.categories || line.categories.length === 0)) {
+      return _lgIsBadgeActive('info');
+    }
+    var cats = line.categories;
+    for (var i = 0; i < cats.length; i++) {
+      if (_lgIsBadgeActive(cats[i])) return true;
+    }
+    return false;
+  }
+
+  function _lgIsBadgeActive(category) {
+    if (_lgSelectedBadges && Object.prototype.hasOwnProperty.call(_lgSelectedBadges, category)) {
+      return _lgSelectedBadges[category] === true;
+    }
+    return true;
+  }
+
+  function lgToggleBadge(category) {
+    if (!_lgSelectedBadges) _lgSelectedBadges = {};
+    var currentlyActive = _lgIsBadgeActive(category);
+    _lgSelectedBadges[category] = !currentlyActive;
+    var btn = document.querySelector('.lg-summary-badge[data-category="' + category + '"]');
+    if (btn) {
+      var nowActive = _lgSelectedBadges[category];
+      btn.classList.toggle('lg-summary-badge-active', nowActive);
+      btn.classList.toggle('lg-summary-badge-inactive', !nowActive);
+      btn.setAttribute('aria-pressed', nowActive ? 'true' : 'false');
+    }
+    lgRenderView();
+    if (typeof lgUpdateFixButtonState === 'function') lgUpdateFixButtonState();
+  }
+
+  function lgResetBadgeFilter() {
+    _lgSelectedBadges = {};
+  }
+
+  document.addEventListener('DOMContentLoaded', function () {
+    if (typeof lgUpdateFixButtonState === 'function') lgUpdateFixButtonState();
+  });
+
+  window.lgLineMatchesBadges = lgLineMatchesBadges;
+  window.lgToggleBadge = lgToggleBadge;
+  window.lgResetBadgeFilter = lgResetBadgeFilter;
+
+  function lgCopy() {
+    var input = document.getElementById('lgInput');
+    var btn = document.getElementById('lgCopyBtn');
+    var t = window.i18n ? window.i18n.t.bind(window.i18n) : function(k) { return k; };
+    var original = t('logging.copy');
+    if (!input || !btn) return;
+    navigator.clipboard.writeText(input.value).then(function() {
+      var span = btn.querySelector('span');
+      if (span) span.textContent = t('logging.copied');
+      setTimeout(function() { if (span) span.textContent = original; }, 1500);
+    }).catch(function() {});
+  }
+
+  function lgClear() {
+    var input = document.getElementById('lgInput');
+    if (input) { input.value = ''; input.focus(); }
+    document.getElementById('lgError').classList.remove('visible');
+    document.getElementById('lgResult').classList.remove('visible');
+    document.getElementById('lgDonePill').classList.remove('visible');
+    _lgLastResult = null;
+    _lgSelectedBadges = {};
+    if (typeof lgUpdateFixButtonState === 'function') lgUpdateFixButtonState();
+  }
+
+  document.addEventListener('app:navigate', function() {
+    if (location.pathname.replace(/\/+$/, '') === '/logging') {
+      var t = window.i18n ? window.i18n.t.bind(window.i18n) : function(k) { return k; };
+      var btn = document.getElementById('lgCopyBtn');
+      var span = btn ? btn.querySelector('span') : null;
+      if (span) span.textContent = t('logging.copy');
+      if (typeof lgRenderHistory === 'function') lgRenderHistory();
+      if (typeof lgInitFixStageScrollbars === 'function') lgInitFixStageScrollbars();
+    }
+  });
+
+  function lgInitHistoryView() {
+    if (typeof lgRenderHistory === 'function') lgRenderHistory();
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', lgInitHistoryView);
+  } else {
+    lgInitHistoryView();
+  }
+  lgInitScroll();
+  if (typeof lgInitFixStageScrollbars === 'function') lgInitFixStageScrollbars();
+</script>
+
+</div>
+</body>
+</html>

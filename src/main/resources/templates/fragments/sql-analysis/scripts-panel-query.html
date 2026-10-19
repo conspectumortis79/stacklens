@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" lang="de">
+<body>
+<th:block th:fragment="scripts-panel-query">
+<script>
+
+  function doRunTest() {
+    var sql = document.getElementById('analyzeSql').value.trim();
+    var loadEl  = document.getElementById('testRunLoading');
+    var errorEl = document.getElementById('testRunError');
+    var tableEl = document.getElementById('testRunTable');
+    var countEl = document.getElementById('testRunRowCount');
+    var btn     = document.getElementById('btnRunTest');
+    if (!sql) {
+      var _sqlEl = document.getElementById('analyzeSql');
+      if (_sqlEl) _sqlEl.focus();
+      return;
+    }
+    if (!_allInserts || !_allInserts.trim()) {
+      var rTabBtnTest = document.getElementById('rTabBtnTest');
+      if (rTabBtnTest) { rTabBtnTest.style.display = ''; srSwitch('rTabTest', rTabBtnTest); }
+      if (loadEl) loadEl.classList.remove('visible');
+      if (tableEl) tableEl.innerHTML = '';
+      if (countEl) countEl.textContent = '';
+      if (errorEl) {
+        errorEl.innerHTML = saEsc(window.i18n ? window.i18n.t('sql_analysis.test_need_data') :
+          'Zum Testen der Query werden zunächst Testdaten benötigt.') +
+          '<div style="margin-top:8px;"><button class="sa-btn" style="font-size:12px;padding:4px 10px;" ' +
+          'onclick="saSwitchToGenerateData()">' +
+          '<i class="bi bi-magic me-1"></i>' +
+          saEsc(window.i18n ? window.i18n.t('sql_analysis.btn_generate_data') : 'Testdaten generieren') +
+          '</button></div>';
+        errorEl.classList.add('visible');
+      }
+      return;
+    }
+
+
+    var tableEl = document.getElementById('testRunTable');
+    var countEl = document.getElementById('testRunRowCount');
+    var btn     = document.getElementById('btnRunTest');
+
+    var rTabBtnTest = document.getElementById('rTabBtnTest');
+    if (rTabBtnTest) rTabBtnTest.style.display = '';
+    srSwitch('rTabTest', rTabBtnTest);
+    loadEl.classList.add('visible');
+    errorEl.classList.remove('visible');
+    tableEl.innerHTML = '';
+    countEl.textContent = '';
+    if (btn) btn.disabled = true;
+
+    fetch('/api/sql-analyse/run-test', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sql: sql, testData: _allInserts })
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      loadEl.classList.remove('visible');
+      if (btn) btn.disabled = false;
+      if (data.error) {
+        errorEl.innerHTML = saEsc(data.error) +
+          '<div style="margin-top:8px;font-size:12px;color:var(--sa-muted)">' +
+          (window.i18n ? window.i18n.t('sql_analysis.test_error_hint') :
+            'Testdaten möglicherweise inkompatibel – ') +
+          '<button class="sa-btn-secondary" style="font-size:12px;padding:2px 8px;" onclick="doGenerateData(false)">' +
+          '<i class="bi bi-arrow-clockwise me-1"></i>' +
+          (window.i18n ? window.i18n.t('sql_analysis.regenerate_data') : 'Testdaten neu generieren') +
+          '</button></div>';
+        errorEl.classList.add('visible');
+        return;
+      }
+      var cols = data.columns || [];
+      var rows = data.rows || [];
+      countEl.textContent = rows.length + ' Zeile(n)' + (data.truncated ? ' (auf 200 begrenzt)' : '');
+      if (cols.length === 0) {
+        tableEl.innerHTML = '<p style="color:var(--sa-muted);font-size:13px;margin:0">Keine Ergebnisse.</p>';
+        return;
+      }
+      var th = cols.map(function(c) {
+        return '<th class="sa-result-th">' + saEsc(c) + '</th>';
+      }).join('');
+      var tb = rows.map(function(row, i) {
+        return '<tr class="sa-result-tr ' + (i % 2 === 0 ? 'sa-result-tr-even' : 'sa-result-tr-odd') + '">' +
+          row.map(function(cell) {
+            return '<td class="sa-result-td">' +
+              (cell === null ? '<em style="color:var(--sa-muted)">NULL</em>' : saEsc(cell)) + '</td>';
+          }).join('') + '</tr>';
+      }).join('');
+      tableEl.innerHTML = '<table class="sa-result-table"><thead><tr>' + th + '</tr></thead><tbody>' + tb + '</tbody></table>';
+    })
+    .catch(function(e) {
+      loadEl.classList.remove('visible');
+      if (btn) btn.disabled = false;
+      errorEl.textContent = (window.i18n ? window.i18n.t('common.network_error') : 'Netzwerkfehler: ') + (e.message || e);
+      errorEl.classList.add('visible');
+    });
+  }
+
+
+  function doGenerateQuery() {
+    var ddl  = document.getElementById('genDdl').value.trim();
+    var seed = document.getElementById('genSeed').value.trim();
+    var goal = document.getElementById('genGoal').value.trim();
+    if (!ddl || !goal) {
+      if (!ddl) document.getElementById('genDdl').focus();
+      else document.getElementById('genGoal').focus();
+      return;
+    }
+
+    saSetLoading('gen', true);
+    var _grElStart = document.getElementById('genResult'); if (_grElStart) _grElStart.classList.remove('visible');
+
+    if (_saGenAbort) { try { _saGenAbort.abort(); } catch(e) {} }
+    _saGenAbort = new AbortController();
+    var _genSignal = _saGenAbort.signal;
+
+    fetch('/api/sql-analyse/generate-query', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ddl: ddl, seedData: seed || null, goal: goal }),
+      signal: _genSignal
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      if (data.analysisId != null && window.cfTokenUsage) {
+        window.cfTokenUsage.init('sql', Number(data.analysisId), {
+          anchor: document.querySelector('.sa-page-tabs, .sl-page-header')
+        });
+      }
+      if (data.error) { saShowError('gen', data.error); return; }
+      renderGeneratedQuery(data);
+      saSetLoading('gen', false);
+      var _grElDone = document.getElementById('genResult'); if (_grElDone) _grElDone.classList.add('visible');
+    })
+    .catch(function(e) {
+      if (e && e.name === 'AbortError') { return; }
+      saShowError('gen', (window.i18n ? window.i18n.t('common.network_error') : 'Netzwerkfehler: ') + (e.message || e));
+    });
+  }
+
+  function renderGeneratedQuery(data) {
+    document.getElementById('genQueryCode').textContent = data.query || '';
+
+    var expCard = document.getElementById('genExplanationCard');
+    var expText = document.getElementById('genExplanationText');
+    if (data.explanation) {
+      expText.textContent = data.explanation;
+      expCard.style.display = '';
+    } else { expCard.style.display = 'none'; }
+
+    var tbCard = document.getElementById('genTablesCard');
+    var tbList = document.getElementById('genTablesList');
+    var tables = data.usedTables || [];
+    if (tables.length > 0) {
+      tbList.innerHTML = tables.map(function(t) {
+        return '<span class="sa-badge sa-badge-table">' + saEsc(t) + '</span>';
+      }).join('');
+      tbCard.style.display = '';
+    } else { tbCard.style.display = 'none'; }
+
+    var altCard = document.getElementById('genAltCard');
+    var altList = document.getElementById('genAltList');
+    var alts = data.alternativeQueries || [];
+    if (alts.length > 0) {
+      altList.innerHTML = alts.map(function(a) {
+        var id = 'alt_' + Math.random().toString(36).slice(2, 7);
+        return '<div class="sa-alt-card">' +
+          (a.description ? '<div class="sa-alt-desc"><i class="bi bi-info-circle me-1"></i>' + saEsc(a.description) + '</div>' : '') +
+          '<div class="sa-code-header">' +
+          '<span class="sa-code-label">SQL</span>' +
+          '<button class="sa-btn-secondary" onclick="saCopyText(\'' + id + '\')">' +
+          '<i class="bi bi-clipboard me-1"></i>' + (window.i18n ? window.i18n.t('sql_analysis.btn_copy') : 'Kopieren') + '</button>' +
+          '</div>' +
+          '<div class="sa-code" id="' + id + '">' + saEsc(a.query) + '</div>' +
+          '</div>';
+      }).join('');
+      altCard.style.display = '';
+    } else { altCard.style.display = 'none'; }
+
+    var notesCard = document.getElementById('genNotesCard');
+    var notesText = document.getElementById('genNotesText');
+    if (data.notes) {
+      notesText.textContent = data.notes;
+      notesCard.style.display = '';
+    } else { notesCard.style.display = 'none'; }
+
+    var valCard = document.getElementById('genValidationCard');
+    var valText = document.getElementById('genValidationText');
+    if (data.validationNotes) {
+      valText.textContent = data.validationNotes;
+      valCard.style.display = '';
+    } else { valCard.style.display = 'none'; }
+  }
+
+  function saSwitchToGenerateData() {
+    var sql = document.getElementById('analyzeSql').value.trim();
+    var ddl = document.getElementById('analyzeDdl').value.trim();
+    var dataSqlEl = document.getElementById('dataSql');
+    var dataDdlEl = document.getElementById('dataDdl');
+    if (dataSqlEl && sql) dataSqlEl.value = sql;
+    if (dataDdlEl && ddl) dataDdlEl.value = ddl;
+    var tabBtn = document.getElementById('tabBtnData');
+    if (tabBtn) saSwitch('panelData', tabBtn);
+    doGenerateData();
+  }
+
+</script>
+</th:block>
+</body>
+</html>

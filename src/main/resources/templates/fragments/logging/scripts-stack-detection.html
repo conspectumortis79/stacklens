@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" lang="de">
+<body>
+<th:block th:fragment="scripts-stack-detection">
+<script th:inline="none">
+/*<![CDATA[*/
+
+window._lgStack = {
+  logStacks: [],
+  logIndicators: [],
+  repoStacks: [],
+  repoIndicators: [],
+  repoMatch: 'unknown',
+};
+
+var LG_LOG_STACK_PATTERNS = [
+  { stack: 'java', re: /\b(java\.lang\.|javax\.|jakarta\.|jdk\.internal\.|at\s+[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*){2,}\.\w+\(.*\.java:)/ },
+  { stack: 'kotlin', re: /\b(kotlin\.|kotlinx\.|at\s+[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*){2,}\.\w+\(.*\.kt:)/ },
+  { stack: 'spring', re: /\b(org\.springframework\.|HikariPool|TomcatWebServer|Spring Boot|DispatcherServlet)/ },
+  { stack: 'postgres', re: /\b(org\.postgresql\.|PostgreSQL|psql|FATAL:\s+database|relation "\w+"|deadlock detected)/ },
+  { stack: 'mysql', re: /\b(com\.mysql\.|MySQL|MariaDB|MySQLSyntaxErrorException)/ },
+  { stack: 'node', re: /\b(node:|node_modules\/|at\s+\/[A-Za-z0-9_./-]+\.js:\d+|Error:\s+connect\s+ECONNREFUSED|undici|require\(.*\)\s+at\s+[A-Za-z])/ },
+  { stack: 'python', re: /\b(Traceback \(most recent call last\)|File "[^"]+", line\s+\d+|ImportError:|ModuleNotFoundError:|django\.|flask\.|fastapi\.|aiohttp\.|celery\.|asyncio\.)/ },
+  { stack: 'django', re: /\b(django\.[a-z]+|django\.db|manage\.py)/ },
+  { stack: 'go', re: /\b(goroutine\s+\d+|panic:\s+runtime error|go\.func\d+|main\.go:\d+)/ },
+  { stack: 'rust', re: /\b(thread\s+'.+'\s+panicked at|stack backtrace:|panicked at '.*', src\/.*\.rs:\d+)/ },
+  { stack: 'php', re: /\b(PHP (Fatal|Warning|Notice|Parse) error|Stack trace:|in\s+\/var\/www|#\d+\s+\/var\/www|symfony\\|laravel)/ },
+  { stack: 'ruby', re: /\b(\.rb:\d+:in\s+`|from\s+\/.*\.rb:\d+:in\s+|bundler\/gems\/|Rails)/ },
+  { stack: 'scala', re: /\b(scala\.|akka\.|play\.api\.|sbt\.io)/ },
+  { stack: 'docker', re: /\b(docker-container|docker-entrypoint|OCI runtime exec failed|dockerd\.|containerd)/ },
+  { stack: 'kubernetes', re: /\b(k8s\.|kube-|kubelet|kube-apiserver|etcd\s+server|Container killed:|CrashLoopBackOff|OOMKilled)/ },
+];
+
+function lgDetectLogStacks(logText) {
+  var found = {};
+  for (var i = 0; i < LG_LOG_STACK_PATTERNS.length; i++) {
+    var p = LG_LOG_STACK_PATTERNS[i];
+    if (p.re.test(logText)) found[p.stack] = (found[p.stack] || 0) + 1;
+  }
+  var stacks = Object.keys(found);
+  var indicators = [];
+  if (found['kotlin'] || found['spring'] || found['java']) indicators.push('java-stacktrace');
+  if (found['postgres'] || found['mysql']) indicators.push('sql-error');
+  if (found['node']) indicators.push('node-stacktrace');
+  if (found['python']) indicators.push('python-traceback');
+  if (found['go']) indicators.push('go-goroutine');
+  if (found['rust']) indicators.push('rust-panic');
+  if (found['php']) indicators.push('php-stacktrace');
+  if (found['kubernetes']) indicators.push('k8s-event');
+  return { stacks: stacks, indicators: indicators };
+}
+
+function lgDetectRepoStacks(repoPath) {
+  return fetch('/api/local-repos/detect-stack?path=' + encodeURIComponent(repoPath))
+    .then(function (r) { return r.json(); })
+    .then(function (data) {
+      var stacks = (data && data.stacks) || [];
+      var indicators = (data && data.indicators) || [];
+      return { stacks: stacks, indicators: indicators };
+    })
+    .catch(function () { return { stacks: [], indicators: [] }; });
+}
+
+function lgComputeMatch(logStacks, repoStacks) {
+  if (!logStacks.length || !repoStacks.length) return 'unknown';
+  var logSet = {};
+  logStacks.forEach(function (s) { logSet[s] = true; });
+  var repoSet = {};
+  repoStacks.forEach(function (s) { repoSet[s] = true; });
+  for (var i = 0; i < repoStacks.length; i++) {
+    var rs = repoStacks[i];
+    if (logSet[rs]) return 'match';
+    if (rs === 'kotlin' && logSet['java']) return 'match';
+    if (rs === 'java' && logSet['kotlin']) return 'match';
+    if (rs === 'django' && logSet['python']) return 'match';
+    if (rs === 'python' && repoSet['django']) return 'match';
+    if (rs === 'typescript' && logSet['node']) return 'match';
+    if (rs === 'node' && logSet['typescript']) return 'match';
+    if ((rs === 'docker' || rs === 'kubernetes') && logStacks.indexOf(rs) !== -1) return 'match';
+  }
+  for (var j = 0; j < logStacks.length; j++) {
+    var ls = logStacks[j];
+    if (ls === 'python' && repoSet['django']) return 'match';
+    if (ls === 'django' && repoSet['python']) return 'match';
+  }
+  return 'mismatch';
+}
+
+function lgRenderRepoMatchBadge(cardEl, match) {
+  var existing = cardEl.querySelector('.lg-local-repo-match');
+  if (existing) existing.remove();
+  if (!match) return;
+  var pill = document.createElement('span');
+  pill.className = 'lg-local-repo-match';
+  var t = window.i18n ? window.i18n.t.bind(window.i18n) : function (k, d) { return d || k; };
+  if (match === 'match') {
+    pill.innerHTML = '<i class="bi bi-check-circle-fill"></i> ' + t('logging.repo_match_ok', 'Passt zu den Logs');
+    pill.setAttribute('data-match', 'match');
+  } else if (match === 'mismatch') {
+    pill.innerHTML = '<i class="bi bi-x-circle-fill"></i> ' + t('logging.repo_match_mismatch', 'Passt nicht zu den Logs');
+    pill.setAttribute('data-match', 'mismatch');
+  } else {
+    pill.innerHTML = '<i class="bi bi-question-circle-fill"></i> ' + t('logging.repo_match_unknown', 'Stack unbekannt');
+    pill.setAttribute('data-match', 'unknown');
+  }
+  cardEl.appendChild(pill);
+}
+
+window.lgDetectLogStacks = lgDetectLogStacks;
+window.lgDetectRepoStacks = lgDetectRepoStacks;
+window.lgComputeMatch = lgComputeMatch;
+window.lgRenderRepoMatchBadge = lgRenderRepoMatchBadge;
+/*]]>*/
+</script>
+</th:block>
+</body>
+</html>

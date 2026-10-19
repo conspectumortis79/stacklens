@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" lang="de">
+<body>
+<th:block th:fragment="scripts-ki-rebuild">
+<script>
+
+function _gaSetRebuildRunning(running) {
+  const btn   = document.getElementById('btnRebuild');
+  const icon  = document.getElementById('btnRebuildIcon');
+  const label = document.getElementById('btnRebuildLabel');
+  if (!btn) return;
+  if (running) {
+    btn.disabled = true;
+    if (icon)  icon.className = 'spinner-border spinner-border-sm';
+    if (label) label.textContent = (window.i18n && window.i18n.t('grafana_analysis.ai_working')) || 'KI arbeitet…';
+  } else {
+    btn.disabled = false;
+    if (icon)  icon.className = 'bi bi-magic';
+    if (label) label.textContent = (window.i18n && window.i18n.t('grafana_analysis.rebuild_btn')) || 'Dashboard umbauen';
+  }
+}
+
+function _gaPersistRebuildResult(data) {
+  try {
+    const raw   = sessionStorage.getItem(GA_SESSION_KEY);
+    const state = raw ? JSON.parse(raw) : {};
+    state.rebuiltDashboardData = data;
+    if (data.dashboardJson) state.dashboardJson = data.dashboardJson;
+    sessionStorage.setItem(GA_SESSION_KEY, JSON.stringify(state));
+  } catch (_) {}
+}
+
+async function startRebuild() {
+  const jsonText     = document.getElementById('inputDashboardJson').value.trim();
+  const instructions = document.getElementById('inputRebuildInstructions').value.trim();
+  const errEl        = document.getElementById('rebuildError');
+
+  if (!jsonText) { showAlert(_t('grafana_analysis.js_no_dashboard_json'), 'warning'); return; }
+  if (!instructions) { showAlert(window.i18n ? window.i18n.t('grafana_analysis.enter_instructions') : 'Bitte Anweisungen eingeben.', 'warning'); return; }
+
+  if (errEl) errEl.style.display = 'none';
+  try { sessionStorage.setItem(GA_SESSION_KEY + ':running', '1'); } catch (_) {}
+  _gaSetRebuildRunning(true);
+
+  try {
+    const resp = await fetch('/api/grafana-analyse/rebuild-dashboard', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ dashboardJson: jsonText, instructions: instructions }),
+    });
+    const data = await resp.json();
+    if (!resp.ok || data.error) {
+      const curErrEl  = document.getElementById('rebuildError');
+      const curErrMsg = document.getElementById('rebuildErrorMsg');
+      if (curErrMsg) curErrMsg.textContent = data.error || ('Fehler ' + resp.status);
+      if (curErrEl)  curErrEl.style.display = 'block';
+      return;
+    }
+
+    rebuiltDashboardData = data;
+    _gaPersistRebuildResult(data);
+
+    if (window.cfTokenUsage && data.analysisId != null) {
+      window.cfTokenUsage.init('grafana', data.analysisId, {
+        anchor: document.querySelector('.sl-page-header, .ga-page')
+      });
+    }
+
+    if (data.dashboardJson) {
+      if (data.parseSuccess === false) {
+        showAlert(window.i18n ? window.i18n.t('grafana_analysis.parse_warning') : 'Hinweis: Die KI-Antwort konnte nicht korrekt verarbeitet werden – das Dashboard-JSON wurde nicht verändert. Bitte erneut versuchen oder den KI-Prompt anpassen.', 'warning');
+      }
+      setDashboardJson(data.dashboardJson);
+      const btnExport = document.getElementById('btnDashExport');
+      if (btnExport) btnExport.style.display = 'inline-flex';
+      visualizeDashboard();
+    }
+    saveState();
+  } catch (err) {
+    const curErrEl  = document.getElementById('rebuildError');
+    const curErrMsg = document.getElementById('rebuildErrorMsg');
+    if (curErrMsg) curErrMsg.textContent = (window.i18n ? window.i18n.t('common.network_error') : 'Netzwerkfehler: ') + err.message;
+    if (curErrEl)  curErrEl.style.display = 'block';
+  } finally {
+    try { sessionStorage.removeItem(GA_SESSION_KEY + ':running'); } catch (_) {}
+    _gaSetRebuildRunning(false);
+  }
+}
+</script>
+</th:block>
+</body>
+</html>

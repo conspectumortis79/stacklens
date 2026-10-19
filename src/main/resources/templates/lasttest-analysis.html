@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org"
+      xmlns:layout="http://www.ultraq.net.nz/thymeleaf/layout"
+      layout:decorate="~{layout}" lang="de">
+<head><title>Lasttest-Analyse</title>
+<meta name="mcp-sources" content="gitlab,github,grafana">
+</head>
+<body>
+
+<th:block layout:fragment="page-title"><span data-i18n="page_titles.load_test">Lasttest-Analyse</span></th:block>
+
+<th:block layout:fragment="page-subtitle">
+  <p class="page-subtitle">
+    <span data-i18n="page_subtitles.load_test">Analysiert PHP-Code aus GitLab auf Performance-Engpässe – langsame DB-Queries, fehlende Caches,
+    PHP-FPM-Bottlenecks – und generiert ein fertiges <strong>k6-Skript</strong> zum sofortigen Ausführen.</span>
+  </p>
+</th:block>
+
+<th:block layout:fragment="page-actions">
+  <div style="display:flex;gap:8px;align-items:center;">
+  <button class="btn btn-sm btn-outline-secondary" style="border-color:#ddd7cb;color:#5b564d;"
+          data-prompt-prefix="loadtest" disabled
+          onclick="openPromptEditorForPrefix('loadtest', 'Lasttest-Analyse', null, 'loadtest.analysisPrompt', null)">
+    <i class="bi bi-cpu me-1"></i><span data-i18n="load_test.ai_prompt_btn">KI-Prompt</span>
+  </button>
+  <button class="btn btn-sm" style="background:linear-gradient(135deg,#7c5cbf,#5b8ef0);color:#fff;border:none;"
+          onclick="kiChatToggle()" title="KI Chat">
+    <i class="bi bi-chat-dots-fill me-1"></i><span data-i18n="common.ki_chat_btn">KI Chat</span>
+  </button>
+  </div>
+</th:block>
+
+<th:block layout:fragment="head-extra">
+<script th:inline="javascript">
+/*<![CDATA[*/
+window.kiChatConfig = {
+  tabId: 'lasttest-analysis',
+  tabLabel: 'Lasttest-Analyse',
+  tabLabelKey: 'ki_chat.lasttest_analysis.tab_label',
+  introMessage: 'Hi! Ich bin dein Load-Test-Begleiter (k6, JMeter, Gatling). Ich helfe bei Skript-Design, SLO-Definition und der Auswertung von Latenz / Throughput / Error-Rate.',
+  introMessageKey: 'ki_chat.lasttest_analysis.intro',
+  suggestionsKey: 'ki_chat.lasttest_analysis.suggestions',
+  suggestions: [
+    'Welches Lastprofil passt zu meinem Service (Smoke / Load / Stress / Soak)?',
+    'Schreibe ein k6-Skript mit ramping-vus für 100 → 1000 RPS',
+    'JMeter vs k6 vs Gatling — kurze Entscheidungshilfe',
+    'Wie interpretiere ich p50 / p95 / p99 in meinem Report?',
+    'Sinnvolle SLOs für eine REST-API definieren',
+    'Bottleneck-Erkennung: hohe Latenz bei niedriger CPU?',
+    'Wie konfiguriere ich Thresholds in k6?',
+    'Connection-Pool / Keep-Alive richtig setzen'
+  ],
+  systemHint: 'You are a senior performance engineer (k6, JMeter, Gatling, capacity planning). Provide concrete scripts and threshold configurations, not generic advice.',
+  contextProvider: function(){ return ''; }
+};
+/*]]>*/
+</script>
+</th:block>
+
+<div layout:fragment="content">
+<th:block th:replace="~{fragments/lasttest-analysis/styles :: styles}"></th:block>
+<th:block th:replace="~{fragments/shared/token-usage :: styles}"></th:block>
+
+  <div class="modal fade" id="ltRepoModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+      <div class="modal-content" style="border:1px solid var(--lt-border);border-radius:16px;overflow:hidden;box-shadow:0 8px 32px rgba(0,0,0,.12);">
+        <div class="modal-header fb-modal-header" style="border-bottom:1px solid var(--lt-border);padding:14px 20px;">
+          <h5 class="modal-title" id="ltRepoModalTitle" style="font-size:15px;font-weight:800;">
+            <i class="bi bi-folder2-open me-2" style="color:var(--lt-accent);"></i>
+            <span data-i18n="bug_analysis.repo_edit_title">Repository bearbeiten</span>
+          </h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body" style="background:var(--lt-card);padding:20px 20px 16px;">
+          <input type="hidden" id="ltRepoId"/>
+          <div class="mb-3">
+            <label class="form-label" style="font-weight:700;font-size:13px;" data-i18n="common.name">Name</label>
+            <input type="text" id="ltRepoName" class="form-control"
+                   style="border-color:var(--lt-border);border-radius:10px;background:#fff;font-size:14px;"/>
+          </div>
+          <div class="mb-3">
+            <label class="form-label" style="font-weight:700;font-size:13px;" data-i18n="code_analysis.repo_path_label">Pfad (absoluter Dateipfad)</label>
+            <div class="input-group">
+              <input type="text" id="ltRepoPath" class="form-control"
+                     placeholder="/Users/me/code/my-project"
+                     style="border-color:var(--lt-border);border-radius:10px 0 0 10px;background:#fff;font-size:14px;font-family:monospace;"/>
+              <button class="btn fb-btn-browse" type="button" onclick="ltFbOpenBrowserForEdit()"
+                      style="border:1px solid var(--lt-border);border-left:none;border-radius:0 10px 10px 0;color:var(--lt-accent);" data-i18n-title="common.dir_browse_title" title="Verzeichnis auswählen">
+                <i class="bi bi-folder2-open"></i>
+              </button>
+            </div>
+          </div>
+          <div class="form-check form-switch" style="margin-top:4px;">
+            <input class="form-check-input" type="checkbox" id="ltRepoActive" checked/>
+            <label class="form-check-label" style="font-size:13px;color:var(--lt-ink);" for="ltRepoActive" data-i18n="common.active">Aktiv</label>
+          </div>
+          <div id="ltRepoModalError" class="alert alert-danger mt-3 d-none" style="border-radius:10px;font-size:13px;"></div>
+        </div>
+        <div class="modal-footer fb-modal-footer" style="border-top:1px solid var(--lt-border);padding:12px 20px;">
+          <button class="btn btn-outline-secondary" data-bs-dismiss="modal" style="border-radius:999px;font-size:13px;font-weight:600;" data-i18n="common.cancel">Abbrechen</button>
+          <button class="btn" style="background:var(--lt-accent);color:#fff;border-radius:999px;font-size:13px;font-weight:700;padding:6px 20px;" onclick="ltSaveLocalRepo()">
+            <i class="bi bi-check-lg me-1"></i><span data-i18n="common.save">Speichern</span>
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+<div class="lt-layout">
+
+  <aside class="lt-sidebar">
+    <div class="lt-sidebar-header">
+      <span style="display:flex;align-items:center;justify-content:space-between;width:100%;">
+        <span><i class="bi bi-folder2 me-1" style="color:#eab308;"></i><span data-i18n="bug_analysis.repos_title">Repositories</span></span>
+        <button onclick="ltFbOpenBrowserForNewRepo()"
+                data-i18n-title="common.repo_add_title"
+                title="Repository hinzufügen"
+                style="background:var(--lt-action);color:#fff;border:none;border-radius:8px;width:26px;height:26px;display:inline-flex;align-items:center;justify-content:center;cursor:pointer;font-size:18px;line-height:1;padding:0;flex-shrink:0;">
+          <i class="bi bi-plus"></i>
+        </button>
+      </span>
+    </div>
+    <div class="lt-sidebar-scroll">
+      <div class="lt-sidebar-scroll-content" id="ltSidebarScrollContent">
+
+        <div id="ltLocalRepoList">
+          <div th:each="r : ${localRepoConfigs}"
+               class="lt-repo-card"
+               th:id="'ltRepoCard-' + ${r.id}"
+               th:data-repo-id="${r.id}"
+               th:data-repo-name="${r.name}"
+               th:data-repo-path="${r.path}"
+               th:data-repo-active="${r.active}"
+               th:classappend="${!r.active} ? ' lt-repo-inactive'"
+               onclick="ltSelectLocalRepo(+this.dataset.repoId, this.dataset.repoName)"
+               style="cursor:pointer;">
+            <div class="lt-repo-name" th:text="${r.name}"></div>
+            <div class="lt-repo-path" th:text="${r.path}"></div>
+            <div class="lt-card-status"></div>
+            <div class="lt-btn-row">
+              <button class="lt-btn-xs lt-btn-xs-success"
+                      onclick="event.stopPropagation(); var c=this.closest('.lt-repo-card'); ltSelectLocalRepo(+c.dataset.repoId, c.dataset.repoName); ltClickStartLocal(+c.dataset.repoId, c.dataset.repoName)">
+                <i class="bi bi-play-fill"></i> <span data-i18n="bug_analysis.btn_start">Starten</span>
+              </button>
+              <button class="lt-btn-xs lt-btn-xs-cancel"
+                      onclick="event.stopPropagation(); ltCancelAnalysis()" title="Abbrechen">
+                <i class="bi bi-x-circle"></i>
+              </button>
+              <button class="lt-btn-xs lt-btn-xs-outline" data-lt-edit="true"
+                      onclick="event.stopPropagation(); var c=this.closest('.lt-repo-card'); ltOpenAddLocalRepoModal(+c.dataset.repoId, c.dataset.repoName, c.dataset.repoPath, c.dataset.repoActive === 'true')">
+                <i class="bi bi-pencil"></i>
+              </button>
+              <button class="lt-btn-xs lt-btn-xs-outline"
+                      onclick="event.stopPropagation(); ltDeleteLocalRepo(+this.closest('.lt-repo-card').dataset.repoId)">
+                <i class="bi bi-trash"></i>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div id="ltGitlabSection">
+          <div id="ltProjectList">
+            <div class="text-muted small text-center py-3" data-i18n="common.loading">Wird geladen…</div>
+          </div>
+        </div>
+
+        <div th:if="${!githubRepoConfigs.empty}" id="ltGithubSection">
+          <div class="mb-2">
+            <div class="lt-github-accordion-header d-flex align-items-center gap-2 p-2 rounded"
+                 style="border:1px solid var(--lt-border);cursor:pointer;"
+                 onclick="ltToggleGithubAccordion(this)">
+              <i class="bi bi-github lt-github-icon"></i>
+              <span class="fw-bold flex-grow-1" style="font-size:13px;word-break:break-all;">GitHub</span>
+              <i class="bi bi-chevron-down small text-muted lt-gh-chevron"></i>
+            </div>
+            <div class="lt-github-repos d-none" id="ltGithubRepoList">
+              <div th:each="gh : ${githubRepoConfigs}"
+                   class="lt-repo-card"
+                   th:id="'ltGhCard-' + ${gh.id}"
+                   th:data-github-repo-id="${gh.id}"
+                   th:data-github-repo-name="${gh.owner + '/' + gh.repo}"
+                   onclick="ltSelectGithubRepo(+this.dataset.githubRepoId, this.dataset.githubRepoName)"
+                   style="cursor:pointer;">
+                <div class="lt-repo-name"><span th:text="${gh.name}"></span></div>
+                <div class="lt-repo-path" th:text="${gh.owner + '/' + gh.repo}"></div>
+                <div class="lt-card-status"></div>
+                <div class="lt-btn-row">
+                  <button class="lt-btn-xs lt-btn-xs-success"
+                          th:id="'ltGhStartBtn-' + ${gh.id}"
+                          onclick="event.stopPropagation(); var c=this.closest('.lt-repo-card'); ltSelectGithubRepo(+c.dataset.githubRepoId, c.dataset.githubRepoName); ltClickStartGithub(+c.dataset.githubRepoId, c.dataset.githubRepoName)">
+                    <i class="bi bi-play-fill"></i> <span data-i18n="bug_analysis.btn_start">Starten</span>
+                  </button>
+                  <button class="lt-btn-xs lt-btn-xs-cancel"
+                          th:id="'ltGhCancelBtn-' + ${gh.id}"
+                          onclick="event.stopPropagation(); ltCancelAnalysis()" title="Abbrechen">
+                    <i class="bi bi-x-circle"></i>
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+      <div class="sl-scroll-track" id="ltSidebarScrollTrack"><div class="sl-scroll-thumb" id="ltSidebarScrollThumb"></div></div>
+    </div>
+  </aside>
+
+  <div class="lt-result">
+
+    <div class="lt-result-sticky-top">
+    <div class="lt-result-header" id="ltHeader">
+      <div class="lt-empty" style="padding:20px;flex:1;min-height:auto;justify-content:flex-start;flex-direction:row;gap:10px;">
+        <i class="bi bi-arrow-left"></i>
+        <span class="text-muted" style="font-size:14px;" data-i18n="load_test.select_project">Wähle ein GitLab-Projekt und starte die Analyse.</span>
+      </div>
+    </div>
+
+    <div class="lt-tabs d-none" id="ltTabs">
+      <button class="lt-tab-btn active" onclick="ltSwitch('tabLtSummary', this)">
+        <i class="bi bi-bar-chart me-1"></i><span data-i18n="load_test.tab_summary">Zusammenfassung</span>
+      </button>
+      <button class="lt-tab-btn" onclick="ltSwitch('tabLtFindings', this)">
+        <i class="bi bi-exclamation-triangle me-1"></i><span data-i18n="load_test.tab_bottlenecks">Engpässe</span>
+        <span class="badge ms-1" id="ltFindingsBadge" style="background:var(--lt-accent);font-size:10px;display:none;"></span>
+      </button>
+      <button class="lt-tab-btn" id="tabBtnLtK6" onclick="ltSwitch('tabLtK6', this)">
+        <i class="bi bi-play-circle me-1"></i>k6
+      </button>
+
+    </div>
+    </div>
+
+    <div class="lt-tab-panel active" id="tabLtSummary">
+      <div class="lt-empty" id="ltEmptyState">
+        <i class="bi bi-speedometer2"></i>
+        <span data-i18n="load_test.no_analysis">Keine Analyse vorhanden.</span><br>
+        <span class="text-muted small" data-i18n="load_test.empty_hint">Wähle ein Projekt und klicke Analyse starten.</span>
+      </div>
+      <div id="ltRunning" class="lt-empty d-none">
+        <span class="spinner-border" style="width:2.4rem;height:2.4rem;border-width:3px;color:var(--lt-muted);"></span>
+        <div class="mt-3 fw-medium" style="font-size:1.05rem;" data-i18n="load_test.analyzing">KI analysiert den Code auf Engpässe …</div>
+        <div class="text-muted small mt-1" data-i18n="load_test.analyzing_steps">Schritt 1: Bottleneck-Analyse · Schritt 2: k6-Skript generieren.<br>Das kann 2–5 Minuten dauern.</div>
+      </div>
+      <div id="ltAborted" class="lt-empty d-none">
+        <i class="bi bi-x-circle" style="font-size:2.4rem;"></i>
+        <div class="mt-2 fw-medium" data-i18n="load_test.aborted">Analyse abgebrochen.</div>
+      </div>
+      <div id="ltError" class="d-none alert alert-danger" style="border-radius:10px;"></div>
+      <div id="ltSummaryContent" class="lt-prose d-none"></div>
+    </div>
+
+    <div class="lt-tab-panel" id="tabLtFindings">
+      <div id="ltFindingsContent">
+        <div class="lt-empty"><i class="bi bi-search-heart"></i><span data-i18n="load_test.no_findings">Noch keine Befunde. Starte erst eine Analyse.</span></div>
+      </div>
+    </div>
+
+    <div class="lt-tab-panel" id="tabLtK6">
+      <div id="ltK6Content">
+        <div class="lt-empty"><i class="bi bi-code-square"></i><span data-i18n="load_test.k6_empty">k6-Skript wird nach der Analyse generiert.</span></div>
+      </div>
+    </div>
+
+
+    <th:block th:replace="~{fragments/shared/history :: card('lasttest-analysis', '')}"></th:block>
+
+  </div>
+</div>
+
+</div>
+
+<th:block layout:fragment="scripts">
+<th:block th:replace="~{fragments/lasttest-analysis/scripts :: scripts}"></th:block>
+<th:block th:replace="~{fragments/shared/token-usage :: scripts}"></th:block>
+<script>
+  if (window.slTokenUsagePage) window.slTokenUsagePage({
+        kind: 'loadtest',
+        anchor: document.querySelector('.sl-page-header'),
+        resolveId: function () { return ltCurrentAnalysisId; }
+    });
+</script>
+</th:block>
+</body>
+</html>

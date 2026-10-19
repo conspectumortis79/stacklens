@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" lang="de">
+<body>
+<th:block th:fragment="scripts-history">
+<script>
+  var _baHistory = null;
+  var _baHistoryLiveSync = null;
+
+  function baHistoryProject(a) {
+    if (a.gitlabProjectPath) return a.gitlabProjectPath;
+    if (a.repoConfigId) {
+      var card = document.getElementById('baRepoCard-' + a.repoConfigId);
+      if (card) {
+        var name = card.querySelector('.ba-repo-name');
+        if (name) return name.textContent.trim();
+      }
+      return 'Lokal #' + a.repoConfigId;
+    }
+    if (a.githubRepoConfigId) {
+      var gh = document.getElementById('baGhCard-' + a.githubRepoConfigId);
+      if (gh) {
+        var gname = gh.querySelector('.ba-repo-name');
+        if (gname) return gname.textContent.trim();
+      }
+      return 'GitHub #' + a.githubRepoConfigId;
+    }
+    return '#' + a.id;
+  }
+
+  function baHistoryRef(a) {
+    if (a.gitlabProjectPath) return 'GitLab';
+    if (a.githubRepoConfigId) return 'GitHub';
+    if (a.repoConfigId) return 'Lokal';
+    return '';
+  }
+
+  function baHistoryStatus(a) {
+    return _baCancelledIds.has(a.id) ? 'CANCELLED' : a.status;
+  }
+
+  function baHistoryFindings(a) {
+    if (window.slHistory.status(baHistoryStatus(a)) !== 'COMPLETED') return '';
+    if (!a.findingsJson) return '0';
+    try {
+      var parsed = JSON.parse(a.findingsJson);
+      return Array.isArray(parsed) ? String(parsed.length) : '';
+    } catch (_) { return ''; }
+  }
+
+  function baHistoryProgress(a) {
+    if (!window.slHistory.isLive(a.status)) return null;
+    var total = Number(a.totalIterations) || 0;
+    var current = Number(a.currentIteration) || 0;
+    return {
+      pct: total ? Math.round((current / total) * 100) : 0,
+      stage: a.currentStep || (total ? current + '/' + total : '')
+    };
+  }
+
+  function baHistory() {
+    if (_baHistory) return _baHistory;
+    _baHistory = window.slHistory.mount({
+      root: 'hxCard-security-analysis',
+      page: 'security-analysis',
+      titleKey: 'bug_analysis.history_title',
+      emptyKey: 'bug_analysis.history_none_entries',
+      columns: {
+        title: { key: 'bug_analysis.col_project', fallback: 'Projekt' },
+        metric: { key: 'common.history_col_findings', fallback: 'Befunde' }
+      },
+      map: {
+        id: function(a) { return a.id; },
+        status: baHistoryStatus,
+        createdAt: function(a) { return a.createdAt; },
+        typeIcon: function(a) {
+          if (a.gitlabProjectPath) return 'bi-gitlab';
+          if (a.githubRepoConfigId) return 'bi-github';
+          return 'bi-bug';
+        },
+        title: baHistoryProject,
+        subtitle: baHistoryRef,
+        metric: baHistoryFindings,
+        note: function(a) { return a.errorMessage || ''; },
+        progress: baHistoryProgress,
+        isCurrent: function(a) { return baCurrentAnalysisId === a.id; }
+      },
+      actions: {
+        open: function(a) { baShowHistoryItem(a.id); },
+        cancel: function(a) { baCancelHistoryItem(a.id); },
+        remove: function(a) { baDeleteHistoryItem(a.id); },
+        deleteAll: function() { baDeleteAllHistory(); }
+      }
+    });
+    return _baHistory;
+  }
+
+  function baLoadHistory() {
+    fetch('/api/bug-analysis/all')
+      .then(function(r) { return r.json(); })
+      .then(function(list) {
+        var sorted = (list || []).slice().sort(function(a, b) { return b.id - a.id; });
+        baHistory().setData(sorted);
+      })
+      .catch(function() {});
+  }
+
+  function baRefreshHistory() {
+    if (_baHistory) _baHistory.refresh();
+  }
+
+  function baSyncHistoryProgress(data) {
+    if (!_baHistoryLiveSync) {
+      _baHistoryLiveSync = window.slHistory.createLiveSync({
+        reload: baLoadHistory,
+        fields: ['currentIteration', 'currentStep']
+      });
+    }
+    return _baHistoryLiveSync(data);
+  }
+
+  function baShowHistoryItem(id) {
+    if (baPollTimer) { clearInterval(baPollTimer); baPollTimer = null; }
+    ++_baPollVersion;
+    baCurrentAnalysisId = id;
+    _baFixRestoreState(null);
+    var _histGen = ++_baStartGen;
+    fetch('/api/bug-analysis/analysis/' + id + '/status')
+      .then(_baJsonResponse)
+      .then(function(data) {
+        if (_histGen !== _baStartGen) return;
+
+        if (!data || data.error) {
+          baCurrentAnalysisId = null;
+          baShowEmpty(baCurrentRepoName);
+          return;
+        }
+
+        var _histDataKey = null;
+        if (data.githubRepoConfigId)                          _histDataKey = 'github:'  + data.githubRepoConfigId;
+        else if (data.gitlabConfigId && data.gitlabProjectId) _histDataKey = 'gitlab:'  + data.gitlabConfigId + ':' + data.gitlabProjectId;
+        else if (data.repoConfigId)                           _histDataKey = 'local:'   + data.repoConfigId;
+
+        var _bsPreserved = (_histDataKey && window._baFixPrs &&
+                            window._baFixPrs[_histDataKey] &&
+                            window._baFixPrs[_histDataKey].details &&
+                            window._baFixPrs[_histDataKey].details.length > 0)
+                           ? window._baFixPrs[_histDataKey].details.slice()
+                           : null;
+
+        baCurrentRepoId       = data.repoConfigId       || null;
+        baGitlabConfigId      = data.gitlabConfigId     || null;
+        baGitlabProjectId     = data.gitlabProjectId    || null;
+        baGitlabProjectPath   = data.gitlabProjectPath  || null;
+        baGithubRepoConfigId  = data.githubRepoConfigId || null;
+        if (data.repoConfigId) {
+          var _nc = document.getElementById('baRepoCard-' + data.repoConfigId);
+          if (_nc && _nc.dataset.repoName) baCurrentRepoName = _nc.dataset.repoName;
+        } else if (data.githubRepoConfigId) {
+          var _ngc = document.getElementById('baGhCard-' + data.githubRepoConfigId);
+          if (_ngc && _ngc.dataset.githubRepoName) { baGithubRepoName = _ngc.dataset.githubRepoName; baCurrentRepoName = baGithubRepoName || baCurrentRepoName; }
+        } else if (data.gitlabProjectPath) {
+          baCurrentRepoName = data.gitlabProjectPath;
+        }
+        baSaveState();
+        document.querySelectorAll('.ba-repo-card').forEach(function(c) {
+          var _m = (baCurrentRepoId      && c.dataset.repoId      == baCurrentRepoId   && !c.dataset.cfgId) ||
+                   (baGitlabConfigId     && c.dataset.cfgId       == baGitlabConfigId  && c.dataset.projectId == baGitlabProjectId) ||
+                   (baGithubRepoConfigId && c.dataset.githubRepoId == baGithubRepoConfigId);
+          c.classList.toggle('selected', !!_m);
+        });
+
+        if (data.status === 'RUNNING' || data.status === 'PENDING') {
+          baShowRunning(baCurrentRepoName || '-', data.currentIteration || 1, data.totalIterations || 3, data.currentStep, data.createdAt);
+          baStartPoll(id);
+        } else {
+          baRenderResult(data);
+        }
+        if (_bsPreserved) {
+          _baFixRestoreState(_bsPreserved);
+          _baUpdateFixPrBadge();
+        }
+        baRefreshHistory();
+        var main = document.querySelector('.ba-main');
+        if (main) main.scrollTop = 0;
+      })
+      .catch(function() {});
+  }
+
+  function baCancelHistoryItem(id) {
+    _baCancelledIds.add(id);
+    fetch('/api/bug-analysis/analysis/' + id + '/cancel', { method: 'POST' })
+      .then(function() { baLoadHistory(); })
+      .catch(function() { baLoadHistory(); });
+  }
+
+  function baDeleteHistoryItem(id) {
+    fetch('/api/bug-analysis/analysis/' + id, { method: 'DELETE' })
+      .then(function() {
+        if (baCurrentAnalysisId === id) {
+          baCurrentAnalysisId = null;
+          baShowEmpty(baCurrentRepoName);
+        }
+        baLoadHistory();
+      });
+  }
+
+  function baDeleteAllHistory() {
+    fetch('/api/bug-analysis/all')
+      .then(function(r) { return r.json(); })
+      .then(function(list) {
+        if (!list || !list.length) { baLoadHistory(); return; }
+        var chain = Promise.resolve();
+        list.forEach(function(item) {
+          chain = chain.then(function() {
+            return fetch('/api/bug-analysis/analysis/' + item.id, { method: 'DELETE' });
+          });
+        });
+        chain.then(function() {
+          baCurrentAnalysisId = null;
+          baShowEmpty(baCurrentRepoName);
+          baLoadHistory();
+        });
+      })
+      .catch(function() {});
+  }
+</script>
+</th:block>
+</body>
+</html>

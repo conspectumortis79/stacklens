@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" lang="de">
+<body>
+<th:block th:fragment="scripts-agent-editor">
+<script>
+
+function openAgentEditorForPipeline() {
+  var AGENTS = [
+    {key: 'lena',  label: 'Lena (Jira)'},
+    {key: 'nora',  label: 'Nora (Analyse)'},
+    {key: 'cole',  label: 'Cole (Plan)'},
+    {key: 'max',   label: 'Max (Planung)'},
+    {key: 'finn',  label: 'Finn (Code)'},
+    {key: 'faye',  label: 'Faye (Frontend)'},
+    {key: 'vera',  label: 'Vera (Infra)'},
+    {key: 'tess',  label: 'Tess (Tests)'},
+    {key: 'syd',   label: 'Syd (Systemtests)'},
+    {key: 'quinn', label: 'Quinn (Review)'},
+    {key: 'sage',  label: 'Sage (Security)'},
+    {key: 'rex',   label: 'Rex (Build)'},
+  ];
+
+  __promptEditorTabs = AGENTS.map(function(a) {
+    return { key: a.key, label: a.label, content: '', isCustom: false, defaultContent: '', loaded: false, dirty: false };
+  });
+  __promptEditorTabIdx = -1;
+
+  __promptEditorSetupCommon(
+    'KI Agents',
+    null,
+    null,
+    '/api/agents/pipeline',
+    false
+  );
+  var subtitleEl = document.getElementById('promptEditorSubtitleText');
+  if (subtitleEl) subtitleEl.textContent = window.i18n ? window.i18n.t('agent_editor.subtitle') : 'Pipeline-Agents bearbeiten und speichern. Änderungen werden bei der nächsten Pipeline-Ausführung sofort wirksam.';
+
+  __promptEditorRenderTabs();
+  __promptEditorSwitchTab(0);
+  if (!__promptEditorModal) {
+    __promptEditorModal = new bootstrap.Modal(document.getElementById('promptEditorModal'));
+  }
+  __promptEditorModal.show();
+}
+window.openAgentEditorForPipeline = openAgentEditorForPipeline;
+
+
+function __promptEditorCopy() {
+  var content = document.getElementById('promptEditorTextarea').value;
+  if (!content) return;
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(content).catch(function() {});
+  } else {
+    var ta = document.createElement('textarea');
+    ta.value = content; ta.style.position = 'fixed'; ta.style.opacity = '0';
+    document.body.appendChild(ta); ta.select(); document.execCommand('copy');
+    document.body.removeChild(ta);
+  }
+}
+function __promptEditorSave() {
+  if (!__promptEditorKey) return;
+  var content = document.getElementById('promptEditorTextarea').value;
+  if (!content.trim()) return;
+  fetch(__promptEditorApiBase + '/' + encodeURIComponent(__promptEditorKey), {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ content: content })
+  })
+  .then(function(r) { return r.json(); })
+  .then(function() {
+    if (__promptEditorTabIdx >= 0 && __promptEditorTabs[__promptEditorTabIdx]) {
+      var tab = __promptEditorTabs[__promptEditorTabIdx];
+      tab.content = content;
+      tab.isCustom = true;
+      tab.dirty = false;
+      __promptContentCache[__promptEditorKey] = { content: content, isCustom: true, defaultContent: tab.defaultContent || '' };
+      document.getElementById('promptEditorCustomBadge').style.display = 'inline-flex';
+      document.getElementById('promptEditorDefaultSection').classList.remove('d-none');
+      document.getElementById('promptEditorDefaultText').textContent = tab.defaultContent;
+      __promptEditorRenderTabs();
+    } else {
+      if (__promptEditorModal) __promptEditorModal.hide();
+    }
+  })
+  .catch(function() {});
+}
+function __promptEditorSaveAndRun() {
+  if (!__promptEditorKey) return;
+  var content = document.getElementById('promptEditorTextarea').value;
+  if (!content.trim()) return;
+  fetch(__promptEditorApiBase + '/' + encodeURIComponent(__promptEditorKey), {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ content: content })
+  })
+  .then(function(r) { return r.json(); })
+  .then(function() {
+    if (__promptEditorTabIdx >= 0 && __promptEditorTabs[__promptEditorTabIdx]) {
+      var tab = __promptEditorTabs[__promptEditorTabIdx];
+      tab.content = content;
+      tab.isCustom = true;
+      tab.dirty = false;
+    }
+    __promptContentCache[__promptEditorKey] = {
+      content: content, isCustom: true,
+      defaultContent: (__promptEditorTabs[__promptEditorTabIdx] && __promptEditorTabs[__promptEditorTabIdx].defaultContent) || ''
+    };
+    if (__promptEditorModal) __promptEditorModal.hide();
+    if (typeof __promptEditorSaveAndRunCallback === 'function') __promptEditorSaveAndRunCallback();
+  })
+  .catch(function() {});
+}
+</script>
+</th:block>
+</body>
+</html>

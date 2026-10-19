@@ -1,0 +1,357 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" lang="de">
+<body>
+<th:block th:fragment="scripts-mcp">
+
+<script th:inline="javascript">
+/*<![CDATA[*/
+var mcpServerConfigs = {};
+var _mcpList = /*[[${mcpServerConfigs}]]*/ [];
+(_mcpList || []).forEach(function(c) { mcpServerConfigs[c.id] = c; });
+/*]]>*/
+</script>
+
+<script th:inline="none">
+function _mcpT(k, fb) { return window.i18n ? window.i18n.t(k) : fb; }
+
+function mcpRefresh() {
+  return fetch('/api/config/mcp')
+    .then(function(r) { return (window.slHelpers || {}).jsonArray ? (window.slHelpers || {}).jsonArray(r) : r.json(); })
+    .then(function(list) {
+      mcpServerConfigs = {};
+      list.forEach(function(c) { mcpServerConfigs[c.id] = c; });
+    })
+    .catch(function(e) { console.warn('[MCP] refresh failed', e); });
+}
+
+function mcpResetForm() {
+  document.getElementById('mcpId').value = '';
+  document.getElementById('mcpName').value = '';
+  document.getElementById('mcpBaseUrl').value = 'http://localhost:7456';
+  document.getElementById('mcpAuthToken').value = '';
+  document.getElementById('mcpActive').checked = false;
+  document.getElementById('mcpRouteJira').checked = true;
+  document.getElementById('mcpRouteConfluence').checked = true;
+  document.getElementById('mcpRouteGitlab').checked = true;
+  document.getElementById('mcpRouteGithub').checked = true;
+  var rgr = document.getElementById('mcpRouteGrafana');
+  if (rgr) rgr.checked = true;
+  var rdb = document.getElementById('mcpRouteDatabase');
+  if (rdb) rdb.checked = true;
+  document.getElementById('mcpJiraBaseUrl').value = '';
+  document.getElementById('mcpJiraUsername').value = '';
+  document.getElementById('mcpJiraApiToken').value = '';
+  document.getElementById('mcpJiraCloudMode').checked = true;
+  document.getElementById('mcpConfBaseUrl').value = '';
+  document.getElementById('mcpConfUsername').value = '';
+  document.getElementById('mcpConfApiToken').value = '';
+  document.getElementById('mcpConfCloudMode').checked = true;
+  document.getElementById('mcpGitlabBaseUrl').value = 'https://gitlab.com';
+  document.getElementById('mcpGitlabAccessToken').value = '';
+  document.getElementById('mcpGithubApiBase').value = 'https://api.github.com';
+  document.getElementById('mcpGithubToken').value = '';
+  var grUrl = document.getElementById('mcpGrafanaBaseUrl');
+  if (grUrl) grUrl.value = '';
+  var grKey = document.getElementById('mcpGrafanaApiKey');
+  if (grKey) grKey.value = '';
+  var auto = document.getElementById('mcpAutoStartManaged');
+  if (auto) auto.checked = false;
+}
+
+function mcpOpenModal() {
+  mcpResetForm();
+  mcpRefreshDbList();
+  showModalById('mcpModal');
+}
+
+function mcpEdit(id) {
+  var c = mcpServerConfigs[id];
+  if (!c) return;
+  mcpResetForm();
+  document.getElementById('mcpId').value = c.id;
+  document.getElementById('mcpName').value = c.name || '';
+  document.getElementById('mcpBaseUrl').value = c.baseUrl || '';
+  document.getElementById('mcpActive').checked = !!c.active;
+  document.getElementById('mcpRouteJira').checked = !!c.routeJira;
+  document.getElementById('mcpRouteConfluence').checked = !!c.routeConfluence;
+  document.getElementById('mcpRouteGitlab').checked = !!c.routeGitlab;
+  document.getElementById('mcpRouteGithub').checked = !!c.routeGithub;
+  var rgr2 = document.getElementById('mcpRouteGrafana');
+  if (rgr2) rgr2.checked = c.routeGrafana !== false;
+  var rdb2 = document.getElementById('mcpRouteDatabase');
+  if (rdb2) rdb2.checked = c.routeDatabase !== false;
+  document.getElementById('mcpJiraBaseUrl').value = c.jiraBaseUrl || '';
+  document.getElementById('mcpJiraUsername').value = c.jiraUsername || '';
+  document.getElementById('mcpJiraCloudMode').checked = !!c.jiraCloudMode;
+  document.getElementById('mcpConfBaseUrl').value = c.confluenceBaseUrl || '';
+  document.getElementById('mcpConfUsername').value = c.confluenceUsername || '';
+  document.getElementById('mcpConfCloudMode').checked = !!c.confluenceCloudMode;
+  document.getElementById('mcpGitlabBaseUrl').value = c.gitlabBaseUrl || 'https://gitlab.com';
+  document.getElementById('mcpGithubApiBase').value = c.githubApiBase || 'https://api.github.com';
+  var grUrl2 = document.getElementById('mcpGrafanaBaseUrl');
+  if (grUrl2) grUrl2.value = c.grafanaBaseUrl || '';
+  document.getElementById('mcpAuthToken').placeholder      = c.authTokenSet         ? '••• gespeichert' : 'leer lassen';
+  document.getElementById('mcpJiraApiToken').placeholder   = c.jiraApiTokenSet      ? '••• gespeichert' : 'leer lassen';
+  document.getElementById('mcpConfApiToken').placeholder   = c.confluenceApiTokenSet? '••• gespeichert' : 'leer lassen';
+  document.getElementById('mcpGitlabAccessToken').placeholder = c.gitlabAccessTokenSet ? '••• gespeichert' : 'leer lassen';
+  document.getElementById('mcpGithubToken').placeholder    = c.githubTokenSet       ? '••• gespeichert' : 'leer lassen';
+  var grKey2 = document.getElementById('mcpGrafanaApiKey');
+  if (grKey2) grKey2.placeholder = c.grafanaApiKeySet ? '••• gespeichert' : 'leer lassen';
+  var auto2 = document.getElementById('mcpAutoStartManaged');
+  if (auto2) auto2.checked = !!c.autoStartManaged;
+  mcpProcessRefresh();
+  mcpRefreshDbList();
+  showModalById('mcpModal');
+}
+
+function mcpRefreshDbList() {
+  var listEl  = document.getElementById('mcpDbList');
+  var countEl = document.getElementById('mcpDbCount');
+  if (!listEl) return;
+  fetch('/api/config/database', { credentials: 'same-origin' })
+    .then(function(r) { return r.ok ? r.json() : []; })
+    .then(function(items) {
+      var actives = (items || []).filter(function(d) { return d && d.active; });
+      if (countEl) countEl.textContent = String(actives.length);
+      if (!actives.length) {
+        listEl.innerHTML = '<div class="text-muted small fst-italic">Keine aktiven Datenbank-Verbindungen. Klicke auf "Datenbank hinzufügen", um eine neue anzulegen.</div>';
+        return;
+      }
+      listEl.innerHTML = actives.map(function(d) {
+        var t = (d.dbType || '').toString().toLowerCase();
+        var typeBadge = '<span class="badge bg-info-subtle text-info-emphasis border border-info-subtle">' + (t || '?') + '</span>';
+        var host = (d.host || '') + (d.port ? (':' + d.port) : '');
+        var dbn  = d.databaseName || '';
+        return '<div class="d-flex align-items-center gap-2 small">'
+             + '<i class="bi bi-database text-info"></i>'
+             + '<strong>' + (d.name || '(unbenannt)') + '</strong>'
+             + typeBadge
+             + '<span class="text-muted">' + host + (dbn ? (' / ' + dbn) : '') + '</span>'
+             + '</div>';
+      }).join('');
+    })
+    .catch(function() {
+      listEl.innerHTML = '<div class="text-danger small">Konnte Datenbankliste nicht laden.</div>';
+    });
+}
+
+function mcpSave() {
+  var idVal = document.getElementById('mcpId').value;
+  var dto = {
+    id: idVal ? Number(idVal) : null,
+    name: document.getElementById('mcpName').value.trim(),
+    baseUrl: document.getElementById('mcpBaseUrl').value.trim(),
+    authToken: document.getElementById('mcpAuthToken').value,
+    active: document.getElementById('mcpActive').checked,
+    routeJira: document.getElementById('mcpRouteJira').checked,
+    routeConfluence: document.getElementById('mcpRouteConfluence').checked,
+    routeGitlab: document.getElementById('mcpRouteGitlab').checked,
+    routeGithub: document.getElementById('mcpRouteGithub').checked,
+    routeGrafana: (document.getElementById('mcpRouteGrafana') || { checked: true }).checked,
+    routeDatabase: (document.getElementById('mcpRouteDatabase') || { checked: true }).checked,
+    jiraBaseUrl: document.getElementById('mcpJiraBaseUrl').value.trim(),
+    jiraUsername: document.getElementById('mcpJiraUsername').value.trim(),
+    jiraApiToken: document.getElementById('mcpJiraApiToken').value,
+    jiraCloudMode: document.getElementById('mcpJiraCloudMode').checked,
+    confluenceBaseUrl: document.getElementById('mcpConfBaseUrl').value.trim(),
+    confluenceUsername: document.getElementById('mcpConfUsername').value.trim(),
+    confluenceApiToken: document.getElementById('mcpConfApiToken').value,
+    confluenceCloudMode: document.getElementById('mcpConfCloudMode').checked,
+    gitlabBaseUrl: document.getElementById('mcpGitlabBaseUrl').value.trim(),
+    gitlabAccessToken: document.getElementById('mcpGitlabAccessToken').value,
+    githubApiBase: document.getElementById('mcpGithubApiBase').value.trim(),
+    githubToken: document.getElementById('mcpGithubToken').value,
+    grafanaBaseUrl: (document.getElementById('mcpGrafanaBaseUrl') || { value: '' }).value.trim(),
+    grafanaApiKey: (document.getElementById('mcpGrafanaApiKey') || { value: '' }).value,
+    autoStartManaged: (document.getElementById('mcpAutoStartManaged') || { checked: false }).checked
+  };
+  if (!dto.name || !dto.baseUrl) {
+    showAlert(_mcpT('mcp.js_required_fields', 'Name und Basis-URL sind Pflichtfelder.'), 'warning');
+    return;
+  }
+  fetch('/api/config/mcp', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(dto)
+  })
+    .then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+    .then(function() { hideModalById('mcpModal'); window.location.reload(); })
+    .catch(function(e) { showAlert(_mcpT('mcp.js_save_failed', 'Speichern fehlgeschlagen: ') + e.message, 'danger'); });
+}
+
+function mcpDelete(id) {
+  showConfirm(
+    _mcpT('mcp.js_delete_confirm', 'MCP-Server-Konfiguration wirklich löschen?'),
+    _mcpT('mcp.js_delete_title', 'Konfiguration löschen'),
+    function() {
+      fetch('/api/config/mcp/' + id, { method: 'DELETE' })
+        .then(function(r) {
+          if (r.ok || r.status === 204) { window.location.reload(); }
+          else { showAlert(_mcpT('mcp.js_delete_failed', 'Löschen fehlgeschlagen (HTTP {0})').replace('{0}', r.status), 'danger'); }
+        });
+    },
+    _mcpT('mcp.js_delete_ok', 'Löschen'),
+    'bi-trash',
+    '#b91c1c'
+  );
+}
+
+function mcpSyncFromStacklens() {
+  showConfirm(
+    _mcpT('mcp.js_sync_confirm', 'Aktuelle Jira-, Confluence-, GitLab- und GitHub-Verbindungen werden in eine neue MCP-Konfiguration übernommen. Datenbank-Verbindungen werden dabei automatisch pro Aufruf weitergereicht.'),
+    _mcpT('mcp.js_sync_title', 'Verbindungen übernehmen'),
+    function() {
+      fetch('/api/config/mcp/sync-from-stacklens', { method: 'POST' })
+        .then(function(r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+        .then(function() { window.location.reload(); })
+        .catch(function(e) { showAlert(_mcpT('mcp.js_sync_failed', 'Sync fehlgeschlagen: ') + e.message, 'danger'); });
+    },
+    _mcpT('mcp.js_sync_ok', 'Übernehmen'),
+    'bi-arrow-repeat',
+    '#1d6fa1'
+  );
+}
+
+function mcpTest(id) {
+  var box = document.getElementById('mcpTestResult');
+  box.style.display = 'block';
+  box.className = 'm-3 alert alert-info';
+  box.innerHTML = '<i class="bi bi-hourglass-split me-1"></i>Teste Verbindung…';
+  fetch('/api/config/mcp/' + id + '/test', { method: 'POST' })
+    .then(r => r.json())
+    .then(function(d) {
+      if (d.ok) {
+        var rows = (d.tools || []).map(function(t) {
+          return '<li><code>' + t.name + '</code>' +
+            (t.description ? ' — <span class="text-muted">' + t.description + '</span>' : '') + '</li>';
+        }).join('');
+        box.className = 'm-3 alert alert-success';
+        box.innerHTML = '<i class="bi bi-check-circle me-1"></i><strong>Verbindung OK</strong> — ' +
+          (d.toolCount || 0) + ' Tools verfügbar.<ul class="small mb-0 mt-2">' + rows + '</ul>';
+      } else {
+        box.className = 'm-3 alert alert-danger';
+        box.innerHTML = '<i class="bi bi-exclamation-triangle me-1"></i><strong>Fehler:</strong> ' + (d.message || 'unbekannt');
+      }
+    })
+    .catch(function(e) {
+      box.className = 'm-3 alert alert-danger';
+      box.innerHTML = '<i class="bi bi-exclamation-triangle me-1"></i>' + e.message;
+    });
+}
+
+
+function mcpProcessRender(s) {
+  var badge = document.getElementById('mcpProcessBadge');
+  var meta  = document.getElementById('mcpProcessMeta');
+  var pre   = document.getElementById('mcpProcessLog');
+  if (!badge || !meta || !pre) return;
+  if (s.running) {
+    badge.className = 'badge bg-success';
+    badge.textContent = _mcpT('mcp.js_running', 'läuft (pid {0})').replace('{0}', s.pid || '?');
+  } else {
+    badge.className = 'badge bg-secondary';
+    badge.textContent = _mcpT('mcp.js_stopped', 'gestoppt');
+  }
+  var parts = [];
+  if (s.message) parts.push(s.message);
+  if (s.startedAt) parts.push(_mcpT('mcp.js_meta_start', 'start: ') + s.startedAt);
+  if (s.stoppedAt) parts.push(_mcpT('mcp.js_meta_stop', 'stopp: ') + s.stoppedAt);
+  if (s.exitCode !== null && s.exitCode !== undefined) parts.push(_mcpT('mcp.js_meta_exit', 'exit: ') + s.exitCode);
+  meta.textContent = parts.join(' · ');
+  pre.textContent = (s.logs || []).join('\n');
+  pre.scrollTop = pre.scrollHeight;
+}
+
+function mcpProcessRefresh() {
+  return fetch('/api/config/mcp/process/status')
+    .then(r => r.json())
+    .then(mcpProcessRender)
+    .catch(function(e) { console.warn('[MCP] status failed', e); });
+}
+
+function mcpProcessStart() {
+  fetch('/api/config/mcp/process/start', { method: 'POST' })
+    .then(function(r) {
+      return r.json().then(function(j) { return { ok: r.ok, body: j }; });
+    })
+    .then(function(res) {
+      if (!res.ok) { showAlert(_mcpT('mcp.js_start_failed', 'Start fehlgeschlagen: ') + (res.body.error || _mcpT('mcp.js_unknown', 'unbekannt')), 'danger'); return; }
+      mcpProcessRender(res.body);
+    })
+    .catch(function(e) { showAlert(_mcpT('mcp.js_start_failed', 'Start fehlgeschlagen: ') + e.message, 'danger'); });
+}
+
+function mcpProcessStop() {
+  fetch('/api/config/mcp/process/stop', { method: 'POST' })
+    .then(r => r.json())
+    .then(mcpProcessRender)
+    .catch(function(e) { showAlert(_mcpT('mcp.js_stop_failed', 'Stop fehlgeschlagen: ') + e.message, 'danger'); });
+}
+
+function mcpRefreshRoutingBadges() {
+  fetch('/api/mcp/status', { credentials: 'same-origin' })
+    .then(function(r) { return r.ok ? r.json() : null; })
+    .catch(function() { return null; })
+    .then(function(status) {
+      if (!status) return;
+      var routes = status.routes || {};
+      var processRunning = !!status.processRunning;
+      document.querySelectorAll('tr[data-mcp-config-active="true"]').forEach(function(row) {
+        row.querySelectorAll('[data-mcp-route]').forEach(function(badge) {
+          var src = badge.getAttribute('data-mcp-route');
+          var on = processRunning && routes[src] === true;
+          badge.className = 'badge me-1 ' + (on ? 'bg-success text-white' : 'bg-light text-dark');
+        });
+      });
+    });
+}
+
+function mcpProcessRestart() {
+  fetch('/api/config/mcp/process/restart', { method: 'POST' })
+    .then(function(r) {
+      return r.json().then(function(j) { return { ok: r.ok, body: j }; });
+    })
+    .then(function(res) {
+      if (!res.ok) { showAlert(_mcpT('mcp.js_restart_failed', 'Neustart fehlgeschlagen: ') + (res.body.error || _mcpT('mcp.js_unknown', 'unbekannt')), 'danger'); return; }
+      mcpProcessRender(res.body);
+    })
+    .catch(function(e) { showAlert(_mcpT('mcp.js_restart_failed', 'Neustart fehlgeschlagen: ') + e.message, 'danger'); });
+}
+
+(function mcpProcessLivePolling() {
+  if (window.__mcpProcessPollingInterval) return;
+  function pane() { return document.getElementById('tab-mcp'); }
+  function isVisible(el) {
+    return !!(el && el.offsetParent !== null);
+  }
+  function tick() {
+    if (isVisible(pane()) && document.getElementById('mcpProcessLog')) {
+      mcpProcessRefresh();
+      mcpRefreshRoutingBadges();
+    }
+  }
+  setTimeout(tick, 250);
+  window.__mcpProcessPollingInterval = setInterval(tick, 10000);
+})();
+
+(function() {
+  var _mcpModal  = document.getElementById('mcpModal');
+  if (!_mcpModal || _mcpModal._slScrollAttached) return;
+  _mcpModal._slScrollAttached = true;
+  _mcpModal.addEventListener('shown.bs.modal', function() {
+    var box   = document.getElementById('mcpModalScroll');
+    var track = document.getElementById('mcpModalTrack');
+    var thumb = document.getElementById('mcpModalThumb');
+    if (!box || !track || !thumb) return;
+    if (!_mcpModal._slScroll) {
+      _mcpModal._slScroll = SLScroll(box, track, thumb);
+    } else {
+      _mcpModal._slScroll.update();
+    }
+  });
+})();
+</script>
+
+</th:block>
+</body>
+</html>

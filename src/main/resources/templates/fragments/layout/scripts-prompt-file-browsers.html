@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" lang="de">
+<body>
+<th:block th:fragment="scripts-prompt-file-browsers">
+<script>
+/*<![CDATA[*/
+function __peAlert(message) {
+  if (typeof showAlert === 'function') { showAlert(message, 'danger'); return; }
+  window.alert(message);
+}
+
+function __peToolingEntries(url) {
+  return window.slHelpers.browseEntries(url);
+}
+
+function __peLoadDirectoryEntries(path) {
+  return __peToolingEntries('/api/tooling/files/browse?directoriesOnly=true'
+    + (path ? '&path=' + encodeURIComponent(path) : ''));
+}
+
+function __peLoadKiFileEntries(path) {
+  return __peToolingEntries('/api/tooling/files/browse?fileExtensions=ki'
+    + (path ? '&path=' + encodeURIComponent(path) : ''));
+}
+
+function __promptEditorOpenExportBrowser() {
+  var key = __promptEditorKey || 'prompt';
+  var filename = 'ki-prompt-' + key.replace(/[^a-zA-Z0-9_.-]/g, '_') + '.ki';
+  __kiChatOpenDirBrowser(function (dir, pickedName) {
+    if (!dir) return;
+    var name = String(pickedName || '').trim();
+    if (!name) {
+      __peAlert((window.i18n ? window.i18n.t('common.filename') : 'Dateiname') + ' darf nicht leer sein.');
+      return;
+    }
+    __peSavePrompt(dir, name);
+  }, {
+    saveAs: { filename: filename },
+    titleKey: 'common.save_location',
+    titleFallback: 'Speicherort wählen',
+    load: __peLoadDirectoryEntries,
+  });
+}
+
+function __peSavePrompt(dir, filename) {
+  var content = document.getElementById('promptEditorTextarea').value;
+  fetch('/api/config/save-to-path', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ path: dir, filename: filename, content: content })
+  }).then(function (r) { return r.json(); }).then(function (data) {
+    if (data.error) { __peAlert(data.error); return; }
+    if (typeof showAlert === 'function') {
+      showAlert((window.i18n ? window.i18n.t('prompt.js_saved_prefix') : 'Prompt gespeichert: ') + data.savedPath, 'success');
+    }
+  }).catch(function (e) {
+    __peAlert((e && e.message) || (window.i18n ? window.i18n.t('common.network_error') : 'Netzwerkfehler'));
+  });
+}
+
+function __promptEditorOpenImportBrowser() {
+  if (!__promptEditorKey) return;
+  __kiChatOpenDirBrowser(function (path) {
+    if (path) __peImportPrompt(path);
+  }, {
+    files: ['ki'],
+    acceptHint: 'KI',
+    storageKey: 'stacklens.fb.last.promptImport',
+    titleKey: 'common.choose_file',
+    titleFallback: 'Datei auswählen',
+    load: __peLoadKiFileEntries,
+  });
+}
+
+function __peImportPrompt(path) {
+  fetch('/api/prompts/read-file?path=' + encodeURIComponent(path))
+    .then(function (r) { return r.json(); })
+    .then(function (data) {
+      if (data.error) { __peAlert(data.error); return; }
+      var content = data.content;
+      return fetch(__promptEditorApiBase + '/' + encodeURIComponent(__promptEditorKey), {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content: content })
+      }).then(function (r) { return r.json(); }).then(function () {
+        __peApplyImportedContent(content);
+      });
+    })
+    .catch(function (e) {
+      __peAlert((e && e.message) || (window.i18n ? window.i18n.t('common.network_error') : 'Netzwerkfehler'));
+    });
+}
+
+function __peApplyImportedContent(content) {
+  document.getElementById('promptEditorTextarea').value = content;
+  document.getElementById('promptEditorCustomBadge').style.display = 'inline-flex';
+  document.getElementById('promptEditorDefaultSection').classList.remove('d-none');
+  var defaultText = document.getElementById('promptEditorDefaultText').textContent;
+  if (!defaultText) {
+    var defaultUrl = __promptEditorApiBase + '/' + encodeURIComponent(__promptEditorKey)
+      + (__promptEditorUseLang ? '?lang=' + __promptEditorLang : '');
+    fetch(defaultUrl)
+      .then(function (r) { return r.json(); })
+      .then(function (d) { document.getElementById('promptEditorDefaultText').textContent = d.defaultContent || ''; })
+      .catch(function () {});
+  }
+  if (__promptEditorTabIdx >= 0 && __promptEditorTabs[__promptEditorTabIdx]) {
+    var tab = __promptEditorTabs[__promptEditorTabIdx];
+    tab.content = content;
+    tab.isCustom = true;
+    tab.dirty = false;
+    __promptEditorRenderTabs();
+  }
+  __promptContentCache[__promptEditorKey] = {
+    content: content, isCustom: true,
+    defaultContent: document.getElementById('promptEditorDefaultText').textContent || ''
+  };
+}
+
+function __promptEditorReset() {
+  if (!__promptEditorKey) return;
+  var url = __promptEditorApiBase + '/' + encodeURIComponent(__promptEditorKey);
+  if (__promptEditorUseLang) url += '?lang=' + __promptEditorLang;
+  fetch(url, { method: 'DELETE' })
+    .then(function (r) { return r.json(); })
+    .then(function (data) {
+      var content = data.content || '';
+      document.getElementById('promptEditorTextarea').value = content;
+      document.getElementById('promptEditorCustomBadge').style.display = 'none';
+      document.getElementById('promptEditorDefaultSection').classList.add('d-none');
+      __promptContentCache[__promptEditorKey] = { content: content, isCustom: false, defaultContent: content };
+      if (__promptEditorTabIdx >= 0 && __promptEditorTabs[__promptEditorTabIdx]) {
+        var tab = __promptEditorTabs[__promptEditorTabIdx];
+        tab.content = content;
+        tab.isCustom = false;
+        tab.dirty = false;
+        __promptEditorRenderTabs();
+      }
+    })
+    .catch(function () {});
+}
+/*]]>*/
+</script>
+</th:block>
+</body>
+</html>

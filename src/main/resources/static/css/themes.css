@@ -1,0 +1,49 @@
+
+
+@import url('themes/theme-modern.css');
+@import url('themes/theme-dark.css');
+@import url('themes/theme-popos.css');
+@import url('themes/theme-legacy.css');
+
+:root {
+  --ta-bg:      var(--app-cream-2);
+  --ta-paper:   var(--app-cream);
+  --ta-ink:     var(--app-text);
+  --ta-fg:      var(--app-text);
+  --ta-muted:   var(--app-text-muted);
+  --ta-line:    var(--app-border);
+  --ta-ok:      #16a34a;
+  --ta-danger:  #b91c1c;
+}
+
+
+.fb-dir-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 16px;
+  cursor: pointer;
+  font-size: 13px;
+  transition: background .12s;
+}
+.fb-dir-item i.bi-folder-fill { color: #eab308; font-size: 15px; flex-shrink: 0; }
+.fb-dir-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.kp-browser-path    { background: var(--app-cream-2); color: var(--app-text-muted); }
+.kp-browser-content { background: var(--app-cream);   color: var(--app-text); }
+
+.fb-modal-header  { background: var(--app-cream-2) !important; }
+.fb-modal-footer  { background: var(--app-cream-2) !important; }
+.fb-btn-browse    { background: var(--app-cream-2) !important; }
+
+.ta-select {
+  cursor: pointer;
+  border-radius: 6px;
+  font-size: 13px;
+  padding: 4px 28px 4px 8px;
+  transition: border-color .15s, box-shadow .15s;
+}
+
+
+
+

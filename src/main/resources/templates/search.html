@@ -1,0 +1,366 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org"
+      xmlns:layout="http://www.ultraq.net.nz/thymeleaf/layout"
+      layout:decorate="~{layout}" lang="de">
+<head><title>Suche</title></head>
+<body>
+
+<th:block layout:fragment="page-title"><span data-i18n="page_titles.suche">Suche</span></th:block>
+
+<th:block layout:fragment="page-subtitle"><p class="page-subtitle"><span data-i18n="page_subtitles.suche">Durchsucht GitLab-Repositories, Datenbanken, Jira und Confluence gleichzeitig. Suchbegriff eingeben, Quellen wählen und die Suche starten.</span></p></th:block>
+
+<th:block layout:fragment="page-actions">
+  <div style="display:flex;gap:8px;align-items:center;">
+  <button class="btn btn-sm btn-outline-secondary" style="border-color:#ddd7cb;color:#5b564d;"
+          data-prompt-prefix="search" disabled
+          onclick="openPromptEditorForPrefix('search', 'Suche', 'de', 'search.systemRole', function(){ window.suStartSearch&&window.suStartSearch(); })">
+    <i class="bi bi-cpu me-1"></i><span>KI-Prompt</span>
+  </button>
+  <button class="btn btn-sm" style="background:linear-gradient(135deg,#7c5cbf,#5b8ef0);color:#fff;border:none;"
+          onclick="kiChatToggle()" title="KI Chat">
+    <i class="bi bi-chat-dots-fill me-1"></i><span data-i18n="common.ki_chat_btn">KI Chat</span>
+  </button>
+  </div>
+</th:block>
+
+<th:block layout:fragment="head-extra">
+<meta name="mcp-sources" content="jira,confluence,gitlab,github,grafana,database">
+<script th:inline="javascript">
+/*<![CDATA[*/
+window.kiChatConfig = {
+  tabId: 'search',
+  tabLabel: 'Suche',
+  tabLabelKey: 'ki_chat.search.tab_label',
+  introMessage: 'Hi! Ich helfe dir, in GitLab / Jira / Confluence / Datenbanken effizient zu suchen. Beschreibe was du suchst — ich formuliere dir die passende Query.',
+  introMessageKey: 'ki_chat.search.intro',
+  suggestionsKey: 'ki_chat.search.suggestions',
+  suggestions: [
+    'Formuliere mir eine GitLab-Suche für meinen aktuellen Begriff',
+    'Jira JQL-Beispiel: alle Tickets eines Sprints mit Label X',
+    'Confluence CQL: Seiten in Space Y, geändert in 30 Tagen',
+    'Boolean-Operatoren: AND / OR / NOT mit Beispielen',
+    'Wie kombiniere ich Code- und Issue-Suche sinnvoll?',
+    'Welche Filter helfen bei zu vielen Treffern?',
+    'Reguläre Ausdrücke für Code-Suche in GitLab',
+    'Wie suche ich nach Secrets, die versehentlich committed wurden?'
+  ],
+  systemHint: 'You are an expert in search strategies across GitLab (advanced search, JQL-like filters), Jira JQL, Confluence CQL, and database full-text search. Give concrete query examples.',
+  contextProvider: function(){
+    var parts = [];
+    try {
+      var inp = document.querySelector('input[type=text]'); if (inp && inp.value) parts.push('Aktueller Suchbegriff: ' + inp.value);
+    } catch(e){}
+    return parts.join('\n');
+  }
+};
+/*]]>*/
+</script>
+</th:block>
+
+<div layout:fragment="content">
+<th:block th:replace="~{fragments/search/styles :: styles}"></th:block>
+<th:block th:replace="~{fragments/shared/token-usage :: styles}"></th:block>
+
+<script th:inline="javascript">
+/*<![CDATA[*/
+window.SU_GITLAB_CONFIGS = [];
+/*[# th:each="cfg : ${gitlabConfigs}"]*/ window.SU_GITLAB_CONFIGS.push({id: [[${cfg.id}]], name: [[${cfg.name}]]});
+/*[/]*/
+window.SU_DB_CONFIGS = [];
+/*[# th:each="cfg : ${dbConfigs}"]*/ window.SU_DB_CONFIGS.push({id: [[${cfg.id}]], name: [[${cfg.name}]]});
+/*[/]*/
+window.SU_JIRA_CONFIGS = [];
+/*[# th:each="cfg : ${jiraConfigs}"]*/ window.SU_JIRA_CONFIGS.push({id: [[${cfg.id}]], name: [[${cfg.name}]]});
+/*[/]*/
+window.SU_CONFLUENCE_CONFIGS = [];
+/*[# th:each="cfg : ${confluenceConfigs}"]*/ window.SU_CONFLUENCE_CONFIGS.push({id: [[${cfg.id}]], name: [[${cfg.name}]]});
+/*[/]*/
+window.SU_GITHUB_CONFIGS = [];
+/*[# th:each="cfg : ${githubConfigs}"]*/ window.SU_GITHUB_CONFIGS.push({id: [[${cfg.id}]], name: [[${cfg.name}]]});
+/*[/]*/
+/*]]>*/
+</script>
+
+<div class="su-page" data-cf-token-usage-anchor="">
+
+    <div class="su-card" id="suFormCard" style="padding:18px 20px 16px;">
+
+      <form id="suSearchForm" class="su-compact-bar"
+            onsubmit="event.preventDefault();window.suStartSearch&&window.suStartSearch();"
+            autocomplete="off">
+        <input id="suKeywordInput" type="text" class="su-input su-compact-input"
+               data-i18n-placeholder="suche.placeholder_keywords"
+               placeholder="Stichwort oder Satz eingeben…"
+               autocomplete="off" spellcheck="false"/>
+        <div class="su-pill-row">
+          <button type="button" id="suPillGitlab" class="su-src-pill su-src-pill-gl on" onclick="suTogglePill('gitlab')">
+            <i class="bi bi-gitlab"></i> GitLab
+          </button>
+          <button type="button" id="suPillDb" class="su-src-pill su-src-pill-db on" onclick="suTogglePill('db')">
+            <i class="bi bi-database"></i> DB
+          </button>
+          <button type="button" id="suPillJira" class="su-src-pill su-src-pill-jira on" onclick="suTogglePill('jira')">
+            <i class="bi bi-ticket-detailed"></i> Jira
+          </button>
+          <button type="button" id="suPillConfluence" class="su-src-pill su-src-pill-conf on" onclick="suTogglePill('confluence')">
+            <i class="bi bi-journal-text"></i> Confluence
+          </button>
+          <button type="button" id="suPillGithub" class="su-src-pill su-src-pill-gh on" onclick="suTogglePill('github')">
+            <i class="bi bi-github"></i> GitHub
+          </button>
+        </div>
+        <button id="suBtnSearch" type="submit" class="su-btn-primary">
+          <i class="bi bi-search me-2"></i><span data-i18n="suche.btn_search">Suchen</span>
+        </button>
+        <button id="suBtnCancel" type="button" class="su-btn-cancel" disabled onclick="suCancelSearch()">
+          <i class="bi bi-x-circle me-2"></i><span data-i18n="suche.btn_cancel">Abbrechen</span>
+        </button>
+      </form>
+
+      <div id="suTagList" class="su-tag-list" style="margin-top:8px;"></div>
+
+      <div class="su-compact-toolbar">
+        <button type="button" class="su-adv-toggle" onclick="suToggleAdvanced()" id="suAdvToggleBtn">
+          <i class="bi bi-sliders2" style="font-size:11px;"></i>
+          <span data-i18n="suche.btn_advanced">Quell-Einstellungen</span>
+          <i class="bi bi-chevron-down" id="suAdvChevron" style="font-size:10px;transition:transform .2s;"></i>
+        </button>
+        <label class="su-ki-label">
+          <input type="checkbox" id="suCrossRef" checked style="width:14px;height:14px;accent-color:var(--su-accent)"/>
+          <i class="bi bi-robot" style="color:var(--su-accent);font-size:13px;"></i>
+          <span data-i18n="suche.cross_reference">KI-Analyse aktivieren</span>
+        </label>
+      </div>
+
+      <div id="suAdvancedPanel" class="su-adv-panel" style="display:none;">
+        <input type="checkbox" id="suIncludeGitlab"     checked style="display:none" onchange="suToggleSource('gitlab')"/>
+        <input type="checkbox" id="suIncludeDb"          checked style="display:none" onchange="suToggleSource('db')"/>
+        <input type="checkbox" id="suIncludeJira"        checked style="display:none" onchange="suToggleSource('jira')"/>
+        <input type="checkbox" id="suIncludeConfluence"  checked style="display:none" onchange="suToggleSource('confluence')"/>
+        <input type="checkbox" id="suIncludeGithub"      checked style="display:none" onchange="suToggleSource('github')"/>
+
+        <div class="su-label" style="margin-bottom:8px;" data-i18n="suche.label_sources">Quellen</div>
+        <div class="su-source-list">
+
+          <div class="su-src-row su-src-gitlab" id="suSrcGitlab">
+            <div class="su-src-label" style="cursor:default;pointer-events:none;">
+              <i class="bi bi-gitlab su-src-icon"></i>
+              <span class="su-src-name" data-i18n="suche.label_gitlab">GitLab</span>
+            </div>
+            <div class="su-src-divider"></div>
+            <div class="su-src-right">
+              <div id="suGitlabChips" class="su-chip-grid"></div>
+              <div id="suGitlabEmpty" class="su-src-empty-msg" style="display:none"
+                   data-i18n="suche.no_gitlab_config">Keine aktive GitLab-Verbindung konfiguriert.</div>
+            </div>
+          </div>
+
+          <div class="su-src-row su-src-db" id="suSrcDb">
+            <div class="su-src-label" style="cursor:default;pointer-events:none;">
+              <i class="bi bi-database su-src-icon"></i>
+              <span class="su-src-name" data-i18n="suche.label_database">Datenbanken</span>
+            </div>
+            <div class="su-src-divider"></div>
+            <div class="su-src-right">
+              <div id="suDbChips" class="su-chip-grid"></div>
+              <div id="suDbEmpty" class="su-src-empty-msg" style="display:none"
+                   data-i18n="suche.no_db_config">Keine aktive Datenbank-Verbindung konfiguriert.</div>
+              <button type="button" id="suDbSelectAllBtn" class="su-db-select-all-btn"
+                      style="display:none" onclick="suDbToggleSelectAll()">
+                <i class="bi bi-check-all"></i>
+                <span id="suDbSelectAllLabel">Alle ausw&auml;hlen</span>
+              </button>
+            </div>
+          </div>
+
+          <div class="su-src-row su-src-jira" id="suSrcJira" style="align-items:flex-start">
+            <div class="su-src-label" style="cursor:default;pointer-events:none;">
+              <i class="bi bi-ticket-detailed su-src-icon"></i>
+              <span class="su-src-name" data-i18n="suche.label_jira">Jira</span>
+            </div>
+            <div class="su-src-divider"></div>
+            <div class="su-src-right" style="flex-direction:column;align-items:flex-start;gap:0;padding-top:12px;padding-bottom:12px">
+              <div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center">
+                <div id="suJiraChips" class="su-chip-grid"></div>
+                <div id="suJiraEmpty" class="su-src-empty-msg" style="display:none"
+                     data-i18n="suche.no_jira_config">Keine aktive Jira-Verbindung konfiguriert.</div>
+              </div>
+              <div class="su-jira-filters">
+                <div class="su-jf-item">
+                  <span class="su-jf-label">Projekte</span>
+                  <input id="suJiraProjects" type="text" class="su-jf-input" placeholder="PROJ, PAY"
+                         autocomplete="off" style="text-transform:uppercase"/>
+                </div>
+                <div class="su-jf-item">
+                  <span class="su-jf-label">Komponenten</span>
+                  <input id="suJiraComponents" type="text" class="su-jf-input" placeholder="Backend, API"
+                         autocomplete="off"/>
+                </div>
+                <div class="su-jf-item">
+                  <span class="su-jf-label">Labels</span>
+                  <input id="suJiraLabels" type="text" class="su-jf-input" placeholder="bug, release"
+                         autocomplete="off"/>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="su-src-row su-src-confluence" id="suSrcConfluence">
+            <div class="su-src-label" style="cursor:default;pointer-events:none;">
+              <i class="bi bi-journal-text su-src-icon"></i>
+              <span class="su-src-name" data-i18n="suche.label_confluence">Confluence</span>
+            </div>
+            <div class="su-src-divider"></div>
+            <div class="su-src-right">
+              <div id="suConfluenceChips" class="su-chip-grid"></div>
+              <div id="suConfluenceEmpty" class="su-src-empty-msg" style="display:none"
+                   data-i18n="suche.no_confluence_config">Keine aktive Confluence-Verbindung konfiguriert.</div>
+            </div>
+          </div>
+
+          <div class="su-src-row su-src-github" id="suSrcGithub">
+            <div class="su-src-label" style="cursor:default;pointer-events:none;">
+              <i class="bi bi-github su-src-icon"></i>
+              <span class="su-src-name">GitHub</span>
+            </div>
+            <div class="su-src-divider"></div>
+            <div class="su-src-right">
+              <div id="suGithubChips" class="su-chip-grid"></div>
+              <div id="suGithubEmpty" class="su-src-empty-msg" style="display:none">Keine aktive GitHub-Verbindung konfiguriert.</div>
+            </div>
+          </div>
+
+        </div>
+      </div>
+
+    </div>
+
+    <div id="suStatusBar" class="su-status-bar" style="display:none">
+      <div id="suStatusSpinner" class="su-spinner"></div>
+      <span id="suStatusText"></span>
+    </div>
+
+  <div id="suViewResults" style="display:none">
+
+    <div class="su-inline-results-header">
+      <div class="su-view-meta">
+        <i class="bi bi-search" style="color:var(--su-accent);font-size:13px;flex-shrink:0;"></i>
+        <span id="suViewHeadKw" class="su-view-kw"></span>
+        <span id="suViewLiveBadge" class="su-view-live" style="display:none">
+          <span class="su-view-live-dot"></span>
+          <span data-i18n="suche.results_live">live</span>
+        </span>
+        <span id="suViewResultCount" style="color:var(--su-muted);font-size:12px"></span>
+      </div>
+      <button class="su-btn-back" onclick="suGoBack()">
+        <i class="bi bi-x-circle"></i>
+        <span data-i18n="suche.btn_close_results">Ergebnisse schließen</span>
+      </button>
+    </div>
+
+    <div id="suRunningBanner" class="su-running-banner" style="display:none">
+      <div class="su-running-progress"></div>
+      <div class="su-running-inner">
+        <div class="su-running-spinner"></div>
+        <div class="su-running-text">
+          <span class="su-running-title" data-i18n="suche.banner_searching_title">Suche läuft</span>
+          <span class="su-running-sub" data-i18n="suche.banner_searching">Ergebnisse werden laufend aktualisiert – die Seite aktualisiert sich automatisch.</span>
+        </div>
+        <div class="su-running-dots"><span></span><span></span><span></span></div>
+      </div>
+    </div>
+
+    <div id="suDbErrorBanner" class="su-db-error-banner" style="display:none">
+      <div class="su-db-error-header" onclick="suToggleDbErrorBanner()">
+        <i class="bi bi-exclamation-triangle-fill su-db-error-icon"></i>
+        <div class="su-db-error-text">
+          <span class="su-db-error-title">
+            <span id="suDbErrorCount">0</span>
+            <span data-i18n="suche.db_errors_title">Datenbank-Verbindung fehlgeschlagen</span>
+          </span>
+          <span class="su-db-error-sub" data-i18n="suche.db_errors_sub">Die Suche wurde mit den erreichbaren Datenbanken fortgesetzt. Klappe für Details.</span>
+        </div>
+        <i id="suDbErrorChevron" class="bi bi-chevron-down su-db-error-chevron"></i>
+      </div>
+      <div id="suDbErrorList" class="su-db-error-list" style="display:none"></div>
+    </div>
+
+    <div class="su-card">
+      <div class="su-tabs">
+        <button class="su-tab active" data-tab="all" onclick="suSwitchTab('all')">
+          <span data-i18n="suche.tab_all">Alle</span>
+          <span id="suBadgeAll" class="su-tab-badge">0</span>
+        </button>
+        <button class="su-tab" data-tab="GITLAB" onclick="suSwitchTab('GITLAB')">
+          <i class="bi bi-gitlab" style="color:var(--su-gitlab)"></i>
+          <span data-i18n="suche.tab_gitlab">GitLab</span>
+          <span id="suBadgeGitlab" class="su-tab-badge">0</span>
+        </button>
+        <button class="su-tab" data-tab="DATABASE" onclick="suSwitchTab('DATABASE')">
+          <i class="bi bi-database" style="color:var(--su-db)"></i>
+          <span data-i18n="suche.tab_database">Datenbank</span>
+          <span id="suBadgeDb" class="su-tab-badge">0</span>
+        </button>
+        <button class="su-tab" data-tab="JIRA" onclick="suSwitchTab('JIRA')">
+          <i class="bi bi-ticket-detailed" style="color:var(--su-jira)"></i>
+          <span data-i18n="suche.tab_jira">Jira</span>
+          <span id="suBadgeJira" class="su-tab-badge">0</span>
+        </button>
+        <button class="su-tab" data-tab="CONFLUENCE" onclick="suSwitchTab('CONFLUENCE')">
+          <i class="bi bi-journal-text" style="color:#0747a6"></i>
+          <span data-i18n="suche.tab_confluence">Confluence</span>
+          <span id="suBadgeConfluence" class="su-tab-badge">0</span>
+        </button>
+        <button class="su-tab" data-tab="GITHUB" onclick="suSwitchTab('GITHUB')">
+          <i class="bi bi-github" style="color:var(--su-accent)"></i>
+          <span>GitHub</span>
+          <span id="suBadgeGithub" class="su-tab-badge">0</span>
+        </button>
+        <button class="su-tab" data-tab="KI_ANALYSE" onclick="suSwitchTab('KI_ANALYSE')">
+          <span id="suTabKiSpinner" class="su-tab-ki-spinner" style="display:none"></span>
+          <i id="suTabKiIcon" class="bi bi-robot" style="color:var(--su-accent)"></i>
+          <span data-i18n="suche.tab_ai">KI-Analyse</span>
+        </button>
+      </div>
+      <div id="suTabAll" class="su-tab-pane active"></div>
+      <div id="suTabGITLAB" class="su-tab-pane"></div>
+      <div id="suTabDATABASE" class="su-tab-pane"></div>
+      <div id="suTabJIRA" class="su-tab-pane"></div>
+      <div id="suTabCONFLUENCE" class="su-tab-pane"></div>
+      <div id="suTabGITHUB" class="su-tab-pane"></div>
+      <div id="suTabKI_ANALYSE" class="su-tab-pane">
+        <div id="suAiStatus" class="su-ai-status" style="display:none;padding:20px 0">
+          <div class="su-ai-spinner" id="suAiSpinner"></div>
+          <span id="suAiStatusText" data-i18n="suche.ai_analyzing">KI analysiert Ergebnisse…</span>
+        </div>
+        <div id="suAiPlaceholder" class="su-empty" style="padding:20px 0">
+          <i class="bi bi-robot" style="font-size:28px;margin-bottom:6px"></i>
+          <br><span data-i18n="suche.ai_placeholder">KI-Analyse wird nach Abschluss der Suche gestartet.</span>
+        </div>
+        <div id="suAiContent" class="su-markdown-body" style="display:none"></div>
+      </div>
+    </div>
+
+
+
+  </div>
+
+  <th:block th:replace="~{fragments/shared/history :: card('search', '')}"></th:block>
+
+</div>
+
+<th:block th:replace="~{fragments/search/scripts :: scripts}"></th:block>
+<th:block th:replace="~{fragments/shared/token-usage :: scripts}"></th:block>
+
+<script>
+  if (window.cfTokenUsage) {
+    try {
+      window.cfTokenUsage.watch('ai', function () {
+        return (_aiAnalysisId == null) ? null : Number(_aiAnalysisId);
+      });
+    } catch (_) {  }
+  }
+</script>
+</div>
+</body>
+</html>

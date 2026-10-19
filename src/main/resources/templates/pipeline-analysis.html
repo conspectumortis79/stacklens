@@ -1,0 +1,329 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org"
+      xmlns:layout="http://www.ultraq.net.nz/thymeleaf/layout"
+      layout:decorate="~{layout}" lang="de">
+<head><title>Pipeline-Analyse</title>
+<meta name="mcp-sources" content="gitlab,github">
+</head>
+<body>
+
+<th:block layout:fragment="page-title"><span data-i18n="page_titles.pipeline_analysis">Pipeline-Analyse</span></th:block>
+
+<th:block layout:fragment="page-subtitle">
+  <p class="page-subtitle">
+    <span data-i18n="page_subtitles.pipeline_analysis">Analysiert Docker-Compose-Stacks und CI/CD-Pipelines per KI auf Fehler, Warnungen, Smells und Optimierungen – inkl. Erklärung jedes Key=Werts.</span>
+  </p>
+</th:block>
+
+<th:block layout:fragment="page-actions">
+  <div style="display:flex;gap:8px;align-items:center;">
+    <button class="btn btn-sm btn-outline-secondary" style="border-color:#ddd7cb;color:#5b564d;"
+            data-prompt-prefix="pipeline" disabled
+            onclick="openPromptEditorForPrefix('pipeline', (window.i18n ? window.i18n.t('page_titles.pipeline_analysis') : 'Pipeline-Analyse'), null, 'pipeline.analysisPrompt', function(){ paStartCurrent(); })">
+      <i class="bi bi-cpu me-1"></i><span data-i18n="pipeline.ai_prompt_btn">KI-Prompt</span>
+    </button>
+    <button class="btn btn-sm" style="background:linear-gradient(135deg,#7c5cbf,#5b8ef0);color:#fff;border:none;"
+            onclick="kiChatToggle()" data-i18n-title="common.ki_chat_context_title" title="KI Chat – kontext-sensitive Hilfe für diesen Reiter">
+      <i class="bi bi-chat-dots-fill me-1"></i><span data-i18n="common.ki_chat_btn">KI Chat</span>
+    </button>
+  </div>
+</th:block>
+
+<th:block layout:fragment="head-extra">
+<script th:inline="javascript">
+window.kiChatConfig = {
+  tabId: 'pipeline-analysis',
+  tabLabel: 'Pipeline-Analyse',
+  tabLabelKey: 'ki_chat.pipeline_analysis.tab_label',
+  introMessage: 'Hi! Ich bin dein DevOps-Berater für Docker Compose + CI/CD-Pipelines. Wähle links ein Repository mit docker-compose.yml / .gitlab-ci.yml / GitHub Actions / Jenkinsfile und erkläre mir, was du prüfen willst (Sicherheit, Performance, Best Practices).',
+  introMessageKey: 'ki_chat.pipeline_analysis.intro',
+  suggestionsKey: 'ki_chat.pipeline_analysis.suggestions',
+  suggestions: [
+    'Erkläre mir die docker-compose.yml des aktuell ausgewählten Repositories',
+    'Liste alle HIGH-Befunde aus meiner aktuellen Pipeline-Analyse',
+    'Warum ist ":latest" ein Problem für Produktions-Deployments?',
+    'Erzeuge ein Mermaid-Diagramm meiner Services und depends_on-Beziehungen',
+    'Welche GitHub-Actions-Workflows laufen bei jedem Push?',
+    'Übersetze meine docker-compose.yml in ein Kubernetes-Deployment',
+    'Zeige mir die 3 wirkungsvollsten Optimierungen für meinen Stack',
+    'Was bedeutet "restart: unless-stopped" im Unterschied zu "restart: always"?'
+  ],
+  systemHint: 'You are a senior platform / DevOps engineer (Docker, docker-compose, GitLab CI, GitHub Actions, Jenkins, CircleCI, Bitbucket, Azure Pipelines, Cloud Build, Buildkite). Explain docker-compose key=values, CI/CD jobs and optimisation opportunities concretely with file paths and code snippets.',
+  contextProvider: function(){
+    var parts = [];
+    try {
+      var sel = document.querySelector('.pa-repo-card.selected, [data-selected-repo]');
+      if (sel) parts.push('Aktuell ausgewähltes Repository: ' + (sel.getAttribute('data-repo-name') || sel.textContent || '').trim());
+    } catch(e){}
+    try {
+      var sumCard = document.querySelector('#paSummaryContent');
+      if (sumCard && sumCard.innerText) parts.push('Zusammenfassung der Analyse:\n' + sumCard.innerText.trim().slice(0, 3000));
+    } catch(e){}
+    try {
+      var allText = document.querySelector('#paAllFindings')?.innerText || '';
+      if (allText) parts.push('Findings-Auszug:\n' + allText.slice(0, 3000));
+    } catch(e){}
+    return parts.join('\n\n');
+  }
+};
+</script>
+</th:block>
+
+<div layout:fragment="content">
+<th:block th:replace="~{fragments/pipeline-analysis/styles :: styles}"></th:block>
+<th:block th:replace="~{fragments/shared/token-usage :: styles}"></th:block>
+<th:block th:replace="~{fragments/pipeline-analysis/modals :: modals}"></th:block>
+
+<div class="pa-page" data-cf-token-usage-anchor="">
+  <div class="pa-layout">
+
+    <aside class="pa-panel">
+      <div class="pa-list-top">
+        <h2 style="display:flex;align-items:center;justify-content:space-between;">
+          <span><i class="bi bi-diagram-3 me-1" style="color:#7c5cbf;"></i>Repositories</span>
+          <button onclick="openFileBrowserForNewRepo()" data-i18n-title="pipeline.repo_add_title" title="Repository hinzufügen"
+                  style="background:var(--pa-accent);color:#fff;border:none;border-radius:8px;width:26px;height:26px;display:inline-flex;align-items:center;justify-content:center;cursor:pointer;font-size:18px;line-height:1;padding:0;flex-shrink:0;">
+            <i class="bi bi-plus"></i>
+          </button>
+        </h2>
+      </div>
+
+      <div class="pa-repo-scroll">
+        <div class="pa-repo-scroll-content" id="paRepoScrollContent">
+          <div id="repoList">
+            <div th:each="r : ${localRepoConfigs}" class="pa-repo-card"
+                 th:id="'repoCard-' + ${r.id}"
+                 th:data-repo-id="${r.id}"
+                 th:data-repo-name="${r.name}"
+                 th:data-repo-path="${r.path}"
+                 th:data-repo-active="${r.active}"
+                 th:classappend="${!r.active} ? ' pa-repo-inactive'">
+              <div class="pa-repo-row1">
+                <div class="pa-repo-name" th:text="${r.name}"></div>
+              </div>
+              <div class="pa-repo-path" th:text="${r.path}"></div>
+              <div class="pa-card-status"></div>
+              <div class="pa-btn-row">
+                <button class="pa-btn-xs pa-btn-xs-success" data-action="play"><i class="bi bi-play-fill"></i> <span data-i18n="pipeline.btn_start">Starten</span></button>
+                <button class="pa-btn-xs pa-btn-xs-cancel"  data-action="cancel"><i class="bi bi-x-circle"></i></button>
+                <button class="pa-btn-xs pa-btn-xs-outline" data-action="edit"><i class="bi bi-pencil"></i></button>
+                <button class="pa-btn-xs pa-btn-xs-outline" data-action="delete"><i class="bi bi-trash"></i></button>
+              </div>
+            </div>
+          </div>
+
+          <div id="paGitlabRepoSection">
+            <div id="paGitlabConfigList">
+              <div class="text-muted small text-center py-2" data-i18n="common.loading">Wird geladen…</div>
+            </div>
+          </div>
+
+          <div th:if="${githubRepoConfigs != null and !githubRepoConfigs.empty}" id="paGithubRepoSection">
+            <div class="mb-2">
+              <div class="d-flex align-items-center gap-2 p-2 rounded pa-gh-accordion-header"
+                   style="border:1px solid var(--pa-line);cursor:pointer;"
+                   onclick="paToggleGithubAccordion(this)">
+                <i class="bi bi-github" style="color:#24292e;"></i>
+                <span class="fw-bold flex-grow-1" style="font-size:13px;word-break:break-all;">GitHub</span>
+                <i class="bi bi-chevron-down small text-muted pa-gh-chevron"></i>
+              </div>
+              <div class="pa-github-repos d-none" id="paGithubRepoList">
+                <div th:each="gh : ${githubRepoConfigs}"
+                     class="pa-repo-card"
+                     th:id="'paGhCard-' + ${gh.id}"
+                     th:attr="data-github-repo-id=${gh.id},data-github-repo-name=${gh.owner + '/' + gh.repo}"
+                     onclick="paSelectGithub(+this.dataset.githubRepoId, this.dataset.githubRepoName)"
+                     style="cursor:pointer;">
+                  <div class="pa-repo-row1">
+                    <div class="pa-repo-name">
+                      <span th:text="${gh.name}"></span>
+                    </div>
+                  </div>
+                  <div class="pa-repo-path" th:text="${gh.owner + '/' + gh.repo}"></div>
+                  <div class="pa-card-status"></div>
+                  <div class="pa-btn-row">
+                    <button class="pa-btn-xs pa-btn-xs-success" data-action="gh-play">
+                      <i class="bi bi-play-fill"></i> <span data-i18n="pipeline.btn_start">Starten</span>
+                    </button>
+                    <button class="pa-btn-xs pa-btn-xs-cancel" data-action="gh-cancel" title="Abbrechen">
+                      <i class="bi bi-x-circle"></i>
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+        </div>
+        <div class="sl-scroll-track" id="paRepoScrollTrack"><div class="sl-scroll-thumb" id="paRepoScrollThumb"></div></div>
+      </div>
+    </aside>
+
+    <div class="pa-result-panel" id="paAnalysisPanel">
+
+      <div class="pa-result-sticky-top">
+      <div class="pa-result-header" id="paAnalysisHeader">
+        <div class="pa-empty" style="padding:20px;flex:1;min-height:auto;justify-content:flex-start;flex-direction:row;gap:10px;">
+          <i class="bi bi-arrow-left"></i>
+          <span class="text-muted" style="font-size:14px;" data-i18n="pipeline.select_hint">Repository hinzufügen und Pipeline-Analyse starten.</span>
+        </div>
+      </div>
+
+      <div class="pa-tabs d-none" id="paAnalysisTabs">
+        <button class="pa-tab-btn active" onclick="paSwitch('paTabSummary', this)">
+          <i class="bi bi-bar-chart me-1"></i><span data-i18n="pipeline.tab_summary">Zusammenfassung</span>
+        </button>
+        <button class="pa-tab-btn" onclick="paSwitch('paTabFindings', this)">
+          <i class="bi bi-exclamation-triangle me-1"></i><span data-i18n="pipeline.tab_findings">Befunde</span>
+          <span class="badge ms-1" id="paFindingsBadge" style="background:var(--pa-accent);font-size:10px;display:none;"></span>
+        </button>
+        <button class="pa-tab-btn" onclick="paSwitch('paTabFiles', this)">
+          <i class="bi bi-files me-1"></i><span data-i18n="pipeline.tab_files">Dateien</span>
+        </button>
+        <button class="pa-tab-btn" onclick="paSwitch('paTabOptimizations', this)">
+          <i class="bi bi-stars me-1"></i><span data-i18n="pipeline.tab_optimizations">Optimierungen</span>
+        </button>
+        <button class="pa-tab-btn" onclick="paSwitch('paTabMermaid', this)" id="paTabMermaidBtn">
+          <i class="bi bi-diagram-3 me-1"></i>Mermaid
+        </button>
+      </div>
+      </div>
+
+      <div class="pa-result-scroll-wrap">
+        <div class="pa-result-scroll-content" id="paResultScrollContent">
+
+      <div class="pa-tab-panel active" id="paTabSummary">
+        <div class="pa-empty" id="paEmptyState">
+          <i class="bi bi-diagram-3"></i>
+          <span data-i18n="pipeline.no_analysis">Keine Analyse vorhanden. Klicke auf "Pipeline analysieren" um zu starten.</span>
+        </div>
+
+        <div id="paRunning" class="pa-empty d-none">
+          <span class="spinner-border" style="width:2.4rem;height:2.4rem;border-width:3px;color:var(--pa-muted);"></span>
+          <div class="mt-3 fw-medium" style="font-size:1.05rem;" data-i18n="pipeline.analyzing">KI analysiert die Pipeline- / Compose-Dateien …</div>
+          <div class="text-muted small mt-1" data-i18n="pipeline.analyzing_hint">Das kann 1–5 Minuten dauern.</div>
+        </div>
+
+        <div id="paAborted" class="pa-empty d-none">
+          <i class="bi bi-x-circle" style="font-size:2.4rem;"></i>
+          <div class="mt-2 fw-medium" style="font-size:1.05rem;" data-i18n="pipeline.aborted">Analyse abgebrochen.</div>
+          <div class="text-muted small mt-1" data-i18n="pipeline.aborted_hint">Starte eine neue Analyse, um Ergebnisse zu sehen.</div>
+        </div>
+
+        <div id="paError" class="d-none alert alert-danger"></div>
+        <div id="paSummaryContent" class="pa-prose d-none"></div>
+
+        <div id="paUserPromptCard" class="d-none mt-3 pa-card pa-userprompt-card">
+          <div class="pa-userprompt-head">
+            <i class="bi bi-chat-quote me-2" style="color:var(--pa-accent);"></i>
+            <strong data-i18n="pipeline.user_prompt_label">Optionale Benutzer-Anweisungen (werden dem KI-Prompt angehängt)</strong>
+          </div>
+          <textarea id="paUserPromptInput" class="form-control mt-2" rows="3"
+                    data-i18n-placeholder="pipeline.user_prompt_ph"
+                    placeholder="z.B. Fokus auf Sicherheit, Build-Jobs ignorieren, nur Produktions-Compose-Dateien …"></textarea>
+          <div class="text-muted small mt-1" data-i18n="pipeline.user_prompt_hint">Leer lassen, um den Standard-Prompt zu verwenden. Deine Anweisungen werden an den KI-Prompt angehängt und steuern die Analyse.</div>
+        </div>
+      </div>
+
+      <div class="pa-tab-panel" id="paTabFindings">
+        <div id="paFindingsContent">
+          <div class="pa-empty"><i class="bi bi-exclamation-triangle"></i><span data-i18n="pipeline.no_findings_js">Keine Befunde.</span></div>
+        </div>
+        <div id="paMrBanner" class="d-none mt-3 p-3 rounded-3 pa-mr-banner">
+          <div class="d-flex align-items-center gap-3 flex-wrap">
+            <i class="bi bi-git fs-5 pa-mr-banner-icon" style="flex-shrink:0;"></i>
+            <div style="flex:1;min-width:0;">
+              <strong id="paMrBannerText" data-i18n="pipeline.mr_banner_title">Analyse als MR/PR bereitstellen</strong>
+              <div class="text-muted small" data-i18n="pipeline.mr_banner_subtitle">Erstellt einen Merge Request (GitLab) bzw. Pull Request (GitHub) auf Basis dieser Analyse. Für lokale Repositories wird ein simulierter MR/PR angezeigt.</div>
+            </div>
+            <div class="d-flex gap-2 flex-shrink-0" id="paMrBannerBtns">
+              <button class="btn btn-sm pa-btn-mr-create" id="paMrCreateBtn" onclick="paOpenMrDialog()">
+                <i class="bi bi-git me-1"></i><span data-i18n="pipeline.mr_banner_btn">MR/PR erstellen</span>
+              </button>
+            </div>
+          </div>
+        </div>
+        <div id="paMrResult" class="d-none mt-3">
+          <div class="alert alert-success d-flex align-items-center gap-2 mb-0">
+            <i class="bi bi-check-circle-fill"></i>
+            <div>
+              <strong id="paMrProviderLabel">MR/PR erstellt</strong>:
+              <a id="paMrLink" href="#" class="sl-link" target="_blank" rel="noopener noreferrer"></a>
+            </div>
+          </div>
+        </div>
+        <div id="paMrError" class="d-none mt-3 alert alert-danger"></div>
+      </div>
+
+      <div class="pa-tab-panel" id="paTabFiles">
+        <div id="paFilesContent">
+          <div class="pa-empty"><i class="bi bi-files"></i><span data-i18n="pipeline.no_descriptions_js">Keine Dateibeschreibungen.</span></div>
+        </div>
+      </div>
+
+      <div class="pa-tab-panel" id="paTabOptimizations">
+        <div id="paOptimizationsContent">
+          <div class="pa-empty"><i class="bi bi-stars"></i><span data-i18n="pipeline.no_optimizations_js">Keine Optimierungsvorschläge.</span></div>
+        </div>
+      </div>
+
+      <div class="pa-tab-panel" id="paTabMermaid">
+        <div id="paMermaidEmpty" class="pa-empty">
+          <i class="bi bi-diagram-3"></i>
+          <span data-i18n="pipeline.mermaid_unavailable">Kein Mermaid-Diagramm verfügbar.</span><br>
+          <span class="text-muted small" data-i18n="pipeline.arch_run_hint">Starte eine Analyse, um das Architekturdiagramm zu generieren.</span>
+        </div>
+        <div id="paMermaidContainer" class="d-none pa-diagram-bg" style="width:100%;min-height:320px;height:320px;cursor:grab;border-radius:12px;overflow:hidden;position:relative;touch-action:none;display:flex;align-items:center;justify-content:center;">
+          <div class="pa-mermaid-zoom-controls" id="paMermaidZoomControls">
+            <button type="button" class="pa-mermaid-zoom-btn" onclick="paMermaidZoomIn()" title="Vergrößern" aria-label="Vergrößern"><i class="bi bi-plus-lg"></i></button>
+            <button type="button" class="pa-mermaid-zoom-btn" onclick="paMermaidZoomOut()" title="Verkleinern" aria-label="Verkleinern"><i class="bi bi-dash-lg"></i></button>
+            <button type="button" class="pa-mermaid-zoom-btn" onclick="paMermaidZoomReset()" title="Zurücksetzen" aria-label="Zurücksetzen"><i class="bi bi-arrow-counterclockwise"></i></button>
+            <span class="pa-mermaid-zoom-level" id="paMermaidZoomLevel">100%</span>
+          </div>
+          <div class="pa-mermaid-empty-hint" id="paMermaidEmptyHint">
+            <i class="bi bi-arrows-move me-1"></i>Ziehen zum Verschieben · Scrollen zum Zoomen
+          </div>
+        </div>
+        <div id="paMermaidActions" class="d-none d-flex gap-2 mt-3 flex-wrap">
+          <button class="btn btn-sm btn-outline-secondary" style="border-radius:999px;font-size:12px;" onclick="paOpenMermaidFullscreen()">
+            <i class="bi bi-fullscreen me-1"></i>Vollbild
+          </button>
+          <button class="btn btn-sm btn-outline-secondary" style="border-radius:999px;font-size:12px;" onclick="paDownloadMermaid()">
+            <i class="bi bi-floppy me-1"></i><span data-i18n="pipeline.save_mermaid">Speichern (.mmd)</span>
+          </button>
+        </div>
+      </div>
+
+      <div id="paAllFindings" class="d-none"></div>
+
+      <th:block th:replace="~{fragments/shared/history :: card('pipeline-analysis', 'hx-card--gutter')}"></th:block>
+
+        </div>
+        <div class="sl-scroll-track" id="paResultScrollTrack"><div class="sl-scroll-thumb" id="paResultScrollThumb"></div></div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+</div>
+
+<th:block layout:fragment="scripts">
+<th:block th:replace="~{fragments/shared/scripts-local-repo :: scripts-local-repo}"></th:block>
+<th:block th:replace="~{fragments/pipeline-analysis/scripts :: scripts}"></th:block>
+<th:block th:replace="~{fragments/shared/token-usage :: scripts}"></th:block>
+
+<script>
+  if (window.slTokenUsagePage) window.slTokenUsagePage({
+        kind: 'pipeline',
+        anchor: document.querySelector('.sl-page-header'),
+        resolveId: function () { return window._pa && window._pa.analysisId; }
+    });
+function paInitTokenUsageBar() {
+  if (window.slTokenUsageRebind) window.slTokenUsageRebind('pipeline');
+}
+</script>
+<th:block th:replace="~{fragments/pipeline-analysis/scripts-pipeline-gitlab :: scripts-pipeline-gitlab}"></th:block>
+</th:block>
+</body>
+</html>

@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org"
+      xmlns:layout="http://www.ultraq.net.nz/thymeleaf/layout"
+      layout:decorate="~{layout}" lang="de">
+<head><title>Sprint-Vorbereitung</title>
+<meta name="mcp-sources" content="jira">
+</head>
+<body>
+
+<th:block layout:fragment="page-title">
+  <span data-i18n="page_titles.sprint_review">Sprint-Vorbereitung</span>
+</th:block>
+
+<th:block layout:fragment="page-subtitle">
+  <p class="page-subtitle">
+    <span data-i18n="page_subtitles.sprint_review_page">Sprint-Vorbereitung: einen Jira-Sprint-Namen und ein Ziel-Ticket angeben. Jedes Ticket im Sprint wird von der KI überprüft und der Status pro Ticket (✓ Bearbeitet / ? Offene Frage / ✎ Refinement nötig) als ADF-V3-Tabelle an die Beschreibung des Ziel-Tickets angehängt.</span>
+  </p>
+</th:block>
+
+<th:block layout:fragment="page-actions">
+  <div style="display:flex;gap:8px;align-items:center;">
+    <button class="btn btn-sm btn-outline-secondary" style="border-color:#ddd7cb;color:#5b564d;"
+            data-prompt-prefix="sprintreview" disabled
+            onclick="openPromptEditorForPrefix('sprintreview', 'Sprint-Vorbereitung', null, 'sprintreview.review_ticket', null)">
+      <i class="bi bi-cpu me-1"></i><span>KI-Prompt</span>
+    </button>
+    <button class="btn btn-sm" style="background:linear-gradient(135deg,#7c5cbf,#5b8ef0);color:#fff;border:none;"
+            onclick="kiChatToggle()" data-i18n-title="sprint_review.ki_chat_title"
+            title="KI Chat – Sprint-Vorbereitungs-Hilfe">
+      <i class="bi bi-chat-dots-fill me-1"></i><span data-i18n="common.ki_chat_btn">KI Chat</span>
+    </button>
+  </div>
+</th:block>
+
+<th:block layout:fragment="head-extra">
+<script th:inline="javascript">
+/*<![CDATA[*/
+window.kiChatConfig = {
+  tabId: 'sprint-review',
+  tabLabel: 'Sprint-Vorbereitung',
+  tabLabelKey: 'ki_chat.sprint_review.tab_label',
+  introMessage: 'Hi! Ich helfe dir beim Sprint-weiten Jira-Review. Wähle einen Jira-Sprint-Namen und ein Ziel-Ticket und ich überprüfe jedes Ticket im Sprint, klassifiziere den Status (Bearbeitet / Offene Frage / Refinement) und hänge eine ADF-V3-Tabelle an die Beschreibung des Ziel-Tickets an.',
+  introMessageKey: 'ki_chat.sprint_review.intro',
+  suggestionsKey: 'ki_chat.sprint_review.suggestions',
+  suggestions: [
+    'Welche Tickets im Sprint haben keine Story-Points?',
+    'Welche Tickets haben unklare Akzeptanzkriterien?',
+    'Schlage Akzeptanzkriterien für die Refinement-Tickets vor',
+    'Schreibe eine Ein-Satz-Zusammenfassung für jedes Ticket im Sprint',
+    'Welche Tickets sind durch externe Abhängigkeiten blockiert?'
+  ],
+  systemHint: 'You are a senior product engineer focused on sprint readiness. Your reviews classify every ticket in the sprint as Bearbeitet (✓), Offene Frage (?) or Refinement (✎ — missing story-points) and the result is posted as an ADF V3 table to the description of the target ticket.',
+  contextProvider: function(){
+    var parts = [];
+    try {
+      var sprint = (document.getElementById('srSprintName') || {}).value || '';
+      if (sprint) parts.push('Aktueller Sprint: ' + sprint.trim());
+      var target = (document.getElementById('srTargetKey') || {}).value || '';
+      if (target) parts.push('Ziel-Ticket: ' + target.trim());
+      var status = document.getElementById('srStatus');
+      if (status && status.textContent.trim()) parts.push('Status: ' + status.textContent.trim());
+    } catch(e){}
+    return parts.join('\n');
+  }
+};
+/*]]>*/
+</script>
+</th:block>
+
+<div layout:fragment="content">
+  <th:block th:replace="~{fragments/sprint-review/styles :: styles}"></th:block>
+<th:block th:replace="~{fragments/shared/token-usage :: styles}"></th:block>
+
+  <div class="sr-page" data-cf-token-usage-anchor="">
+    <section class="sr-card sr-form-card">
+      <h3 class="sr-card-title" data-i18n="sprint_review.title">Sprint-Vorbereitung</h3>
+      <form id="srForm" class="sr-form" autocomplete="off" onsubmit="return false;">
+        <div class="sr-row">
+          <label class="sr-label" for="srSprintName" data-i18n="sprint_review.form_sprint_label">Jira-Sprint-Name</label>
+          <input id="srSprintName" type="text" class="sr-input"
+                 data-i18n-placeholder="sprint_review.form_sprint_placeholder"
+                 placeholder="z. B. Sprint 42 / PI 23 Sprint 1"/>
+          <small class="sr-hint" data-i18n="sprint_review.form_sprint_help">
+            Der Sprint wird case-insensitiv über alle sichtbaren Jira-Boards hinweg aufgelöst.
+          </small>
+        </div>
+        <div class="sr-row">
+          <label class="sr-label" for="srTargetKey" data-i18n="sprint_review.form_target_label">Ziel-Ticket (Beschreibung erhält die Tabelle)</label>
+          <input id="srTargetKey" type="text" class="sr-input"
+                 data-i18n-placeholder="sprint_review.form_target_placeholder"
+                 placeholder="z. B. PROJ-100"/>
+          <small class="sr-hint" data-i18n="sprint_review.form_target_help">
+            Die ADF-V3-Tabelle wird an die Beschreibung dieses Tickets angehängt.
+          </small>
+        </div>
+        <div class="sr-row">
+          <label class="sr-label" data-i18n="sprint_review.form_jira_config">Jira-Konfiguration</label>
+          <select id="srJiraConfig" class="sr-input"></select>
+        </div>
+        <div class="sr-row">
+          <label class="sr-checkbox-label" for="srIncludeImprovement">
+            <input id="srIncludeImprovement" type="checkbox" checked="checked"/>
+            <span data-i18n="sprint_review.form_include_improvement_label">KI-Verbesserungs­vorschlag pro Zeile anzeigen</span>
+          </label>
+          <small class="sr-hint" data-i18n="sprint_review.form_include_improvement_help">
+            Wenn deaktiviert, zeigt die Tabelle nur die Status-Pille (✓ / ? / ✎) ohne KI-Zusammenfassung.
+          </small>
+        </div>
+        <div class="sr-row">
+          <label class="sr-label">
+            <span data-i18n="sprint_review.form_template_label">Prompt-Template (optional)</span>
+            <button type="button" id="srShowDefault" class="sr-link"
+                    data-i18n="sprint_review.form_template_show_default">Standard anzeigen</button>
+          </label>
+          <textarea id="srTemplate" class="sr-input sr-textarea" rows="6"
+                    data-i18n-placeholder="sprint_review.form_template_placeholder"
+                    placeholder="Leer lassen, um das Standard-Template zu verwenden."></textarea>
+        </div>
+        <div class="sr-row sr-actions">
+          <button id="srCancel" type="button" class="sr-btn sr-btn-cancel" disabled
+                  data-i18n="common.cancel">Abbrechen</button>
+          <button id="srStart" type="submit" class="sr-btn sr-btn-primary"
+                  data-i18n="sprint_review.btn_start">Sprint-Vorbereitung starten</button>
+        </div>
+      </form>
+    </section>
+
+    <section id="srProgressCard" class="sr-card sr-progress-card" style="display:none;">
+      <div class="sr-progress-header">
+        <i class="bi bi-arrow-clockwise sr-progress-spin"></i>
+        <span data-i18n="sprint_review.progress_title">Sprint-Vorbereitung läuft…</span>
+      </div>
+      <div id="srProgressStep" class="sr-progress-step"></div>
+    </section>
+
+    <section id="srResultsCard" class="sr-card sr-results-card" style="display:none;">
+      <h3 class="sr-card-title" data-i18n="sprint_review.results_heading">Ergebnis</h3>
+      <div id="srStatus" class="sr-status"></div>
+      <div id="srLegend" class="sr-legend"></div>
+      <div id="srTableWrap" class="sr-table-wrap" style="display:none;margin-top:10px;">
+        <table class="sr-table">
+          <thead>
+            <tr>
+              <th data-i18n="sprint_review.col_ticket">Ticket</th>
+              <th data-i18n="sprint_review.col_status">Status</th>
+            </tr>
+          </thead>
+          <tbody id="srTableBody"></tbody>
+        </table>
+      </div>
+      <div id="srEmptyState" class="sr-empty" data-i18n="sprint_review.no_results">Noch kein Ergebnis vorhanden.</div>
+      <div id="srPostInfo" class="sr-post-info" style="display:none;"></div>
+      <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+        <button id="srPostToJira" type="button" class="sl-btn" style="display:none;background:linear-gradient(135deg,#0052cc,#0747a6);color:#fff;border:none;border-radius:10px;padding:9px 16px;font-weight:600;font-size:.9rem;cursor:pointer;"
+                data-i18n-title="sprint_review.btn_resend_hint"
+                title="Append the prepared ADF table to the target ticket's description in Jira">
+          <i class="bi bi-cloud-upload me-1"></i>
+          <span data-i18n="sprint_review.btn_resend">Sprint Ticket-Tabelle in Jira posten</span>
+        </button>
+        <a id="srViewInJira" class="sl-btn" style="display:none;text-decoration:none;background:linear-gradient(135deg,#7c5cbf,#5b8ef0);color:#fff;border:none;border-radius:10px;padding:9px 16px;font-weight:600;font-size:.9rem;cursor:pointer;"
+           href="/demo-jira-ticket" target="_blank" rel="noopener">
+          <i class="bi bi-box-arrow-up-right me-1"></i>
+          <span data-i18n="sprint_review.btn_view_in_jira">In Jira ansehen</span>
+        </a>
+      </div>
+      <details style="margin-top:14px;">
+        <summary style="cursor:pointer;color:var(--sr-muted);font-size:.82rem;">ADF-JSON anzeigen</summary>
+        <pre id="srAdfPreview" class="sr-adf-preview" style="display:none;"></pre>
+      </details>
+    </section>
+
+    <th:block th:replace="~{fragments/shared/history :: card('sprint-review', '')}"></th:block>
+  </div>
+
+  <th:block th:replace="~{fragments/sprint-review/scripts :: scripts}"></th:block>
+<th:block th:replace="~{fragments/shared/token-usage :: scripts}"></th:block>
+
+<script>
+  if (window.slTokenUsagePage) window.slTokenUsagePage({
+        kind: 'sprint_review',
+        anchor: document.querySelector('.sl-page-header'),
+        resolveId: function () { return (window._sr.runningId || window._sr.lastOpenId); }
+    });
+function srInitTokenUsageBar() {
+  if (window.slTokenUsageRebind) window.slTokenUsageRebind('sprint_review');
+}
+</script>
+</div>
+
+</body>
+</html>

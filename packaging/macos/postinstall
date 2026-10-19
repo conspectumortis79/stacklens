@@ -1,0 +1,407 @@
+#!/bin/bash
+set -euo pipefail
+
+APP_PATH="/Applications/StackLens.app"
+REQUIRED_JAVA_MAJOR=25
+LOG_TAG="StackLens postinstall"
+
+log() { echo "[${LOG_TAG}] $*" >&2; }
+
+if [[ -d "/Applications/StackLens.app" ]]; then
+  log "Removing quarantine attribute from /Applications/StackLens.app…"
+  xattr -dr com.apple.quarantine "/Applications/StackLens.app" 2>/dev/null || true
+
+  TEAM_ID="$(codesign -dv "/Applications/StackLens.app" 2>&1 | awk -F'=' '/TeamIdentifier=/ {print $2}' | head -1)"
+  if [[ -z "${TEAM_ID}" || "${TEAM_ID}" == "not set" ]]; then
+    log "Ad-hoc re-signing /Applications/StackLens.app to satisfy macOS 15+ launch constraints…"
+    if ! codesign --force --deep --sign - "/Applications/StackLens.app" 2>/tmp/stacklens-codesign.log; then
+      log "WARNING: ad-hoc codesign failed. See /tmp/stacklens-codesign.log"
+    fi
+  else
+    log "App carries Developer ID signature (Team: ${TEAM_ID}) – skipping ad-hoc re-sign."
+  fi
+fi
+
+java_major() {
+  "$1" -version 2>&1 \
+    | awk -F '"' '/version/ {
+        v = $2
+        sub(/^1\./, "", v)
+        split(v, a, ".")
+        print a[1]
+        exit
+      }'
+}
+
+CONSOLE_USER="$(stat -f%Su /dev/console 2>/dev/null || true)"
+CONSOLE_HOME=""
+if [[ -n "${CONSOLE_USER}" && "${CONSOLE_USER}" != "root" ]]; then
+  CONSOLE_HOME="$(dscl . -read "/Users/${CONSOLE_USER}" NFSHomeDirectory 2>/dev/null | awk '{print $2}')"
+fi
+
+SEARCH_PATH="/usr/bin:/usr/local/bin:/opt/homebrew/bin:/usr/local/sbin:/opt/homebrew/sbin"
+if [[ -n "${CONSOLE_HOME}" ]]; then
+  SEARCH_PATH="${CONSOLE_HOME}/.sdkman/candidates/java/current/bin:${SEARCH_PATH}"
+fi
+JVMS_DIR="/Library/Java/JavaVirtualMachines"
+
+find_java25() {
+  local JAVA_BIN
+  JAVA_BIN="$(PATH="${SEARCH_PATH}" command -v java 2>/dev/null || true)"
+  if [[ -n "${JAVA_BIN}" ]]; then
+    local maj
+    maj="$(java_major "${JAVA_BIN}" 2>/dev/null || echo 0)"
+    if [[ "${maj}" =~ ^[0-9]+$ ]] && (( maj >= REQUIRED_JAVA_MAJOR )); then
+      echo "${JAVA_BIN}"
+      return 0
+    fi
+  fi
+
+  if [[ -d "${JVMS_DIR}" ]]; then
+    local jvm_java
+    while IFS= read -r -d '' candidate; do
+      local maj
+      maj="$(java_major "${candidate}" 2>/dev/null || echo 0)"
+      if [[ "${maj}" =~ ^[0-9]+$ ]] && (( maj >= REQUIRED_JAVA_MAJOR )); then
+        echo "${candidate}"
+        return 0
+      fi
+    done < <(find "${JVMS_DIR}" -name "java" -path "*/bin/java" -print0 2>/dev/null)
+  fi
+
+  local bundled="${APP_PATH}/Contents/runtime/Contents/Home/bin/java"
+  if [[ -x "${bundled}" ]]; then
+    local maj
+    maj="$(java_major "${bundled}" 2>/dev/null || echo 0)"
+    if [[ "${maj}" =~ ^[0-9]+$ ]] && (( maj >= REQUIRED_JAVA_MAJOR )); then
+      echo "${bundled}"
+      return 0
+    fi
+  fi
+
+  return 1
+}
+
+EXISTING_JAVA="$(find_java25 2>/dev/null || true)"
+
+BREW_BIN=""
+
+if [[ -n "${EXISTING_JAVA}" ]]; then
+  log "Java ${REQUIRED_JAVA_MAJOR}+ already available at ${EXISTING_JAVA} – nothing to do."
+else
+  log "Java ${REQUIRED_JAVA_MAJOR}+ not found. Attempting installation…"
+  INSTALLED_VIA=""
+  BREW_BIN="$(PATH="${SEARCH_PATH}" command -v brew 2>/dev/null || true)"
+  if [[ -z "${BREW_BIN}" && -n "${CONSOLE_HOME}" ]]; then
+    for candidate in /opt/homebrew/bin/brew /usr/local/bin/brew; do
+      if [[ -x "${candidate}" ]]; then
+        BREW_BIN="${candidate}"
+        break
+      fi
+    done
+  fi
+
+  if [[ -n "${BREW_BIN}" && -n "${CONSOLE_USER}" && "${CONSOLE_USER}" != "root" ]]; then
+    log "Homebrew found at ${BREW_BIN}. Installing openjdk@25 for user '${CONSOLE_USER}'…"
+    if sudo -u "${CONSOLE_USER}" "${BREW_BIN}" install openjdk@25 2>/dev/null; then
+      sudo -u "${CONSOLE_USER}" "${BREW_BIN}" link --force openjdk@25 2>/dev/null || true
+      INSTALLED_VIA="homebrew"
+      log "Java 25 installed via Homebrew."
+    else
+      log "Homebrew install failed; trying fallback."
+    fi
+  fi
+
+  if [[ -z "${INSTALLED_VIA}" ]]; then
+    log "Attempting Adoptium Temurin ${REQUIRED_JAVA_MAJOR} download…"
+
+    ARCH="$(uname -m)"
+    if [[ "${ARCH}" == "arm64" ]]; then
+      ADOPTIUM_ARCH="aarch64"
+    else
+      ADOPTIUM_ARCH="x64"
+    fi
+
+    TEMURIN_URL="https://api.adoptium.net/v3/binary/latest/${REQUIRED_JAVA_MAJOR}/ga/mac/${ADOPTIUM_ARCH}/jdk/hotspot/normal/eclipse"
+    DOWNLOAD_DIR="$(mktemp -d)"
+    TARBALL="${DOWNLOAD_DIR}/temurin-jdk25.tar.gz"
+
+    if curl -fsSL --retry 3 --retry-delay 2 \
+        --connect-timeout 30 --max-time 300 \
+        -o "${TARBALL}" "${TEMURIN_URL}" 2>/dev/null; then
+      log "Download complete. Extracting to ${JVMS_DIR}…"
+      mkdir -p "${JVMS_DIR}"
+      tar -xzf "${TARBALL}" -C "${JVMS_DIR}/" 2>/dev/null \
+        && INSTALLED_VIA="adoptium" \
+        && log "Java 25 installed via Adoptium Temurin." \
+        || log "WARNING: Tarball extraction failed."
+    else
+      log "WARNING: Adoptium download failed. StackLens uses its bundled JRE and will still work."
+    fi
+
+    rm -rf "${DOWNLOAD_DIR}" 2>/dev/null || true
+  fi
+
+  if [[ -z "${INSTALLED_VIA}" ]]; then
+    log "NOTE: Java ${REQUIRED_JAVA_MAJOR} could not be installed automatically."
+    log "StackLens ships a bundled JRE and will work as a desktop app regardless."
+    log "To make 'java' available in your terminal, run: brew install openjdk@25"
+  fi
+fi
+
+KOTLINC_BIN="$(PATH="${SEARCH_PATH}" command -v kotlinc 2>/dev/null || true)"
+if [[ -n "${KOTLINC_BIN}" ]]; then
+  log "Kotlin compiler already available at ${KOTLINC_BIN}."
+else
+  log "Kotlin compiler not found. Attempting installation…"
+  KOTLIN_INSTALLED=0
+
+  if [[ -n "${BREW_BIN}" && -n "${CONSOLE_USER}" && "${CONSOLE_USER}" != "root" ]]; then
+    log "Trying to install kotlin via Homebrew…"
+    if sudo -u "${CONSOLE_USER}" "${BREW_BIN}" install kotlin 2>/dev/null; then
+      KOTLIN_INSTALLED=1
+      log "Kotlin installed via Homebrew."
+    fi
+  fi
+
+  if [[ "${KOTLIN_INSTALLED}" -eq 0 ]]; then
+    log "Downloading Kotlin standalone compiler…"
+    KOTLIN_VERSION="2.0.21"
+    KOTLIN_URL="https://github.com/JetBrains/kotlin/releases/download/v${KOTLIN_VERSION}/kotlin-compiler-${KOTLIN_VERSION}.zip"
+    DOWNLOAD_DIR="$(mktemp -d)"
+    KOTLIN_ZIP="${DOWNLOAD_DIR}/kotlin.zip"
+
+    if curl -fsSL --retry 3 -o "${KOTLIN_ZIP}" "${KOTLIN_URL}" 2>/dev/null; then
+      log "Extracting Kotlin compiler to /opt/kotlin…"
+      mkdir -p /opt/kotlin
+      unzip -q "${KOTLIN_ZIP}" -d /opt/kotlin 2>/dev/null || true
+      mkdir -p /usr/local/bin
+      ln -sf /opt/kotlin/kotlinc/bin/kotlinc /usr/local/bin/kotlinc
+      ln -sf /opt/kotlin/kotlinc/bin/kotlin /usr/local/bin/kotlin
+      KOTLIN_INSTALLED=1
+      log "Kotlin installed to /usr/local/bin/kotlinc"
+    else
+      log "WARNING: Kotlin download failed."
+    fi
+    rm -rf "${DOWNLOAD_DIR}" 2>/dev/null || true
+  fi
+fi
+
+K6_BIN="$(PATH="${SEARCH_PATH}" command -v k6 2>/dev/null || true)"
+if [[ -n "${K6_BIN}" ]]; then
+  log "k6 already available at ${K6_BIN}."
+else
+  log "k6 not found. Attempting installation…"
+  K6_INSTALLED=0
+
+  if [[ -n "${BREW_BIN}" && -n "${CONSOLE_USER}" && "${CONSOLE_USER}" != "root" ]]; then
+    log "Trying to install k6 via Homebrew…"
+    if sudo -u "${CONSOLE_USER}" "${BREW_BIN}" install k6 2>/dev/null; then
+      K6_INSTALLED=1
+      log "k6 installed via Homebrew."
+    fi
+  fi
+
+  if [[ "${K6_INSTALLED}" -eq 0 ]]; then
+    log "Downloading k6 release binary from GitHub…"
+    K6_VERSION="v0.55.0"
+    ARCH="$(uname -m)"
+    if [[ "${ARCH}" == "arm64" ]]; then
+      K6_ARCH="arm64"
+    else
+      K6_ARCH="amd64"
+    fi
+    K6_URL="https://github.com/grafana/k6/releases/download/${K6_VERSION}/k6-${K6_VERSION}-macos-${K6_ARCH}.zip"
+    K6_TMP="$(mktemp -d)"
+    K6_ZIP="${K6_TMP}/k6.zip"
+
+    if curl -fsSL --retry 3 --connect-timeout 30 --max-time 120 \
+        -o "${K6_ZIP}" "${K6_URL}" 2>/dev/null; then
+      unzip -q "${K6_ZIP}" -d "${K6_TMP}" 2>/dev/null || true
+      K6_EXTRACTED="$(find "${K6_TMP}" -name "k6" -type f | head -1)"
+      if [[ -n "${K6_EXTRACTED}" ]]; then
+        mkdir -p /usr/local/bin
+        install -m 755 "${K6_EXTRACTED}" /usr/local/bin/k6
+        K6_INSTALLED=1
+        log "k6 ${K6_VERSION} installed to /usr/local/bin/k6"
+      else
+        log "WARNING: k6 binary not found inside archive."
+      fi
+    else
+      log "WARNING: k6 download failed."
+    fi
+    rm -rf "${K6_TMP}" 2>/dev/null || true
+  fi
+
+  if [[ "${K6_INSTALLED}" -eq 0 ]]; then
+    log "NOTE: k6 could not be installed automatically."
+    log "To install manually, run: brew install k6"
+  fi
+fi
+
+JMETER_BIN="$(PATH="${SEARCH_PATH}:/opt/jmeter/bin" command -v jmeter 2>/dev/null || true)"
+if [[ -n "${JMETER_BIN}" ]]; then
+  log "JMeter already available at ${JMETER_BIN}."
+else
+  log "JMeter not found. Attempting installation…"
+  JMETER_INSTALLED=0
+
+  if [[ -n "${BREW_BIN}" && -n "${CONSOLE_USER}" && "${CONSOLE_USER}" != "root" ]]; then
+    log "Trying to install jmeter via Homebrew…"
+    if sudo -u "${CONSOLE_USER}" "${BREW_BIN}" install jmeter 2>/dev/null; then
+      JMETER_INSTALLED=1
+      log "JMeter installed via Homebrew."
+    fi
+  fi
+
+  if [[ "${JMETER_INSTALLED}" -eq 0 ]]; then
+    log "Downloading Apache JMeter from Apache mirrors…"
+    JMETER_VERSION="5.6.3"
+    JMETER_URL="https://downloads.apache.org/jmeter/binaries/apache-jmeter-${JMETER_VERSION}.tgz"
+    JMETER_TMP="$(mktemp -d)"
+    JMETER_TGZ="${JMETER_TMP}/jmeter.tgz"
+
+    if curl -fsSL --retry 3 --connect-timeout 30 --max-time 300 \
+        -o "${JMETER_TGZ}" "${JMETER_URL}" 2>/dev/null; then
+      tar -xzf "${JMETER_TGZ}" -C /opt/ 2>/dev/null || true
+      if [[ -d "/opt/apache-jmeter-${JMETER_VERSION}" ]]; then
+        rm -rf /opt/jmeter 2>/dev/null || true
+        mv "/opt/apache-jmeter-${JMETER_VERSION}" /opt/jmeter
+        mkdir -p /usr/local/bin
+        ln -sf /opt/jmeter/bin/jmeter /usr/local/bin/jmeter
+        JMETER_INSTALLED=1
+        log "JMeter ${JMETER_VERSION} installed to /opt/jmeter, linked at /usr/local/bin/jmeter"
+      else
+        log "WARNING: JMeter directory not found after extraction."
+      fi
+    else
+      log "WARNING: JMeter download failed."
+    fi
+    rm -rf "${JMETER_TMP}" 2>/dev/null || true
+  fi
+
+  if [[ "${JMETER_INSTALLED}" -eq 0 ]]; then
+    log "NOTE: JMeter could not be installed automatically."
+    log "To install manually, run: brew install jmeter"
+  fi
+fi
+
+GIT_BIN="$(PATH="${SEARCH_PATH}" command -v git 2>/dev/null || true)"
+if [[ -n "${GIT_BIN}" ]]; then
+  log "Git already available at ${GIT_BIN}."
+else
+  log "Git not found. Attempting installation…"
+  GIT_INSTALLED=0
+  if [[ -n "${BREW_BIN}" && -n "${CONSOLE_USER}" && "${CONSOLE_USER}" != "root" ]]; then
+    if sudo -u "${CONSOLE_USER}" "${BREW_BIN}" install git 2>/dev/null; then
+      GIT_INSTALLED=1
+      log "Git installed via Homebrew."
+    fi
+  fi
+  if [[ "${GIT_INSTALLED}" -eq 0 ]]; then
+    # macOS triggers Command Line Tools install dialog when /usr/bin/git is invoked
+    # but missing. xcode-select --install is the supported headless way.
+    log "Triggering xcode-select --install for Command Line Tools (provides /usr/bin/git)…"
+    xcode-select --install 2>/dev/null || true
+    log "NOTE: macOS will show a GUI dialog to finish installing Command Line Tools."
+    log "      After completion, /usr/bin/git will be available."
+  fi
+fi
+
+NODE_BIN="$(PATH="${SEARCH_PATH}" command -v node 2>/dev/null || true)"
+if [[ -n "${NODE_BIN}" ]]; then
+  log "Node.js already available at ${NODE_BIN}."
+else
+  log "Node.js not found. Attempting installation…"
+  NODE_INSTALLED=0
+
+  if [[ -n "${BREW_BIN}" && -n "${CONSOLE_USER}" && "${CONSOLE_USER}" != "root" ]]; then
+    log "Trying to install node@22 via Homebrew…"
+    if sudo -u "${CONSOLE_USER}" "${BREW_BIN}" install node@22 2>/dev/null; then
+      sudo -u "${CONSOLE_USER}" "${BREW_BIN}" link --force --overwrite node@22 2>/dev/null || true
+      NODE_INSTALLED=1
+      log "Node.js installed via Homebrew."
+    fi
+  fi
+
+  if [[ "${NODE_INSTALLED}" -eq 0 ]]; then
+    log "Downloading official Node.js binary distribution…"
+    NODE_VERSION="22.12.0"
+    ARCH="$(uname -m)"
+    if [[ "${ARCH}" == "arm64" ]]; then
+      NODE_ARCH="arm64"
+    else
+      NODE_ARCH="x64"
+    fi
+    NODE_URL="https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-darwin-${NODE_ARCH}.tar.gz"
+    NODE_TMP="$(mktemp -d)"
+    if curl -fsSL --retry 3 --connect-timeout 30 --max-time 300 \
+        -o "${NODE_TMP}/node.tar.gz" "${NODE_URL}" 2>/dev/null; then
+      tar -xzf "${NODE_TMP}/node.tar.gz" -C "${NODE_TMP}" 2>/dev/null || true
+      NODE_DIR="$(find "${NODE_TMP}" -maxdepth 1 -type d -name 'node-v*' | head -1)"
+      if [[ -n "${NODE_DIR}" && -x "${NODE_DIR}/bin/node" ]]; then
+        rm -rf /opt/node 2>/dev/null || true
+        mv "${NODE_DIR}" /opt/node
+        mkdir -p /usr/local/bin
+        ln -sf /opt/node/bin/node /usr/local/bin/node
+        ln -sf /opt/node/bin/npm  /usr/local/bin/npm
+        ln -sf /opt/node/bin/npx  /usr/local/bin/npx
+        NODE_INSTALLED=1
+        log "Node.js ${NODE_VERSION} installed to /opt/node, linked at /usr/local/bin."
+      fi
+    fi
+    rm -rf "${NODE_TMP}" 2>/dev/null || true
+  fi
+
+  if [[ "${NODE_INSTALLED}" -eq 0 ]]; then
+    log "WARNING: Node.js could not be installed automatically."
+    log "         The MCP server will not be able to start until Node.js is installed."
+    log "         To install manually, run: brew install node"
+  fi
+fi
+
+MCP_DIR="${APP_PATH}/Contents/app/mcp-server"
+if [[ -d "${MCP_DIR}" ]]; then
+  log "Bundled MCP server found at ${MCP_DIR}."
+  if [[ ! -d "${MCP_DIR}/node_modules" ]]; then
+    NPM_BIN="$(PATH="${SEARCH_PATH}" command -v npm 2>/dev/null || echo /usr/local/bin/npm)"
+    if [[ -x "${NPM_BIN}" ]]; then
+      log "Installing MCP server runtime dependencies (npm ci --omit=dev)…"
+      (cd "${MCP_DIR}" && "${NPM_BIN}" ci --omit=dev --silent 2>/dev/null \
+        || "${NPM_BIN}" install --omit=dev --silent) || \
+        log "WARNING: npm install for MCP server failed."
+    else
+      log "NOTE: npm not on PATH; skipping MCP server dep install."
+      log "      Run \`npm install --omit=dev\` in ${MCP_DIR} once Node.js is installed."
+    fi
+  else
+    log "MCP server node_modules already present – skipping npm install."
+  fi
+else
+  log "No bundled MCP server found at ${MCP_DIR} – skipping."
+fi
+
+if [[ ! -d "$APP_PATH" ]]; then
+  exit 0
+fi
+
+if [[ -z "${CONSOLE_USER}" || "${CONSOLE_USER}" == "root" ]]; then
+  exit 0
+fi
+
+if [[ -z "${CONSOLE_HOME}" || ! -d "${CONSOLE_HOME}" ]]; then
+  exit 0
+fi
+
+DESKTOP_PATH="${CONSOLE_HOME}/Desktop"
+LINK_PATH="${DESKTOP_PATH}/StackLens.app"
+
+mkdir -p "$DESKTOP_PATH"
+if [[ -L "$LINK_PATH" || -e "$LINK_PATH" ]]; then
+  rm -rf "$LINK_PATH"
+fi
+
+ln -s "$APP_PATH" "$LINK_PATH"
+chown -h "$CONSOLE_USER":staff "$LINK_PATH" 2>/dev/null || true
+
+exit 0

@@ -1,0 +1,319 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" lang="de">
+<body>
+<th:block th:fragment="scripts-ki-chat-send">
+<script>
+function __kiChatStripReasoning(text) {
+  if (text == null || text === '') return text;
+  var patterns = [
+    /<mm:think>[\s\S]*?<\/mm:think>/g,
+    /<thinking>[\s\S]*?<\/thinking>/g,
+    /<think>[\s\S]*?<\/think>/g,
+    /<reasoning>[\s\S]*?<\/reasoning>/g,
+    /<reflection>[\s\S]*?<\/reflection>/g
+  ];
+  for (var i = 0; i < patterns.length; i++) {
+    text = text.replace(patterns[i], '');
+  }
+  return text;
+}
+
+function kiChatSend() {
+  var cfg = (typeof window.kiChatResolveConfig === 'function')
+    ? window.kiChatResolveConfig()
+    : kiChatResolveConfig();
+  var sendTabId = cfg.tabId || 'general';
+  var t = __kiChatGetTab(sendTabId);
+  if (t.streaming) return;
+
+  var inp = document.getElementById('kiChatInput');
+  var msg = inp ? inp.value.trim() : '';
+  var attList = (typeof __kiChatGetAttachments === 'function') ? __kiChatGetAttachments(sendTabId) : [];
+  if (!msg && (!attList || !attList.length)) return;
+  var readyAttachments = (attList || []).filter(function(a){ return a && !a.loading && a.base64Data; })
+    .map(function(a){ return { name: a.name, mimeType: a.mimeType, base64Data: a.base64Data }; });
+
+  var historyForRequest = t.history.slice(-20);
+
+  t.history.push({ role: 'user', content: msg });
+  __kiChatPersist(sendTabId);
+  if (inp) inp.value = '';
+
+  t.streaming = true;
+  t.partial = '';
+  t.dotCount = 1;
+  __kiChatRenderUsage(sendTabId);
+  __kiChatStartUsagePolling(sendTabId);
+
+  var attachmentMeta = readyAttachments.length
+    ? { count: readyAttachments.length, names: readyAttachments.map(function(a){ return a.name; }) }
+    : null;
+
+  var bubble = null;
+  if (__kiChatLoadedTabId === sendTabId) {
+    __kiChatAppendUser(msg, attachmentMeta);
+    bubble = __kiChatAppendAi('.', true, true);
+    if (bubble) {
+      bubble.classList.add('ki-chat-bubble-streaming');
+      bubble.setAttribute('data-ki-live', sendTabId);
+      __kiChatStopVisibleDots();
+      __kiChatVisibleDotTimer = setInterval(function(){
+        var st = __kiChatTabs[sendTabId];
+        if (!st || !st.streaming || st.partial) { __kiChatStopVisibleDots(); return; }
+        st.dotCount = (st.dotCount % 3) + 1;
+        if (__kiChatLoadedTabId === sendTabId && bubble.isConnected) {
+          bubble.textContent = '.'.repeat(st.dotCount);
+        }
+      }, 1200);
+    }
+    __kiChatUpdateSendButton();
+    if (typeof __kiChatUpdateDrawerScrollbar === 'function') __kiChatUpdateDrawerScrollbar();
+  }
+
+  function liveBubbleFor(tabId) {
+    if (__kiChatLoadedTabId !== tabId) return null;
+    var list = document.getElementById('kiChatMessages');
+    if (!list) return null;
+    return list.querySelector('[data-ki-live="' + tabId + '"]');
+  }
+
+  var ctx = '';
+  try { ctx = (typeof cfg.contextProvider === 'function') ? (cfg.contextProvider() || '') : (cfg.tabContext || ''); } catch(e){ ctx = ''; }
+
+  try {
+    var domSnapshot = '';
+    var main = document.getElementById('mainScrollContent') ||
+               document.querySelector('main, [role=main]');
+    if (main) {
+      var raw = (main.innerText || main.textContent || '').replace(/\u00a0/g, ' ');
+      raw = raw.replace(/\n{2,}/g, '\x00')
+               .replace(/\n/g, ' ')
+               .replace(/\x00/g, '\n\n')
+               .replace(/[ \t]+/g, ' ')
+               .trim();
+      if (raw.length > 80) {
+        domSnapshot = raw.slice(0, 12000);
+        if (raw.length > 12000) domSnapshot += '\n[…DOM truncated…]';
+      }
+    }
+    if (domSnapshot) {
+      ctx = (ctx ? (ctx + '\n\n') : '') +
+            '----- Sichtbarer Tab-Inhalt (DOM-Snapshot) -----\n' + domSnapshot;
+    }
+  } catch(e) {  }
+
+  fetch('/api/ki-chat', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Accept': 'text/event-stream' },
+    body: JSON.stringify({
+      tabId: sendTabId,
+      tabLabel: cfg.tabLabel || '',
+      chatId: t.usageId,
+      userMessage: msg,
+      tabContext: ctx,
+      history: historyForRequest,
+      systemHint: cfg.systemHint || '',
+      attachments: readyAttachments
+    })
+  }).then(function(resp){
+    if (!resp.ok) throw new Error('HTTP ' + resp.status);
+    var reader = resp.body.getReader();
+    var decoder = new TextDecoder();
+    var sseBuffer = '';
+    var currentEvent = '';
+    var currentData = [];
+    function commitEvent(){
+      if (!currentData.length) { currentEvent = ''; return; }
+      var data = currentData.join('\n');
+      currentData = [];
+      if (currentEvent === 'done') { finish(); currentEvent = ''; return true; }
+      if (currentEvent === 'error') {
+        t.partial = (window.i18n ? window.i18n.t('ki_chat.stream_error_prefix') : 'Fehler') + ': ' + data;
+        finish();
+        currentEvent = '';
+        return true;
+      }
+      if (currentEvent === 'sources') {
+        var chips = [];
+        try { chips = JSON.parse(data) || []; } catch (_) { chips = []; }
+        if (Array.isArray(chips) && chips.length) {
+          __kiChatRenderSourceChips(sendTabId, chips);
+        }
+        currentEvent = '';
+        return false;
+      }
+      var firstChunk = !t.partial;
+      var decodedDelta; try { decodedDelta = JSON.parse(data); } catch(_) { decodedDelta = data; }
+      decodedDelta = __kiChatStripReasoning(decodedDelta);
+      t.partial = __kiChatStripReasoning(t.partial) + decodedDelta;
+      if (__kiChatLoadedTabId === sendTabId) {
+        if (firstChunk) __kiChatStopVisibleDots();
+        var b = liveBubbleFor(sendTabId);
+        if (b) {
+          try {
+            b.innerHTML = __kiChatMd(t.partial);
+            b.classList.add('ki-md');
+          } catch(_) {
+            b.textContent = t.partial;
+          }
+        }
+        var list = document.getElementById('kiChatMessages');
+        if (list) list.scrollTop = list.scrollHeight;
+        if (typeof __kiChatUpdateDrawerScrollbar === 'function') __kiChatUpdateDrawerScrollbar();
+      }
+      currentEvent = '';
+      return false;
+    }
+    function pump(){
+      return reader.read().then(function(r){
+        if (r.done) { finish(); return; }
+        sseBuffer += decoder.decode(r.value, { stream:true });
+        var lines = sseBuffer.split('\n');
+        sseBuffer = lines.pop();
+        for (var i=0;i<lines.length;i++){
+          var line = lines[i].replace(/\r$/, '');
+          if (line === '') {
+            if (commitEvent() === true) return;
+          } else if (line.indexOf('event:') === 0) {
+            currentEvent = line.slice(6).replace(/^\s/, '');
+          } else if (line.indexOf('data:') === 0) {
+            currentData.push(line.slice(5).replace(/^\s/, ''));
+          }
+        }
+        return pump();
+      });
+    }
+    function __kiChatEscapeHtml(s) {
+      return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    }
+    function __kiChatStripPreamble(text) {
+      if (!text) return text;
+      var t = String(text).replace(/^\s+/, '');
+      var end = -1;
+      for (var i = 0; i < t.length; i++) {
+        var c = t.charAt(i);
+        if (c === '.' || c === '!' || c === '?' || c === '\n') { end = i; break; }
+      }
+      if (end < 0) end = t.length;
+      var first = t.substring(0, end + (end < t.length ? 1 : 0));
+      var firstLow = first.toLowerCase();
+      var bad = [
+        'laut ', 'basierend auf ', 'nach ', 'anhand ',
+        'according to ', 'based on ', 'the documents say',
+        'wenn ich aus der wissensdatenbank', 'wenn ich aus der wissen'
+      ];
+      for (var i = 0; i < bad.length; i++) {
+        if (firstLow.indexOf(bad[i]) === 0) {
+          t = t.substring(end + 1).replace(/^\s+/, '');
+          break;
+        }
+      }
+      var phrases = [
+        /laut\s+(den|dem|der)?\s*(vorliegenden|verfügbaren)\s+(Informationen|Unterlagen|Daten)[^.!?\n]*[.!?]?/gi,
+        /basierend auf\s+(den|dem|der)?\s*(vorliegenden|verfügbaren)\s+(Informationen|Unterlagen|Daten)[^.!?\n]*[.!?]?/gi,
+        /nach\s+(den|dem|der)?\s*(vorliegenden|verfügbaren)\s+(Informationen|Unterlagen|Daten)[^.!?\n]*[.!?]?/gi,
+        /according to\s+(the\s+)?(document|available|provided)\s+(information|knowledge|data)[^.!?\n]*[.!?]?/gi,
+        /based on\s+(the\s+)?(knowledge base|information (provided|available))[^.!?\n]*[.!?]?/gi,
+        /the documents say[^.!?\n]*[.!?]?/gi,
+        /wenn ich aus der\s+(Wissensdatenbank|Wissen)[^.!?\n]*[.!?]?/gi,
+        /laut\s+(den|dem|der)?\s*(vorliegenden|verfügbaren)\s+(Informationen|Unterlagen|Daten)[^.!?\n]*[.!?]?/gi
+      ];
+      for (var i = 0; i < phrases.length; i++) t = t.replace(phrases[i], '');
+      t = t.replace(/[ \t]{2,}/g, ' ').replace(/\n[ \t]+/g, '\n').replace(/^\s+|\s+$/g, '');
+      return t;
+    }
+    function __kiChatPostProcessAssistant(text) {
+      if (!text) return {body: '', sources: '', html: ''};
+      var lines = String(text).split('\n');
+      var sourceLine = '';
+      for (var i = lines.length - 1; i >= 0; i--) {
+        if (/^\s*\(Quellen:\s*.*\)\s*$/.test(lines[i])) {
+          sourceLine = lines[i];
+          lines.splice(i, 1);
+          break;
+        }
+      }
+      var body = lines.join('\n').replace(/\s+$/, '');
+      body = __kiChatStripPreamble(body);
+      var bodyHtml = '';
+      try { bodyHtml = __kiChatMd(body); } catch (_) { bodyHtml = __kiChatEscapeHtml(body); }
+      bodyHtml = bodyHtml
+        .replace(/<\/?(strong|b)\b[^>]*>/gi, '')
+        .replace(/<\/?(em|i)\b[^>]*>/gi, '')
+        .replace(/<h([1-6])\b[^>]*>([\s\S]*?)<\/h\1>/gi, '$2')
+        .replace(/<\/?blockquote\b[^>]*>/gi, '')
+        .replace(/<h[1-6]\b[^>]*>/gi, '');
+      var sourcesHtml = '';
+      if (sourceLine) {
+        sourcesHtml = '<div class="ki-chat-sources" style="margin-top:10px;padding-top:8px;border-top:1px solid var(--ki-line,#ddd7cb);font-size:12px;color:#6a665f;">'
+          + __kiChatEscapeHtml(sourceLine.trim()) + '</div>';
+      }
+      return {body: body, sources: sourceLine, html: bodyHtml + sourcesHtml};
+    }
+
+    function finish(){
+      t.streaming = false;
+      __kiChatStopUsagePolling(sendTabId);
+      __kiChatRenderUsage(sendTabId);
+      var rawText = t.partial || (window.i18n ? window.i18n.t('ki_chat.no_answer') : '(keine Antwort)');
+      var pp = __kiChatPostProcessAssistant(rawText);
+      var finalText = pp.body + (pp.sources ? '\n' + pp.sources : '');
+      t.history.push({ role:'assistant', content: finalText });
+      t.partial = '';
+      var tAtts = __kiChatGetAttachments && __kiChatGetAttachments(sendTabId);
+      if (Array.isArray(tAtts)) tAtts.length = 0;
+      __kiChatPersist(sendTabId);
+      __kiChatFetchUsage(sendTabId);
+      if (__kiChatLoadedTabId === sendTabId) {
+        __kiChatStopVisibleDots();
+        var b = liveBubbleFor(sendTabId);
+        if (b) {
+          b.innerHTML = pp.html;
+          b.classList.add('ki-md');
+          b.classList.remove('ki-chat-bubble-streaming');
+          b.removeAttribute('data-ki-live');
+          try { __kiChatAttachDownloads(b.parentElement, pp.body, true); } catch(_){}
+        }
+        if (typeof __kiChatRenderAttachments === 'function') __kiChatRenderAttachments(sendTabId);
+        __kiChatUpdateSendButton();
+        if (typeof __kiChatUpdateDrawerScrollbar === 'function') __kiChatUpdateDrawerScrollbar();
+      }
+    }
+    return pump();
+  }).catch(function(err){
+    t.streaming = false;
+    __kiChatStopUsagePolling(sendTabId);
+    __kiChatRenderUsage(sendTabId);
+    var errText = (window.i18n ? window.i18n.t('ki_chat.stream_error_prefix') : 'Fehler') + ': ' + (err && err.message ? err.message : err);
+    t.history.push({ role:'assistant', content: errText });
+    t.partial = '';
+    var tErrAtts = __kiChatGetAttachments && __kiChatGetAttachments(sendTabId);
+    if (Array.isArray(tErrAtts)) tErrAtts.length = 0;
+    __kiChatPersist(sendTabId);
+    __kiChatFetchUsage(sendTabId);
+    if (__kiChatLoadedTabId === sendTabId) {
+      __kiChatStopVisibleDots();
+      var b = liveBubbleFor(sendTabId);
+      if (b) {
+        b.textContent = errText;
+        b.classList.remove('ki-chat-bubble-streaming');
+        b.removeAttribute('data-ki-live');
+      }
+      if (typeof __kiChatRenderAttachments === 'function') __kiChatRenderAttachments(sendTabId);
+      __kiChatUpdateSendButton();
+      if (typeof __kiChatUpdateDrawerScrollbar === 'function') __kiChatUpdateDrawerScrollbar();
+    }
+  });
+}
+
+window.kiChatToggle = kiChatToggle;
+window.kiChatOpen   = kiChatOpen;
+window.kiChatClose  = kiChatClose;
+window.kiChatSend   = kiChatSend;
+window.kiChatClear  = kiChatClear;
+
+
+</script>
+</th:block>
+</body>
+</html>

@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org"
+      xmlns:layout="http://www.ultraq.net.nz/thymeleaf/layout"
+      layout:decorate="~{layout}" lang="de">
+<head><title>Ticket-Zusammenfassung</title>
+<meta name="mcp-sources" content="jira">
+</head>
+<body>
+
+<th:block layout:fragment="page-title">
+  <span data-i18n="page_titles.ticket_summary">Ticket-Zusammenfassung</span>
+</th:block>
+
+<th:block layout:fragment="page-subtitle">
+  <p class="page-subtitle">
+    <span data-i18n="page_subtitles.ticket_summary">Lädt ein Jira-Ticket und erstellt eine kompakte KI-Zusammenfassung aus Beschreibung und allen Kommentaren.</span>
+  </p>
+</th:block>
+
+<th:block layout:fragment="page-actions">
+  <div class="ts-page-actions">
+    <button class="btn btn-sm btn-outline-secondary ts-page-action-prompt"
+            data-prompt-prefix="ticketsummary" disabled
+            onclick="openPromptEditorForPrefix('ticketsummary', (window.i18n&&window.i18n.t('page_titles.ticket_summary'))||'Ticket-Zusammenfassung', null, 'ticketsummary.summarize_ticket', null)">
+      <i class="bi bi-cpu me-1"></i><span>KI-Prompt</span>
+    </button>
+    <button class="btn btn-sm ts-page-action-ki-chat"
+            onclick="kiChatToggle()" data-i18n-title="ticket_summary.ki_chat_title"
+            title="KI Chat – kontext-sensitive Hilfe für die Ticket-Zusammenfassung">
+      <i class="bi bi-chat-dots-fill me-1"></i><span data-i18n="common.ki_chat_btn">KI Chat</span>
+    </button>
+  </div>
+</th:block>
+
+<th:block layout:fragment="head-extra">
+<script th:inline="javascript">
+/*<![CDATA[*/
+window.kiChatConfig = {
+  tabId: 'ticket-summary',
+  tabLabel: 'Ticket-Zusammenfassung',
+  tabLabelKey: 'ki_chat.ticket_summary.tab_label',
+  introMessage: 'Hi! Ich helfe dir, ein Jira-Ticket schnell zu verstehen — Überblick, Anforderungen, offene Punkte, nächste Schritte. Wähle oben ein Ticket und starte die Zusammenfassung, dann beziehe ich mich direkt darauf.',
+  introMessageKey: 'ki_chat.ticket_summary.intro',
+  suggestionsKey: 'ki_chat.ticket_summary.suggestions',
+  suggestions: [
+    'Fasse mir das ausgewählte Ticket in 5 Sätzen zusammen',
+    'Welche offenen Punkte hat dieses Ticket?',
+    'Welche Akzeptanzkriterien sind im Ticket definiert?',
+    'Wer hat an dem Ticket diskutiert und was war das Ergebnis?',
+    'Welche nächsten Schritte schlägst du vor?',
+    'Bewerte die Qualität der Ticket-Beschreibung'
+  ],
+  systemHint: 'You are a senior product engineer who summarises Jira tickets into six sections: Overview, Requirements, Acceptance Criteria, Discussion, Open Points, Next Steps. Be concrete and grounded in the actual ticket content; never invent missing facts — surface them as open points instead.',
+  contextProvider: function(){
+    var parts = [];
+    try {
+      var ticketKey = (document.getElementById('tsTicketKey') || {}).value || '';
+      if (ticketKey) parts.push('Aktuelles Ticket: ' + ticketKey.trim());
+      var status = document.getElementById('tsStatus');
+      if (status && status.textContent.trim()) parts.push('Status: ' + status.textContent.trim());
+      var sum = document.getElementById('tsResults');
+      if (sum) {
+        var t = (sum.textContent || '').trim();
+        if (t && t.length > 0 && t.length < 2000) parts.push('Generierte Zusammenfassung: ' + t);
+      }
+    } catch(e){}
+    return parts.join('\n');
+  }
+};
+/*]]>*/
+</script>
+</th:block>
+
+<div layout:fragment="content">
+  <th:block th:replace="~{fragments/ticket-summary/styles :: styles}"></th:block>
+<th:block th:replace="~{fragments/shared/token-usage :: styles}"></th:block>
+
+  <div class="ts-page" data-cf-token-usage-anchor="">
+
+    <section class="ts-card ts-form-card">
+      <h3 class="ts-card-title" data-i18n="ticket_summary.title">Ticket-Zusammenfassung</h3>
+      <form id="tsForm" class="ts-form" autocomplete="off" onsubmit="return false;">
+
+        <div class="ts-row">
+          <label class="ts-label" for="tsTicketKey" data-i18n="ticket_summary.form_ticket_label">Jira-Ticket-Key</label>
+          <input id="tsTicketKey" type="text" class="ts-input"
+                 data-i18n-placeholder="ticket_summary.form_ticket_placeholder"
+                 placeholder="z. B. PROJ-123"
+                 style="max-width:280px;"
+                 autocomplete="off" spellcheck="false" />
+        </div>
+
+        <div class="ts-row">
+          <label class="ts-label" for="tsJiraConfig" data-i18n="ticket_summary.form_jira_config">Jira-Konfiguration</label>
+          <select id="tsJiraConfig" class="ts-input"></select>
+        </div>
+
+        <div class="ts-row">
+          <label class="ts-label">
+            <span data-i18n="ticket_summary.form_template_label">Prompt-Template (optional)</span>
+            <button type="button" id="tsShowDefault" class="ts-link"
+                    data-i18n="ticket_summary.form_template_show_default">Standard anzeigen</button>
+          </label>
+          <textarea id="tsTemplate" class="ts-input ts-textarea" rows="5"
+                    data-i18n-placeholder="ticket_summary.form_template_placeholder"
+                    placeholder="Leer lassen, um das Standard-Template zu verwenden."></textarea>
+        </div>
+
+        <div class="ts-row ts-actions">
+          <button id="tsCancel" type="button" class="ts-btn ts-btn-cancel" disabled
+                  data-i18n="ticket_summary.btn_cancel">Abbrechen</button>
+          <button id="tsStart" type="submit" class="ts-btn ts-btn-primary"
+                  data-i18n="ticket_summary.btn_start">Zusammenfassung starten</button>
+        </div>
+      </form>
+    </section>
+
+    <section id="tsProgressCard" class="ts-card ts-progress-card" style="display:none;">
+      <div class="ts-progress-header">
+        <i class="bi bi-arrow-clockwise ts-progress-spin"></i>
+        <span data-i18n="ticket_summary.progress_title">Zusammenfassung läuft…</span>
+      </div>
+      <div id="tsProgressStep" class="ts-progress-step"></div>
+    </section>
+
+    <section id="tsResultsCard" class="ts-card" style="display:none;">
+      <h3 class="ts-card-title">
+        <span data-i18n="ticket_summary.results_heading">Zusammenfassung</span>
+        <button id="tsBtnToggleOriginal" type="button" class="ts-btn ts-btn-secondary" style="padding:5px 12px;font-size:.82rem;">
+          <i class="bi bi-eye"></i>
+          <span data-i18n="ticket_summary.results_view">Anzeigen</span>
+        </button>
+      </h3>
+      <div id="tsStatus" class="ts-status"></div>
+      <div id="tsResults" class="ts-results"></div>
+      <div id="tsOriginalWrap" class="ts-original-wrap" style="display:none;">
+        <h4 class="ts-original-title" data-i18n="ticket_summary.results_original">Original (Beschreibung + Kommentare)</h4>
+        <pre id="tsOriginalText" class="ts-original-text"></pre>
+      </div>
+    </section>
+
+    <th:block th:replace="~{fragments/shared/history :: card('ticket-summary', '')}"></th:block>
+  </div>
+
+  <th:block th:replace="~{fragments/ticket-summary/scripts :: scripts}"></th:block>
+<th:block th:replace="~{fragments/shared/token-usage :: scripts}"></th:block>
+
+<script>
+  if (window.slTokenUsagePage) window.slTokenUsagePage({
+        kind: 'ticket_summary',
+        anchor: document.querySelector('.sl-page-header'),
+        resolveId: function () { return window._ts && window._ts.activeId; }
+    });
+function tsInitTokenUsageBar() {
+  if (window.slTokenUsageRebind) window.slTokenUsageRebind('ticket_summary');
+}
+</script>
+</div>
+
+</body>
+</html>

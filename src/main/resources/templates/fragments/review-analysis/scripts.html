@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" lang="de">
+<body>
+<th:block th:fragment="scripts">
+<script th:inline="javascript">
+/*<![CDATA[*/
+if (!window._ra) {
+  window._ra = {
+    runningId:   null,
+    completedId: null,
+    gen:         0,
+    maxStepIdx:  0,
+    analysisId:  null
+  };
+}
+window._ra.gen++;
+var _raPageGen = window._ra.gen;
+
+var _raAnalysisId   = null;
+window._ra.analysisId = _raAnalysisId;
+var _raPollTimer    = null;
+var _raCancelledIds = new Set();
+var _raMarkdownRaw  = '';
+var _raSprintName   = null;
+
+/*]]>*/
+</script>
+<th:block th:replace="~{fragments/review-analysis/scripts-analysis-ui :: scripts-analysis-ui}"></th:block>
+<th:block th:replace="~{fragments/review-analysis/scripts-export :: scripts-export}"></th:block>
+<th:block th:replace="~{fragments/review-analysis/scripts-history :: scripts-history}"></th:block>
+</th:block>
+</body>
+</html>

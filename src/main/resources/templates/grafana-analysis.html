@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org"
+      xmlns:layout="http://www.ultraq.net.nz/thymeleaf/layout"
+      layout:decorate="~{layout}" lang="de">
+<head>
+  <title>Grafana-Analyse</title>
+</head>
+<body>
+
+<th:block layout:fragment="page-title"><span data-i18n="page_titles.grafana_analysis">Grafana-Analyse</span></th:block>
+
+<th:block layout:fragment="page-subtitle"><p class="page-subtitle"><span data-i18n="page_subtitles.grafana_analysis">Zeigt Grafana-Dashboards direkt in der App an und analysiert die dargestellten Metriken per KI. Dashboard-URL eingeben, hinzufügen und anschließend die KI-Analyse starten.</span></p></th:block>
+
+<th:block layout:fragment="page-actions">
+  <div style="display:flex;gap:8px;align-items:center;">
+  <button class="btn btn-sm btn-outline-secondary" style="border-color:#ddd7cb;color:#5b564d;"
+          data-prompt-prefix="grafana" disabled
+          onclick="openPromptEditorForPrefix('grafana', 'Grafana-Analyse', 'de', 'grafana.rebuildPatch', function(){ startRebuild(); })">
+    <i class="bi bi-cpu me-1"></i><span>KI-Prompt</span>
+  </button>
+  <button class="btn btn-sm" style="background:linear-gradient(135deg,#7c5cbf,#5b8ef0);color:#fff;border:none;"
+          onclick="kiChatToggle()" title="KI Chat">
+    <i class="bi bi-chat-dots-fill me-1"></i><span data-i18n="common.ki_chat_btn">KI Chat</span>
+  </button>
+  </div>
+</th:block>
+
+<th:block layout:fragment="head-extra">
+<meta name="mcp-sources" content="grafana">
+<script th:inline="javascript">
+/*<![CDATA[*/
+window.kiChatConfig = {
+  tabId: 'grafana-analysis',
+  tabLabel: 'Grafana-Analyse',
+  tabLabelKey: 'ki_chat.grafana_analysis.tab_label',
+  introMessage: 'Hi! Ich helfe dir bei Grafana-Dashboards, PromQL/LogQL und Metrik-Interpretation. Beschreibe ein Panel und ich erkläre dir den Plot oder schlage eine bessere Query vor.',
+  introMessageKey: 'ki_chat.grafana_analysis.intro',
+  suggestionsKey: 'ki_chat.grafana_analysis.suggestions',
+  suggestions: [
+    'Welche Panels sind im Dashboard aktuell sichtbar?',
+    'Erkläre mir die Spitzen in CPU / Memory / Latenz',
+    'PromQL: rate vs irate vs increase — wann was?',
+    'Schreibe eine PromQL für p95 Latenz pro Service',
+    'LogQL Beispiele für Fehler-Suche in Loki',
+    'Was wäre ein sinnvolles Alert für dieses Panel?',
+    'Schlage RED-Metriken (Rate/Errors/Duration) vor',
+    'Dashboard-JSON: was passiert in diesem Panel?'
+  ],
+  systemHint: 'You are an SRE/observability expert (Grafana, Prometheus PromQL, Loki LogQL). Give concrete queries, not generic explanations. Reference the dashboard URL/context if available.',
+  contextProvider: function(){
+    var parts = [];
+    try {
+      var url = (document.querySelector('input[type=text]')||{}).value || '';
+      if (url) parts.push('Dashboard URL: ' + url);
+    } catch(e){}
+    return parts.join('\n');
+  }
+};
+/*]]>*/
+</script>
+</th:block>
+
+<div layout:fragment="content">
+<link th:href="@{/css/grafana-board.css}" rel="stylesheet" data-gb-css="1">
+<script>
+(function loadGrafanaDeps() {
+  var CHART_SRC = '/js/grafana/chart.umd.min.js';
+  var BOARD_SRC = '/js/grafana-board.js';
+  function addScript(src, onload) {
+    var s = document.createElement('script');
+    s.src = src;
+    if (src === BOARD_SRC) s.type = 'module';
+    if (onload) s.onload = onload;
+    document.head.appendChild(s);
+  }
+  if (window.Chart && window.GrafanaBoard) return;
+  if (!window.Chart) {
+    addScript(CHART_SRC, function() {
+      if (!window.GrafanaBoard) addScript(BOARD_SRC, null);
+    });
+  } else if (!window.GrafanaBoard) {
+    addScript(BOARD_SRC, null);
+  }
+})();
+</script>
+<th:block th:replace="~{fragments/grafana-analysis/styles :: styles}"></th:block>
+<th:block th:replace="~{fragments/shared/token-usage :: styles}"></th:block>
+
+
+<div class="ga-page" data-cf-token-usage-anchor="">
+
+  <div class="ga-card">
+    <h2><i class="bi bi-layout-three-columns" style="color:var(--ga-accent)"></i>Grafana Dashboards</h2>
+
+    <div class="d-flex gap-2 align-items-end mb-2 flex-wrap">
+      <div style="flex:1;min-width:180px;">
+        <div class="ga-label" data-i18n="grafana_analysis.dashboard_url_label">Dashboard-URL</div>
+        <input id="inputDashUrl" type="url" class="ga-input"
+               placeholder="https://grafana.example.com/d/abc123/..."
+               onkeydown="if(event.key==='Enter')addDashboard()"/>
+      </div>
+      <div style="flex-shrink:0;width:90px;">
+        <div class="ga-label" data-i18n="grafana_analysis.height_px">Höhe (px)</div>
+        <input id="inputDashHeight" type="number" class="ga-input" value="480" min="200" max="1200" step="50"/>
+      </div>
+      <div class="d-flex gap-2 align-items-end" style="flex-shrink:0;">
+        <button id="btnAddDashboard" class="ga-btn-primary" onclick="addDashboard()">
+          <i class="bi bi-plus-lg me-1"></i><span data-i18n="grafana_analysis.add">Hinzufügen</span>
+        </button>
+        <button id="btnClearDashboard" class="ga-btn-outline"
+                style="color:var(--ga-danger);border-color:var(--ga-danger);"
+                onclick="clearDashboardInputs()">
+          <i class="bi bi-x-circle me-1"></i><span data-i18n="grafana_analysis.clear_dashboard">Leeren</span>
+        </button>
+      </div>
+    </div>
+
+    <div th:if="${not #lists.isEmpty(grafanaConfigs)}"
+         class="d-flex align-items-center gap-2 mb-2 pt-2 flex-wrap"
+         style="border-top:1px dashed var(--ga-line);">
+      <span class="ga-label mb-0" data-i18n="grafana_analysis.from_config" style="white-space:nowrap">Aus Konfiguration:</span>
+      <select id="selectGrafanaConfig" class="ga-select" style="max-width:260px;flex:1;min-width:140px;"
+              onchange="if(this.value) loadFromConfig()">
+        <option value="" data-i18n="grafana_analysis.select_placeholder">-- Bitte wählen --</option>
+        <option th:each="cfg : ${grafanaConfigs}"
+                th:value="${cfg.baseUrl}"
+                th:data-name="${cfg.name}"
+                th:data-config-id="${cfg.id}"
+                th:text="${cfg.name + ' (' + cfg.baseUrl + ')'}"></option>
+      </select>
+    </div>
+
+
+  </div>
+
+  <div id="gaBoardChatHeader" class="ga-board-section-header" style="display:none; margin-bottom: 8px;">
+    <i class="bi bi-grid-3x3-gap-fill" style="color:var(--ga-accent);font-size:20px;"></i>
+    <h3 data-i18n="grafana_board.visualisation_title">Dashboard-Visualisierung</h3>
+    <span class="ga-board-hint" data-i18n="grafana_board.visualisation_hint">Klick auf ein Panel zum Bearbeiten des Panel-JSON</span>
+  </div>
+
+  <div id="gaBoardChatRow" class="ga-board-chat-row no-board">
+
+    <div class="ga-board-left">
+      <div id="gaBoardSection" style="display:none;">
+        <div id="gaBoardContainer"></div>
+      </div>
+    </div>
+
+  <div class="ga-split-container ga-split-rebuild-only">
+
+    <div class="ga-split-left" id="splitLeft">
+      <h2><i class="bi bi-pencil-square me-2" style="color:#7c3aed"></i><span data-i18n="grafana_analysis.rebuild_title">KI Dashboard-Umbau</span></h2>
+      <p style="font-size:13px;color:var(--ga-muted);margin:-4px 0 8px" data-i18n="grafana_analysis.rebuild_desc">
+        Füge dein bestehendes Grafana-Dashboard-JSON ein und beschreibe, wie es umgebaut werden soll.
+      </p>
+
+      <div class="ga-section-grow" style="flex:1;">
+        <div class="ga-label" data-i18n="grafana_analysis.existing_dashboard">Bestehendes Dashboard-JSON
+          <span style="font-weight:400;text-transform:none;font-size:11px;color:var(--ga-muted);margin-left:6px;">
+            (in Grafana: Dashboard → Share → Export → View JSON)
+          </span>
+        </div>
+        <div class="ga-scroll-wrap" id="gaJsonScrollWrap">
+          <textarea id="inputDashboardJson" class="ga-textarea"
+                    style="font-family:'Cascadia Code','Fira Code',monospace;font-size:12px;"
+                    placeholder='{&#10;  "title": "Mein Dashboard",&#10;  "panels": [...],&#10;  ...&#10;}'
+                    onblur="(function(ta){try{var p=JSON.parse(ta.value.trim());ta.value=JSON.stringify(p,null,2);}catch(_){}})(this)"></textarea>
+          <div class="sl-scroll-track" id="gaJsonScrollTrack"><div class="sl-scroll-thumb" id="gaJsonScrollThumb"></div></div>
+        </div>
+      </div>
+
+      <div class="ga-section-fixed">
+        <div class="ga-label" data-i18n="grafana_analysis.desired_changes">Gewünschte Änderungen</div>
+        <div class="ga-scroll-wrap" id="gaRebuildScrollWrap">
+          <textarea id="inputRebuildInstructions" class="ga-textarea" rows="3"
+                    data-i18n-placeholder="grafana_analysis.rebuild_instructions_ph"
+                    placeholder="Beispiele:&#10;• Füge ein RAM-Verbrauch-Panel mit Gauge-Diagramm hinzu&#10;• Ändere alle Graphen auf Dark-Theme"></textarea>
+          <div class="sl-scroll-track" id="gaRebuildScrollTrack" data-always-visible="true"><div class="sl-scroll-thumb" id="gaRebuildScrollThumb"></div></div>
+        </div>
+      </div>
+
+      <div class="ga-section-fixed d-flex gap-2 align-items-center flex-wrap">
+        <button id="btnRebuild" class="ga-btn-primary" onclick="startRebuild()">
+          <i class="bi bi-magic" id="btnRebuildIcon"></i>
+          <span id="btnRebuildLabel" data-i18n="grafana_analysis.rebuild_btn">Dashboard umbauen</span>
+        </button>
+        <button class="ga-btn-outline" style="color:#7c3aed;border-color:#7c3aed;display:none;"
+                onclick="openDashboardExportOverlay()" id="btnDashExport">
+          <i class="bi bi-download me-1"></i><span data-i18n="grafana_analysis.export_rebuilt">Ergebnis exportieren</span>
+        </button>
+      </div>
+
+      <div id="rebuildError" style="display:none;" class="mt-3">
+        <div class="alert d-flex align-items-center gap-3 mb-0"
+             style="background:#fde8e8;border:1px solid #f5c2c7;border-radius:10px;padding:12px 16px;">
+          <i class="bi bi-exclamation-triangle-fill text-danger fs-5"></i>
+          <span id="rebuildErrorMsg" style="font-size:14px;color:#b91c1c;"></span>
+        </div>
+      </div>
+
+      <div id="dummyPreviewSection" style="display:none;" class="mt-3">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;flex-wrap:wrap;">
+          <i class="bi bi-bar-chart-line-fill" style="color:#2980b9;font-size:18px;"></i>
+          <span style="font-weight:700;font-size:15px;" data-i18n="grafana_analysis.metrics_preview_title">KI-generierte Metriken-Vorschau</span>
+          <span style="font-size:12px;color:var(--ga-muted);" data-i18n="grafana_analysis.dummy_data">– Dummy-Daten für Visualisierung</span>
+        </div>
+        <div id="dummyChartsContainer"
+             style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px;"></div>
+      </div>
+    </div>
+
+  </div>
+
+  </div>
+
+</div>
+
+<div id="gaDashExportOverlay"
+     style="position:fixed;inset:0;z-index:3000;background:rgba(0,0,0,.6);
+            display:none;align-items:center;justify-content:center;padding:16px;"
+     onclick="if(event.target===this)closeDashboardExportOverlay()">
+  <div style="background:var(--ga-paper);color:var(--ga-ink);border-radius:16px;width:100%;max-width:820px;
+              box-shadow:0 16px 56px rgba(0,0,0,.35);padding:24px 28px;
+              height:82vh;max-height:82vh;display:flex;flex-direction:column;gap:12px;">
+
+    <div style="display:flex;justify-content:space-between;align-items:center;flex-shrink:0;">
+      <h4 style="margin:0;font-size:1.05rem;font-weight:700;">
+        <i class="bi bi-download me-2" style="color:#7c3aed"></i><span data-i18n="grafana_analysis.dashboard_export_title">Umgebautes Dashboard exportieren</span>
+      </h4>
+      <button onclick="closeDashboardExportOverlay()" class="btn-close"></button>
+    </div>
+
+    <p style="margin:0;font-size:13px;color:var(--ga-muted);flex-shrink:0;" data-i18n="grafana_analysis.export_dashboard_desc">
+      Das von der KI modifizierte Dashboard-JSON kann direkt in Grafana importiert werden:
+      <strong>Dashboards → New → Import → JSON hochladen / einfügen</strong>.
+    </p>
+
+    <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;flex-shrink:0;">
+      <span id="dashExportInfo" style="font-size:13px;color:var(--ga-muted);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"></span>
+      <button class="ga-btn-outline" onclick="copyDashboardExportContent()">
+        <i class="bi bi-clipboard me-1"></i><span data-i18n="grafana_analysis.copy">Kopieren</span>
+      </button>
+      <button class="ga-btn-primary" onclick="openGaDashSaveOverlay()">
+        <i class="bi bi-floppy me-1"></i><span data-i18n="grafana_analysis.save_as">Speichern unter…</span>
+      </button>
+    </div>
+
+    <pre id="dashExportCode"
+         style="background:#1e1e2e;color:#cdd6f4;border-radius:10px;
+                padding:14px 16px;font-size:12px;line-height:1.5;
+                font-family:'Cascadia Code','Fira Code','Courier New',monospace;
+                flex:1;min-height:0;overflow-y:auto;overflow-x:hidden;
+                white-space:pre-wrap;word-break:break-all;margin:0;"></pre>
+
+    <div style="background:var(--ga-bg);border:1px solid var(--ga-line);border-radius:8px;
+                padding:10px 14px;font-size:12px;color:var(--ga-muted);flex-shrink:0;">
+      <i class="bi bi-info-circle me-1"></i>
+      <strong>Import in Grafana:</strong>
+      Dashboard-JSON via <em>Dashboards → New → Import</em> hochladen oder als JSON einf&uuml;gen.
+      Datasource-UIDs und Org-ID m&uuml;ssen ggf. an deine Umgebung angepasst werden.
+    </div>
+  </div>
+</div>
+
+<th:block th:replace="~{fragments/grafana-analysis/scripts :: scripts}"></th:block>
+<th:block th:replace="~{fragments/shared/token-usage :: scripts}"></th:block>
+
+<script>
+  if (window.cfTokenUsage) {
+    window.cfTokenUsage.init('grafana', null, {
+      anchor: document.querySelector('.sl-page-header, .ga-page')
+    });
+  }
+</script>
+</div>
+</body>
+</html>

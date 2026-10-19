@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" lang="de">
+<body>
+<th:block th:fragment="modals-io">
+<div class="modal fade cf-modal" id="grafanaModal" tabindex="-1">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="bi bi-speedometer2 text-danger me-2"></i><span id="grModalTitle">Grafana-Verbindung</span></h5>
+        <button type="button" class="btn-close" onclick="__hideModal('grafanaModal')" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="grId"/>
+        <div class="row g-3">
+          <div class="col-12"><label class="form-label">Name *</label><input class="form-control" id="grName" placeholder="Produktions-Grafana"/></div>
+          <div class="col-12">
+            <label class="form-label">Grafana-URL *</label>
+            <input class="form-control" id="grUrl" placeholder="https://grafana.example.com"/>
+          </div>
+          <div class="col-md-6">
+            <label class="form-label">Benutzername *</label>
+            <input class="form-control" id="grUser" placeholder="admin"/>
+          </div>
+          <div class="col-md-6">
+            <label class="form-label">Passwort *</label>
+            <div class="input-group">
+              <input class="form-control" id="grPassword" type="password" placeholder="••••••••"/>
+              <button class="btn btn-outline-secondary" type="button" onclick="togglePw('grPassword')"><i class="bi bi-eye"></i></button>
+            </div>
+          </div>
+          <div class="col-md-4"><label class="form-label">Organisations-ID</label><input class="form-control" id="grOrg" type="number" value="1"/></div>
+          <div class="col-md-8 d-flex align-items-end pb-2">
+            <div class="form-check form-switch">
+              <input class="form-check-input" type="checkbox" id="grScanQueries" checked/>
+              <label class="form-check-label" for="grScanQueries">Panel-Queries (Prometheus, SQL, …) ebenfalls durchsuchen</label>
+            </div>
+          </div>
+          <div class="col-12"><div class="form-check form-switch"><input class="form-check-input" type="checkbox" id="grActive" checked/><label class="form-check-label" for="grActive">Aktiv</label></div></div>
+          <div class="col-12" id="grTestResult" style="display:none"></div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-outline-secondary" onclick="__hideModal('grafanaModal')" data-bs-dismiss="modal"><i class="bi bi-x-lg me-1"></i>Abbrechen</button>
+        <button class="btn btn-outline-secondary" id="grTestBtn" onclick="testGrafanaConnection()"><i class="bi bi-plug me-1"></i>Verbindung testen</button>
+        <button class="btn btn-primary" onclick="saveGrafana()"><i class="bi bi-save me-1"></i>Speichern</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="modal fade cf-modal" id="jiraModal" tabindex="-1">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="bi bi-kanban text-info me-2"></i><span id="jrModalTitle">Jira-Verbindung</span></h5>
+        <button type="button" class="btn-close" onclick="__hideModal('jiraModal')" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="jrId"/>
+        <div class="row g-3">
+          <div class="col-12"><label class="form-label">Name *</label><input class="form-control" id="jrName" placeholder="Firmen-Jira"/></div>
+          <div class="col-12">
+            <label class="form-label">Jira-URL *</label>
+            <input class="form-control" id="jrUrl" placeholder="https://my-org.atlassian.net  oder  https://jira.example.com"/>
+          </div>
+          <div class="col-12">
+            <label class="form-label">Modus</label>
+            <div class="d-flex gap-3 mt-1">
+              <div class="form-check"><input class="form-check-input" type="radio" name="jrMode" id="jrCloud" value="true" checked/><label class="form-check-label" for="jrCloud">Atlassian Cloud</label></div>
+              <div class="form-check"><input class="form-check-input" type="radio" name="jrMode" id="jrServer" value="false"/><label class="form-check-label" for="jrServer">Server / Data Center</label></div>
+            </div>
+          </div>
+          <div class="col-12">
+            <label class="form-label">Projekt-Key(s) <span class="text-muted small">(kommagetrennt, optional)</span></label>
+            <input class="form-control" id="jrProject" placeholder="z.B. ANAA, PAY, ARCH"/>
+            <div class="form-text" data-i18n="config.cloud_search_hint">Cloud: empfohlen für schnelle Suche. Leer = alle erreichbaren Projekte (nur Server/DC).</div>
+          </div>
+          <div class="col-md-6">
+            <label class="form-label">Benutzername / E-Mail *</label>
+            <input class="form-control" id="jrUser" placeholder="user@example.com"/>
+            <div class="form-text">Cloud: E-Mail · Server/DC: Benutzername.</div>
+          </div>
+          <div class="col-md-6">
+            <label class="form-label">API-Token / Passwort *</label>
+            <div class="input-group">
+              <input class="form-control" id="jrToken" type="password" placeholder="API-Token"/>
+              <button class="btn btn-outline-secondary" type="button" onclick="togglePw('jrToken')"><i class="bi bi-eye"></i></button>
+            </div>
+            <div class="form-text">Cloud: <span class="text-muted">API-Token erstellen (id.atlassian.com)</span></div>
+          </div>
+          <div class="col-12">
+            <label class="form-label" data-i18n="config.jira.visibility_role_label">Kommentar-Sichtbarkeit (Projektrolle, optional)</label>
+            <input class="form-control" id="jrVisibilityRole"
+                   placeholder="z.B. Developers"
+                   data-i18n-placeholder="config.jira.visibility_role_placeholder"/>
+            <div class="form-text" data-i18n="config.jira.visibility_role_hint">
+              Wenn gesetzt, sind die in der Ticket-Aufbereitung gepostete Kommentare nur für Mitglieder dieser Jira-Projektrolle sichtbar (z.B. „Developers“). Leer lassen für öffentliche Kommentare.
+            </div>
+          </div>
+          <div class="col-12"><div class="form-check form-switch"><input class="form-check-input" type="checkbox" id="jrActive" checked/><label class="form-check-label" for="jrActive">Aktiv</label></div></div>
+          <div class="col-12" id="jrTestResult" style="display:none"></div>
+          <div class="col-12" id="jrTestKeywordRow" style="display:none">
+            <div class="input-group input-group-sm">
+              <span class="input-group-text"><i class="bi bi-search"></i></span>
+              <input type="text" class="form-control" id="jrTestKeyword" placeholder="Testsuchbegriff, z.B. Grafana"/>
+              <button class="btn btn-outline-secondary" type="button" onclick="testJiraSearch()">Suche testen</button>
+            </div>
+            <div class="form-text">Sucht direkt in Jira nach diesem Begriff (summary, description, comment).</div>
+            <div id="jrSearchResult" class="mt-1" style="display:none"></div>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-outline-secondary" onclick="__hideModal('jiraModal')" data-bs-dismiss="modal"><i class="bi bi-x-lg me-1"></i>Abbrechen</button>
+        <button class="btn btn-outline-secondary" id="jrTestBtn" onclick="testJiraConnection()"><i class="bi bi-plug me-1"></i>Verbindung testen</button>
+        <button class="btn btn-primary" onclick="saveJira()"><i class="bi bi-save me-1"></i>Speichern</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="modal fade cf-modal" id="githubRepoModal" tabindex="-1">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="bi bi-github me-2" style="color:#24292e"></i><span id="ghModalTitle">GitHub-Repository</span></h5>
+        <button type="button" class="btn-close" onclick="__hideModal('githubRepoModal')" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="ghId"/>
+        <div class="row g-3">
+          <div class="col-12"><label class="form-label">Name *</label><input class="form-control" id="ghName" placeholder="z.B. Mein Service"/></div>
+          <div class="col-md-6"><label class="form-label">Owner *</label><input class="form-control" id="ghOwner" placeholder="z.B. mein-org"/></div>
+          <div class="col-md-6"><label class="form-label">Repository *</label><input class="form-control" id="ghRepo" placeholder="z.B. mein-service"/></div>
+          <div class="col-md-6"><label class="form-label">Branch <span class="text-muted small">(leer = Standard-Branch)</span></label><input class="form-control" id="ghBranch" placeholder="main"/></div>
+          <div class="col-md-6 d-flex align-items-end pb-2">
+            <div class="form-check form-switch"><input class="form-check-input" type="checkbox" id="ghActive" checked/><label class="form-check-label" for="ghActive">Aktiv</label></div>
+          </div>
+          <div class="col-12">
+            <label class="form-label">Personal Access Token <span class="text-muted small">(leer = globalen KI-Token verwenden)</span></label>
+            <div class="input-group">
+              <input class="form-control" id="ghToken" type="password" placeholder="ghp_…"/>
+              <button class="btn btn-outline-secondary" type="button" onclick="togglePw('ghToken')"><i class="bi bi-eye"></i></button>
+            </div>
+            <div class="form-text">Classic PAT: Scope <code>repo</code> · Fine-grained PAT: <code>Contents</code> + <code>Pull requests</code> (Write) für das Repository.</div>
+          </div>
+          <div class="col-12" id="ghTestResult" style="display:none"></div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-outline-secondary" onclick="__hideModal('githubRepoModal')" data-bs-dismiss="modal"><i class="bi bi-x-lg me-1"></i>Abbrechen</button>
+        <button class="btn btn-outline-secondary" id="ghTestBtn" onclick="testGithubRepoConnection()"><i class="bi bi-plug me-1"></i>Verbindung testen</button>
+        <button class="btn btn-primary" onclick="saveGithubRepo()"><i class="bi bi-save me-1"></i>Speichern</button>
+      </div>
+    </div>
+  </div>
+</div>
+<div id="cfExportPwOverlay" style="position:fixed;inset:0;z-index:3000;background:rgba(0,0,0,.55);display:none;align-items:center;justify-content:center;padding:20px 16px;overflow-y:auto;"
+     onclick="if(event.target===this)cfCloseExportPwOverlay()">
+  <div style="background:var(--ns-paper);border-radius:18px;width:100%;max-width:520px;box-shadow:0 12px 48px rgba(0,0,0,.3);padding:28px 32px;border:1px solid var(--ns-line);">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+      <h5 style="margin:0;font-size:1rem;font-weight:700;">
+        <i class="bi bi-shield-lock-fill me-2" style="color:var(--ns-accent);"></i>
+        <span data-i18n="config.export_title">Konfiguration exportieren</span>
+      </h5>
+      <button onclick="cfCloseExportPwOverlay()" class="btn-close" data-i18n-title="common.close" title="Schließen"></button>
+    </div>
+    <div class="d-flex gap-2 p-3 mb-3" style="background:#e8f4f2;border-radius:10px;border:1px solid #b8ddd7;font-size:13px;">
+      <i class="bi bi-info-circle-fill flex-shrink-0 mt-1" style="color:var(--ns-accent);"></i>
+      <span data-i18n="config.export_encryption_hint">Die Konfiguration wird mit AES-256-GCM verschlüsselt (PBKDF2, 310.000 Iterationen). Dasselbe Passwort wird zum Importieren benötigt.</span>
+    </div>
+    <div class="mb-3">
+      <label style="font-size:13px;font-weight:600;display:block;margin-bottom:6px;" for="cfExportPw1" data-i18n="config.export_password">Passwort</label>
+      <div class="d-flex gap-2">
+        <input type="password" id="cfExportPw1" class="form-control form-control-sm" data-i18n-placeholder="config.export_pw_ph" placeholder="Passwort für Export-Verschlüsselung" autocomplete="new-password" style="border-radius:8px;"/>
+        <button class="btn btn-outline-secondary btn-sm" type="button" onclick="cfTogglePw('cfExportPw1', this)" style="border-radius:8px;flex-shrink:0;"><i class="bi bi-eye"></i></button>
+      </div>
+    </div>
+    <div class="mb-3">
+      <label style="font-size:13px;font-weight:600;display:block;margin-bottom:6px;" for="cfExportPw2" data-i18n="config.export_confirm_pw">Passwort bestätigen</label>
+      <div class="d-flex gap-2">
+        <input type="password" id="cfExportPw2" class="form-control form-control-sm" data-i18n-placeholder="config.export_confirm_pw_ph" placeholder="Passwort wiederholen" autocomplete="new-password" style="border-radius:8px;"/>
+        <button class="btn btn-outline-secondary btn-sm" type="button" onclick="cfTogglePw('cfExportPw2', this)" style="border-radius:8px;flex-shrink:0;"><i class="bi bi-eye"></i></button>
+      </div>
+    </div>
+    <div id="cfExportPwError" class="alert alert-danger py-2 mb-3" style="display:none;font-size:13px;border-radius:8px;"></div>
+    <div class="d-flex gap-2 justify-content-end">
+      <button class="btn btn-outline-secondary" onclick="cfCloseExportPwOverlay()"><i class="bi bi-x-lg me-1"></i><span data-i18n="config.cancel">Abbrechen</span></button>
+      <button id="cfExportPwConfirmBtn" class="btn" style="background:var(--ns-accent);color:#fff;" onclick="doExportConfig()">
+        <i class="bi bi-download me-1"></i><span data-i18n="config.export_btn">Exportieren</span>
+      </button>
+    </div>
+  </div>
+</div>
+<div id="cfImportConfirmOverlay" style="position:fixed;inset:0;z-index:3000;background:rgba(0,0,0,.55);display:none;align-items:center;justify-content:center;padding:20px 16px;overflow-y:auto;"
+     onclick="if(event.target===this)cfCloseImportConfirm()">
+  <div style="background:var(--ns-paper);border-radius:18px;width:100%;max-width:560px;box-shadow:0 12px 48px rgba(0,0,0,.3);padding:28px 32px;border:1px solid var(--ns-line);">
+    <form onsubmit="event.preventDefault(); var btn=document.getElementById('cfImportConfirmBtn'); if(btn&&!btn.disabled) doImportConfig();">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+      <h5 style="margin:0;font-size:1rem;font-weight:700;">
+        <i class="bi bi-upload me-2" style="color:var(--ns-accent);"></i>
+        <span data-i18n="config.import_title">Konfiguration importieren</span>
+      </h5>
+      <button type="button" onclick="cfCloseImportConfirm()" class="btn-close" data-i18n-title="common.close" title="Schließen"></button>
+    </div>
+    <div class="d-flex align-items-center gap-2 p-3 mb-3" style="background:#f4efe4;border-radius:10px;border:1.5px solid var(--ns-line);">
+      <i class="bi bi-file-earmark-check-fill" style="font-size:1.4rem;color:var(--ns-accent);flex-shrink:0;"></i>
+      <div style="min-width:0;"><div style="font-size:12px;color:var(--ns-muted);" data-i18n="config.selected_file">Ausgewählte Datei</div><div id="cfImportConfirmFilename" style="font-size:13px;font-weight:600;word-break:break-all;"></div></div>
+    </div>
+    <div class="d-flex gap-2 p-3 mb-3" style="background:#fff8e1;border-radius:10px;border:1px solid #f0d080;font-size:13px;">
+      <i class="bi bi-exclamation-triangle-fill flex-shrink-0 mt-1" style="color:#f59e0b;"></i>
+      <span data-i18n="config.import_warning">Konfigurationen im Import ersetzen vollständig die bestehenden Einträge des jeweiligen Typs.</span>
+    </div>
+    <div id="cfImportConfirmPreview" style="display:none;margin-bottom:16px;">
+      <h6 style="font-size:13px;font-weight:700;margin-bottom:8px;" data-i18n="config.import_config_title">Enthaltene Konfigurationen</h6>
+      <table class="table table-sm table-bordered mb-0" style="font-size:13px;">
+        <thead style="background:#f4efe4;"><tr><th data-i18n="config.import_col_type">Typ</th><th class="text-center" data-i18n="config.import_col_entries">Einträge</th></tr></thead>
+        <tbody id="cfImportConfirmPreviewBody"></tbody>
+      </table>
+    </div>
+    <div id="cfImportConfirmPwRow" style="display:none;margin-bottom:16px;">
+      <div class="d-flex gap-2 p-3 mb-3" style="background:#e8f4f2;border-radius:10px;border:1px solid #b8ddd7;font-size:13px;">
+        <i class="bi bi-lock-fill flex-shrink-0 mt-1" style="color:var(--ns-accent);"></i>
+        <span id="cfImportConfirmEncInfo" data-i18n="config.import_encrypted_label">Verschlüsselte Konfiguration</span>
+      </div>
+      <label style="font-size:13px;font-weight:600;display:block;margin-bottom:6px;" data-i18n="config.import_decrypt">Passwort für Entschlüsselung</label>
+      <div class="d-flex gap-2">
+        <input type="password" id="cfImportPw" class="form-control form-control-sm" data-i18n-placeholder="config.import_pw_ph" placeholder="Export-Passwort eingeben" autocomplete="current-password" style="border-radius:8px;"/>
+        <button class="btn btn-outline-secondary btn-sm" type="button" onclick="cfTogglePw('cfImportPw', this)" style="border-radius:8px;flex-shrink:0;"><i class="bi bi-eye"></i></button>
+      </div>
+    </div>
+    <div id="cfImportConfirmError" class="alert alert-danger py-2 mb-3" style="display:none;font-size:13px;border-radius:8px;"></div>
+    <div class="d-flex gap-2 justify-content-end">
+      <button class="btn btn-outline-secondary" type="button" onclick="cfCloseImportConfirm()"><i class="bi bi-x-lg me-1"></i><span data-i18n="config.cancel">Abbrechen</span></button>
+      <button id="cfImportConfirmBtn" class="btn" type="submit" style="background:var(--ns-accent);color:#fff;" disabled>
+        <i class="bi bi-upload me-1"></i><span data-i18n="config.import_btn">Importieren</span>
+      </button>
+    </div>
+    </form>
+  </div>
+</div>
+
+</div>
+
+</th:block>
+</body>
+</html>

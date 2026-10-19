@@ -1,0 +1,321 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" lang="de">
+<body>
+<th:block th:fragment="scripts-repo-run">
+<script>
+
+  function selectRepo(id, name, path, immediate) {
+    caCurrentRepoId   = id;
+    caCurrentRepoName = name;
+    caCurrentAnalysisId = null;
+    caGitlabConfigId  = null;
+    caGitlabProjectId = null;
+    caGitlabProjectPath = null;
+    caGithubRepoConfigId = null;
+    caSaveState();
+
+    document.querySelectorAll('.ca-repo-card').forEach(function(c) { c.classList.remove('selected'); });
+    var card = document.getElementById('repoCard-' + id);
+    if (card) card.classList.add('selected');
+
+    caSetHeader(
+      '<i class="bi bi-folder2-open me-1"></i>' + caEsc(name),
+      caEsc(path)
+    );
+    caResetContent();
+
+    if (!immediate) {
+      var sg = ++_caSelectGen;
+      fetch('/api/code-analysis/local/' + id + '/latest')
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+          if (sg !== _caSelectGen) return;
+          if (!data || data.status === 'NONE') return;
+          caCurrentAnalysisId = data.id;
+          caApplyData(data);
+        });
+    }
+  }
+
+  if (window.slTokenUsagePage) window.slTokenUsagePage({
+        kind: 'code',
+        anchor: document.querySelector('.sl-page-header'),
+        resolveId: function () { return caCurrentAnalysisId; },
+        initWhenUnresolved: true
+    });
+function caInitTokenUsageBar() {
+  if (window.slTokenUsageRebind) window.slTokenUsageRebind('code');
+}
+
+function selectGitlabProject(configId, projectId, projectPath, projectName) {
+    caCurrentRepoId     = 0;
+    caCurrentRepoName   = projectName || projectPath.split('/').pop();
+    caCurrentAnalysisId = null;
+    caGitlabConfigId    = configId;
+    caGitlabProjectId   = projectId;
+    caGitlabProjectPath = projectPath;
+    caGithubRepoConfigId = null;
+    caSaveState();
+
+    document.querySelectorAll('.ca-repo-card').forEach(function(c) { c.classList.remove('selected'); });
+    document.querySelectorAll('[data-gl-project]').forEach(function(c) { c.classList.remove('selected'); });
+    var sel = document.querySelector('[data-gl-config="' + configId + '"][data-gl-project="' + projectId + '"]');
+    if (sel) sel.classList.add('selected');
+
+    caSetHeader(
+      '<i class="bi bi-gitlab me-1" style="color:#fc6d26;"></i>' + caEsc(caCurrentRepoName),
+      caEsc(projectPath)
+    );
+    caResetContent();
+
+    var sg = ++_caSelectGen;
+    fetch('/api/code-analysis/gitlab/' + configId + '/project/' + projectId + '/latest')
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        if (sg !== _caSelectGen) return;
+        if (!data || data.status === 'NONE') return;
+        caCurrentAnalysisId = data.id;
+        caApplyData(data);
+      });
+  }
+
+  function caToggleGithubAccordion(headerEl) {
+    var reposDiv = headerEl.parentElement.querySelector('.ca-github-repos');
+    var chevron  = headerEl.querySelector('.ca-gh-chevron');
+    if (!reposDiv) return;
+    var isOpen = !reposDiv.classList.contains('d-none');
+    if (isOpen) {
+      reposDiv.classList.add('d-none');
+      if (chevron) chevron.className = chevron.className.replace(/\bbi-chevron-up\b/g, 'bi-chevron-down');
+      _caSetPref('ca_gh_open', '0');
+    } else {
+      reposDiv.classList.remove('d-none');
+      if (chevron) chevron.className = chevron.className.replace(/\bbi-chevron-down\b/g, 'bi-chevron-up');
+      _caSetPref('ca_gh_open', '1');
+      _caInitGithubFilter(reposDiv);
+    }
+  }
+
+  function _caInitGithubFilter(reposDiv) {
+    if (reposDiv.querySelector('.ca-gh-filter')) return;
+    var cards = Array.prototype.slice.call(reposDiv.querySelectorAll('.ca-repo-card'));
+    if (cards.length < 2) return;
+    var filterInput = document.createElement('input');
+    filterInput.type = 'search';
+    filterInput.className = 'form-control form-control-sm mb-2 mt-1 ca-gh-filter sl-search-input';
+    filterInput.setAttribute('autocomplete', 'off');
+    var _caPh = window.i18n ? window.i18n.t('code_analysis.filter_projects') : null;
+    filterInput.placeholder = (_caPh && _caPh !== 'code_analysis.filter_projects') ? _caPh : 'Projekt filtern…';
+    filterInput.style.borderRadius = '999px';
+    reposDiv.insertBefore(filterInput, reposDiv.firstChild);
+    filterInput.addEventListener('input', function() {
+      var term = filterInput.value.toLowerCase();
+      cards.forEach(function(c) {
+        var name = (c.querySelector('.ca-repo-name') || c).textContent.toLowerCase();
+        var path = (c.querySelector('.ca-repo-path') || c).textContent.toLowerCase();
+        c.style.display = (!term || name.indexOf(term) >= 0 || path.indexOf(term) >= 0) ? '' : 'none';
+      });
+    });
+    filterInput.addEventListener('keydown', function(e) {
+      if ((e.key === 'Escape' || e.key === 'Esc') && filterInput.value) {
+        filterInput.value = '';
+        filterInput.dispatchEvent(new Event('input', { bubbles: true }));
+      }
+    });
+  }
+
+  function caSelectGithub(configId, repoName, preferredAnalysisId) {
+    caCurrentRepoId      = 0;
+    caCurrentRepoName    = repoName;
+    caCurrentAnalysisId  = null;
+    caGitlabConfigId     = null;
+    caGitlabProjectId    = null;
+    caGitlabProjectPath  = null;
+    caGithubRepoConfigId = configId;
+    caSaveState();
+
+    document.querySelectorAll('.ca-repo-card').forEach(function(c) { c.classList.remove('selected'); });
+    var card = document.getElementById('caGhCard-' + configId);
+    if (card) card.classList.add('selected');
+
+    caSetHeader(
+      '<i class="bi bi-github me-1" style="color:#24292e;"></i>' + caEsc(repoName),
+      caEsc(repoName)
+    );
+    caResetContent();
+
+    var sg = ++_caSelectGen;
+    fetch('/api/code-analysis/github/' + configId + '/latest')
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        if (sg !== _caSelectGen) return;
+        if (!data || data.status === 'NONE') return;
+        if (preferredAnalysisId && data.id !== preferredAnalysisId) return;
+        caCurrentAnalysisId = data.id;
+        caApplyData(data);
+      });
+  }
+
+  function caSetHeader(titleHtml, subtitleHtml) {
+    document.getElementById('analysisHeader').innerHTML =
+      '<div>' +
+        '<div class="fw-bold fs-6">' + titleHtml + '</div>' +
+        '<div class="text-muted small" style="word-break:break-all;">' + subtitleHtml + '</div>' +
+      '</div>' +
+      '<div class="ms-auto d-flex gap-2 align-items-center">' +
+        '<span id="analysisStatusBadge"></span>' +
+      '</div>';
+  }
+
+  function caResetPanel() {
+    caCurrentRepoId      = null;
+    caCurrentAnalysisId  = null;
+    caGitlabConfigId     = null;
+    caGitlabProjectId    = null;
+    caGitlabProjectPath  = null;
+    caGithubRepoConfigId = null;
+    caSaveState();
+    caStopPolling();
+    document.getElementById('analysisHeader').innerHTML =
+      '<div class="ca-empty" style="padding:20px;flex:1;min-height:auto;justify-content:flex-start;flex-direction:row;gap:10px;"><i class="bi bi-arrow-left"></i><span class="text-muted" style="font-size:14px;">' + (window.i18n ? window.i18n.t('code_analysis.select_hint') : 'Wähle ein Repository und starte eine Code-Analyse.') + '</span></div>';
+    document.getElementById('analysisTabs').classList.add('d-none');
+    caResetContent();
+  }
+
+  function caResetContent() {
+    caStopPolling();
+    caShowEl('caEmptyState');
+    caHideEl('caRunning');
+    caHideEl('caAborted');
+    caHideEl('caError');
+    caHideEl('caSummaryContent');
+    document.getElementById('caDuplicateContent').innerHTML = '<div class="ca-empty"><i class="bi bi-files"></i>' + (window.i18n ? window.i18n.t('code_analysis.no_duplicates') : 'Keine Duplikate.') + '</div>';
+    document.getElementById('caHexContent').innerHTML     = '<div class="ca-empty"><i class="bi bi-hexagon"></i>' + (window.i18n ? window.i18n.t('code_analysis.no_arch') : 'Keine Architektur-Befunde.') + '</div>';
+    document.getElementById('caUnusedContent').innerHTML  = '<div class="ca-empty"><i class="bi bi-slash-circle"></i>' + (window.i18n ? window.i18n.t('code_analysis.no_unused') : 'Keine ungenutzten Symbole.') + '</div>';
+    document.getElementById('caAllContent').innerHTML     = '<div class="ca-empty"><i class="bi bi-list-ul"></i>' + (window.i18n ? window.i18n.t('code_analysis.no_findings') : 'Keine Befunde.') + '</div>';
+    document.getElementById('caChangesContent').innerHTML = '<div class="ca-empty"><i class="bi bi-file-diff"></i>' + (window.i18n ? window.i18n.t('code_analysis.no_changes_js') : 'Keine Dateiänderungen vorgeschlagen.') + '</div>';
+    caHideEl('caMrSection');
+    caHideEl('caMrBanner');
+    caHideEl('caMrResult');
+    caHideEl('caMrError');
+    caMermaidStore = null;
+    caDrawioXmlStore = null;
+    caDrawioNormalizedXml = null;
+    var mc = document.getElementById('caMermaidContainer');
+    if (mc) { mc.innerHTML = ''; mc.className = (mc.className || '').replace(/\bd-none\b/g,'').trim() + ' d-none'; }
+    var dc = document.getElementById('caDrawioContainer');
+    if (dc) { dc.innerHTML = ''; dc.className = (dc.className || '').replace(/\bd-none\b/g,'').trim() + ' d-none'; }
+    var me = document.getElementById('caMermaidEmpty');
+    if (me) me.style.display = '';
+    var de = document.getElementById('caDrawioEmpty');
+    if (de) de.style.display = '';
+    var ma = document.getElementById('caMermaidActions');
+    if (ma) { ma.className = (ma.className || '').replace(/\bd-none\b/g,'').trim() + ' d-none'; }
+    var da = document.getElementById('caDrawioActions');
+    if (da) { da.className = (da.className || '').replace(/\bd-none\b/g,'').trim() + ' d-none'; }
+    document.getElementById('analysisTabs').classList.add('d-none');
+    caInitTokenUsageBar();
+    caSwitch('tabSummary', document.querySelector('.ca-tab-btn'));
+    caIsMonorepo = false;
+    caMonorepoApps = [];
+    _caClearMonorepoTimers();
+    caMonorRepoDone = 0;
+  }
+
+  function caStartAnalysis() {
+    if (!caCurrentRepoId && !caGitlabConfigId && !caGithubRepoConfigId) return;
+    caStopPolling();
+    caCurrentAnalysisId = null;
+    _caSelectGen++;
+    caResetContent();
+    caHideEl('caEmptyState');
+    caSetCardStatus(caCurrentRepoId, 'running');
+    var _tabsEl1 = document.getElementById('analysisTabs');
+    if (_tabsEl1) _tabsEl1.classList.remove('d-none');
+    caSwitch('tabSummary', document.querySelector('.ca-tab-btn'));
+
+    var url, body;
+    if (caGithubRepoConfigId) {
+      url  = '/api/code-analysis/start-github';
+      body = JSON.stringify({ githubRepoConfigId: caGithubRepoConfigId });
+    } else if (caGitlabConfigId) {
+      url  = '/api/code-analysis/start-gitlab';
+      body = JSON.stringify({ gitlabConfigId: caGitlabConfigId, projectId: caGitlabProjectId, projectPath: caGitlabProjectPath });
+    } else {
+      url  = '/api/code-analysis/start-local';
+      body = JSON.stringify({ repoConfigId: caCurrentRepoId });
+    }
+
+    var gen = ++_caStartGen;
+    fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: body })
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        if (gen !== _caStartGen) {
+          if (data && data.analysisIds) {
+            data.analysisIds.forEach(function(a) {
+              _caCancelledIds.add(a.id);
+              fetch('/api/code-analysis/analysis/' + a.id + '/cancel', { method: 'POST' });
+            });
+          } else if (data && data.analysisId) {
+            _caCancelledIds.add(data.analysisId);
+            fetch('/api/code-analysis/analysis/' + data.analysisId + '/cancel', { method: 'POST' });
+          }
+          return;
+        }
+        if (data.error) { caShowError(data.error); return; }
+        if (data.isMonorepo && data.analysisIds && data.analysisIds.length > 1) {
+          caIsMonorepo = true;
+          caMonorepoApps = data.analysisIds;
+          caCurrentAnalysisId = data.analysisIds[0].id;
+          caInitTokenUsageBar();
+          caRenderMonorepoOverview();
+          caStartMonorepoPolling();
+        } else {
+          caIsMonorepo = false;
+          caCurrentAnalysisId = data.analysisId;
+          caInitTokenUsageBar();
+          caStartPolling();
+        }
+        caLoadHistory();
+      })
+      .catch(function(e) { caShowError((window.i18n ? window.i18n.t('common.error_start') : 'Fehler beim Starten') + ': ' + e.message); });
+  }
+
+  function caStartPolling() {
+    caStopPolling();
+    var capturedId = caCurrentAnalysisId;
+    if (!capturedId) return;
+    _caSetPollTimer(setInterval(function() {
+      if (!window._appVisible) return;
+      caFetchStatus(capturedId).then(function(res) {
+        if (res.retry) return;
+        if (res.gone) {
+          caStopPolling();
+          if (caCurrentAnalysisId === capturedId) {
+            caCurrentAnalysisId = null;
+            caResetContent();
+          }
+          caRefreshCardStatuses();
+          return;
+        }
+        var data = res.data;
+        if (data.status === 'COMPLETED' || data.status === 'FAILED') {
+          caStopPolling();
+          caApplyData(data);
+          caRefreshCardStatuses();
+        } else {
+          caSyncHistoryProgress(data);
+        }
+      });
+    }, 3000));
+  }
+
+  function caStopPolling() {
+    if (caPollTimer) { clearInterval(caPollTimer); }
+    _caSetPollTimer(null);
+    _caClearMonorepoTimers();
+  }
+</script>
+</th:block>
+</body>
+</html>

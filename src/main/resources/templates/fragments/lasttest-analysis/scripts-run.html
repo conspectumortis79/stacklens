@@ -1,0 +1,783 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" lang="de">
+<body>
+<th:block th:fragment="scripts-run">
+<script>
+document.addEventListener('mouseover', function(e) {
+  var btn = e.target.closest('.lt-tile-info-btn');
+  if (!btn) return;
+  var popup = btn.querySelector('.lt-tile-info-popup');
+  if (!popup) return;
+  popup.classList.remove('lt-popup-left', 'lt-popup-right');
+  var rect = popup.getBoundingClientRect();
+  var vw = window.innerWidth || document.documentElement.clientWidth;
+  if (rect.right > vw - 8)  popup.classList.add('lt-popup-left');
+  else if (rect.left < 8)   popup.classList.add('lt-popup-right');
+});
+
+function ltConfigError() {
+  var c = document.getElementById('ltProjectList');
+  if (c) c.innerHTML = '<div class="text-muted small text-center py-3"><i class="bi bi-exclamation-circle text-warning me-1"></i>' + (window.i18n ? window.i18n.t('common.load_failed') : 'GitLab konnte nicht geladen werden.') + '</div>';
+}
+
+function ltRenderConfigs(configs) {
+  var container = document.getElementById('ltProjectList');
+  if (!container) return;
+  if (!configs || !configs.length) {
+    container.innerHTML =
+      '<div class="text-muted small text-center py-3" style="padding:16px;">' +
+      '<i class="bi bi-gitlab d-block fs-3 mb-2" style="color:#fc6d26;opacity:.4;"></i>' +
+      (window.i18n ? window.i18n.t('code_analysis.no_gitlab_config') : 'Keine GitLab-Konfiguration vorhanden.') + '<br>' +
+      '<a href="/config" class="sl-link">→ ' + (window.i18n ? window.i18n.t('code_analysis.configure_now') : 'Jetzt konfigurieren') + '</a></div>';
+    return;
+  }
+  container.innerHTML = '';
+  _ltGlLoaded = {};
+  configs = configs.slice().sort(function(a, b) { return (a.name || '').localeCompare(b.name || ''); });
+  configs.forEach(function(cfg) {
+    var wrapper = document.createElement('div');
+    wrapper.className = 'mb-2';
+    wrapper.innerHTML =
+      '<div class="lt-config-accordion-header d-flex align-items-center gap-2 p-2 rounded" ' +
+        'style="border:1px solid var(--lt-line);cursor:pointer;" ' +
+        'onclick="ltToggleConfig(this,' + cfg.id + ')">' +
+        '<i class="bi bi-gitlab" style="color:#fc6d26;"></i>' +
+        '<span class="fw-bold flex-grow-1" style="font-size:13px;word-break:break-all;">' + escHtml(cfg.name) + '</span>' +
+        '<i class="bi bi-chevron-down small text-muted lt-chev"></i>' +
+      '</div>' +
+      '<div class="lt-config-projects d-none" data-cfg-id="' + cfg.id + '">' +
+        '<div class="text-muted small text-center py-2">Wird geladen…</div>' +
+      '</div>';
+    container.appendChild(wrapper);
+  });
+  _ltRestoreState();
+  container.querySelectorAll('.lt-config-projects[data-cfg-id]').forEach(function(div) {
+    if (div.classList.contains('d-none')) {
+      var cfgId = div.getAttribute('data-cfg-id');
+      if (_ltGetPref('lt_cfg_open_' + cfgId) !== '0') {
+        var h = div.previousElementSibling;
+        if (h) ltToggleConfig(h, cfgId);
+      }
+    }
+  });
+}
+
+function ltToggleConfig(headerEl, configId) {
+  var projectsDiv = headerEl.parentElement.querySelector('.lt-config-projects');
+  var chev = headerEl.querySelector('.lt-chev');
+  if (!projectsDiv) return;
+  var isOpen = !projectsDiv.classList.contains('d-none');
+  if (isOpen) {
+    projectsDiv.classList.add('d-none');
+    if (chev) chev.className = chev.className.replace('bi-chevron-up','bi-chevron-down');
+    _ltSetPref('lt_cfg_open_' + configId, '0');
+  } else {
+    projectsDiv.classList.remove('d-none');
+    if (chev) chev.className = chev.className.replace('bi-chevron-down','bi-chevron-up');
+    _ltSetPref('lt_cfg_open_' + configId, '1');
+    if (!_ltGlLoaded[configId]) {
+      _ltGlLoaded[configId] = true;
+      ltFetchProjects(configId, projectsDiv);
+    }
+  }
+}
+
+function _ltRenderProjectList(configId, container, projects) {
+  var filterInput = document.createElement('input');
+  filterInput.type = 'search';
+  filterInput.className = 'form-control form-control-sm mb-1 mt-1 sl-search-input';
+  filterInput.setAttribute('autocomplete', 'off');
+  filterInput.placeholder = window.i18n ? window.i18n.t('code_analysis.filter_projects') : 'Projekt filtern…';
+  filterInput.style.cssText = 'border-radius:999px;margin:6px 0 4px;width:100%;';
+  container.innerHTML = '';
+  container.appendChild(filterInput);
+
+  var listDiv = document.createElement('div');
+  container.appendChild(listDiv);
+
+  function ltRenderItems(term) {
+    var filtered = term
+      ? projects.filter(function(p) { return (p.name + ' ' + (p.path || '')).toLowerCase().indexOf(term.toLowerCase()) >= 0; })
+      : projects;
+    listDiv.innerHTML = '';
+    filtered.forEach(function(p) {
+      var key = configId + ':' + p.id;
+      var st  = _ltLatestByProject[key] || 'none';
+      var item = document.createElement('div');
+      item.className = 'lt-project-item';
+      item.id = 'ltProj_' + configId + '_' + p.id;
+      var isRunning = (st === 'RUNNING' || st === 'PENDING');
+      item.innerHTML =
+        '<div style="flex:1;min-width:0;">' +
+          '<div class="lt-project-name">' + escHtml(p.name) + '</div>' +
+          '<div class="lt-project-path">' + escHtml(p.path || '') + '</div>' +
+          '<div class="lt-card-status" id="ltCardStatus_' + configId + '_' + p.id + '"></div>' +
+          '<div class="lt-btn-row">' +
+            '<button class="lt-btn-xs lt-btn-xs-success" id="ltStartBtn_' + configId + '_' + p.id + '"' +
+            (isRunning ? ' disabled style="opacity:0.55;cursor:not-allowed;"' : '') + '>' +
+            '<i class="bi bi-play-fill"></i> ' + (window.i18n ? window.i18n.t('load_test.btn_start') : 'Starten') + '</button>' +
+            '<button class="lt-btn-xs lt-btn-xs-cancel" id="ltCancelBtn_' + configId + '_' + p.id + '"' +
+            ' title="Abbrechen">' +
+            '<i class="bi bi-x-circle"></i></button>' +
+          '</div>' +
+        '</div>';
+      var _startBtnEl = item.querySelector('#ltStartBtn_' + configId + '_' + p.id);
+      if (_startBtnEl) _startBtnEl.addEventListener('click', (function(cid, pid, ppath) {
+        return function(e) { e.stopPropagation(); ltClickStart(cid, pid, ppath); };
+      })(configId, p.id, p.path || p.name));
+      var _cancelBtnEl = item.querySelector('#ltCancelBtn_' + configId + '_' + p.id);
+      if (_cancelBtnEl) _cancelBtnEl.addEventListener('click', (function(cid, pid) {
+        return function(e) { e.stopPropagation(); ltHardCancelProjectAnalysis(cid, pid); };
+      })(configId, p.id));
+      item.addEventListener('click', function() {
+        ltSelectProject(configId, p.id, p.path || p.name);
+      });
+      listDiv.appendChild(item);
+      (function(cid, pid) {
+        var st = _ltLatestByProject[cid + ':' + pid];
+        if (st === 'RUNNING' || st === 'PENDING') ltSetRunBadge(cid, pid, 'analyse', true);
+        ltSetProjectStatus(cid, pid, st === 'COMPLETED' ? 'completed' : st === 'FAILED' ? 'aborted' : (st === 'RUNNING' || st === 'PENDING') ? 'running' : null);
+        ['k6'].forEach(function(type) {
+          var ls = _ltLoadRunLS(type);
+          if (!ls || !ls.a || ls.a === 'null' || ls.c !== String(cid) || ls.p !== String(pid)) return;
+          ltSetRunBadge(cid, pid, type, true);
+          fetch('/api/loadtest-analysis/analysis/' + ls.a + '/' + type + '-status')
+            .then(function(r) { return r.json(); })
+            .then(function(s) {
+              if (!s.running) { ltSetRunBadge(cid, pid, type, false); _ltSaveRunLS(type, null, null, null); }
+            }).catch(function() { ltSetRunBadge(cid, pid, type, false); _ltSaveRunLS(type, null, null, null); });
+        });
+      })(configId, p.id);
+    });
+  }
+
+  ltRenderItems('');
+  filterInput.addEventListener('input', function() { ltRenderItems(filterInput.value.trim()); });
+  filterInput.addEventListener('keydown', function(e) {
+    if ((e.key === 'Escape' || e.key === 'Esc') && filterInput.value) {
+      filterInput.value = '';
+      filterInput.dispatchEvent(new Event('input', { bubbles: true }));
+    }
+  });
+
+  var _lp = _ltLoadLastProject();
+  if (_lp && _lp.c === String(configId) && !ltCurrentAnalysisId) {
+    var _match = projects.find(function(p) { return String(p.id) === String(_lp.p); });
+    if (_match) setTimeout(function() {
+      if (!document.body.contains(container)) return;
+      ltSelectProject(configId, _match.id, _match.path || _match.name);
+    }, 0);
+  }
+}
+
+function ltFetchProjects(configId, container) {
+  fetch('/api/local-repos/gitlab/' + configId + '/projects')
+    .then(function(r){return r.json();})
+    .then(function(projects) {
+      if (!document.body.contains(container)) return;
+      if (projects.error) {
+        container.innerHTML = '<div class="text-danger small p-2">' + escHtml(projects.error) + '</div>';
+        return;
+      }
+      if (!projects || !projects.length) {
+        container.innerHTML = '<div class="text-muted small text-center p-2">Keine Projekte gefunden.</div>';
+        return;
+      }
+      projects = projects.slice().sort(function(a, b) { return (a.name || a.path || '').localeCompare(b.name || b.path || ''); });
+      _ltRenderProjectList(configId, container, projects);
+    })
+    .catch(function(e) {
+      if (!document.body.contains(container)) return;
+      container.innerHTML = '<div class="text-danger small p-2">Fehler: ' + escHtml(e.message || '') + '</div>';
+    });
+}
+
+function ltSelectProject(configId, projectId, projectPath) {
+  if (_ltK6PollTimer) { clearInterval(_ltK6PollTimer); _ltK6PollTimer = null; }
+  _ltK6StartTime = null;
+  _ltSaveLastProject(configId, projectId, projectPath);
+  ltCurrentConfigId = configId;
+  ltCurrentProjectId = projectId;
+  ltCurrentProjectPath = projectPath;
+
+  document.querySelectorAll('.lt-project-item').forEach(function(el) { el.classList.remove('active'); });
+  var item = document.getElementById('ltProj_' + configId + '_' + projectId);
+  if (item) item.classList.add('active');
+
+  document.getElementById('ltHeader').innerHTML =
+    '<div class="lt-project-title"><i class="bi bi-gitlab me-2" style="color:#fc6d26;"></i>' + escHtml(projectPath) + '</div>' +
+    '<div class="ms-auto"><span id="ltStatusBadge"></span></div>';
+  ltUpdateStartBtn();
+
+  ltShowEmpty();
+
+  ltCurrentAnalysisId = null;
+  ltLoadHistory(configId, projectId, 'gitlab');
+  fetch('/api/loadtest-analysis/gitlab/' + configId + '/project/' + projectId + '/latest')
+    .then(function(r){return r.json();})
+    .then(function(data) {
+      if (!data || data.status === 'NONE') {
+        ltShowEmpty();
+      } else {
+        ltCurrentAnalysisId = data.id;
+        ltApplyResult(data);
+        if (data.status === 'RUNNING' || data.status === 'PENDING') {
+          ltStartPolling();
+          _ltAnalysisRunningConfigId = configId;
+          _ltAnalysisRunningProjectId = projectId;
+          ltSetRunBadge(configId, projectId, 'analyse', true);
+          ltUpdateStartBtn();
+        } else if (data.status === 'COMPLETED') {
+          ltRestoreRunningState(data.id);
+        }
+      }
+    }).catch(function(){ ltShowEmpty(); });
+}
+
+function ltClickStart(configId, projectId, projectPath) {
+  if (_ltAnalysisRunningConfigId !== null &&
+      String(_ltAnalysisRunningConfigId) === String(configId) &&
+      String(_ltAnalysisRunningProjectId) === String(projectId)) return;
+  if (_ltK6PollTimer)    { clearInterval(_ltK6PollTimer);    _ltK6PollTimer    = null; }
+  _ltK6StartTime = null;
+  _ltSaveLastProject(configId, projectId, projectPath);
+  ltCurrentConfigId = configId; ltCurrentProjectId = projectId; ltCurrentProjectPath = projectPath;
+  document.querySelectorAll('.lt-project-item').forEach(function(el) { el.classList.remove('active'); });
+  var _pi = document.getElementById('ltProj_' + configId + '_' + projectId);
+  if (_pi) _pi.classList.add('active');
+  document.getElementById('ltHeader').innerHTML =
+    '<div class="lt-project-title"><i class="bi bi-gitlab me-2" style="color:#fc6d26;"></i>' + escHtml(projectPath) + '</div>' +
+    '<div class="ms-auto"><span id="ltStatusBadge"></span></div>';
+  ltStartAnalysis();
+}
+
+function ltStartAnalysis() {
+  if (!ltCurrentConfigId || !ltCurrentProjectId) return;
+  ltShowRunning();
+  var dot = document.getElementById('ltDot_' + ltCurrentConfigId + '_' + ltCurrentProjectId);
+  if (dot) dot.className = 'lt-status-dot running';
+  _ltAnalysisRunningConfigId = ltCurrentConfigId;
+  _ltAnalysisRunningProjectId = ltCurrentProjectId;
+  ltSetRunBadge(ltCurrentConfigId, ltCurrentProjectId, 'analyse', true);
+  ltSetProjectStatus(ltCurrentConfigId, ltCurrentProjectId, 'running');
+  ltUpdateStartBtn();
+
+  fetch('/api/loadtest-analysis/start-gitlab', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({ gitlabConfigId: ltCurrentConfigId, projectId: ltCurrentProjectId, projectPath: ltCurrentProjectPath })
+  })
+  .then(function(r){return r.json();})
+  .then(function(data) {
+    ltCurrentAnalysisId = data.analysisId;
+    _ltLatestIdByProject[ltCurrentConfigId + ':' + ltCurrentProjectId] = data.analysisId;
+    _ltLoadHistoryForCurrentContext();
+    ltStartPolling();
+    ltInitTokenUsageBar();
+  })
+  .catch(function(e) { ltShowError((window.i18n ? window.i18n.t('common.error_start') : 'Fehler beim Starten') + ': ' + e); });
+}
+
+function ltCancelAnalysis() {
+  if (_ltK6PollTimer || _ltK6RunningConfigId) { ltStopK6(); }
+  if (!_ltAnalysisRunningConfigId) return;
+  if (ltCurrentAnalysisId && _ltPollTimers[ltCurrentAnalysisId]) {
+    clearInterval(_ltPollTimers[ltCurrentAnalysisId]);
+    delete _ltPollTimers[ltCurrentAnalysisId];
+  }
+  if (ltCurrentAnalysisId) {
+    fetch('/api/loadtest-analysis/analysis/' + ltCurrentAnalysisId + '/cancel', {method:'POST'}).catch(function(){});
+  }
+  if (ltCurrentRepoType === 'local' && ltCurrentLocalRepoId) {
+    _ltSetRepoCardStatus('ltRepoCard-' + ltCurrentLocalRepoId, 'aborted');
+  } else if (ltCurrentRepoType === 'github' && ltCurrentGithubRepoId) {
+    _ltSetRepoCardStatus('ltGhCard-' + ltCurrentGithubRepoId, 'aborted');
+    _ltUpdateGithubStartBtn(ltCurrentGithubRepoId, false);
+  } else if (_ltAnalysisRunningProjectId !== null) {
+    ltSetProjectStatus(_ltAnalysisRunningConfigId, _ltAnalysisRunningProjectId, 'aborted');
+    ltSetRunBadge(_ltAnalysisRunningConfigId, _ltAnalysisRunningProjectId, 'analyse', false);
+  }
+  ltShowAborted();
+  _ltAnalysisRunningConfigId = null; _ltAnalysisRunningProjectId = null;
+  ltUpdateStartBtn();
+  _ltLoadHistoryForCurrentContext();
+}
+
+function ltHardCancelProjectAnalysis(configId, projectId) {
+  var key = configId + ':' + projectId;
+  var analysisId = _ltLatestIdByProject[key];
+  if (ltCurrentConfigId === configId && ltCurrentProjectId === projectId && ltCurrentAnalysisId) {
+    analysisId = ltCurrentAnalysisId;
+  }
+  if (!analysisId) return;
+  fetch('/api/loadtest-analysis/analysis/' + analysisId + '/cancel', { method: 'POST' }).catch(function() {});
+  _ltLatestByProject[key] = 'FAILED';
+  var dot = document.getElementById('ltDot_' + configId + '_' + projectId);
+  if (dot) dot.className = 'lt-status-dot fail';
+  ltSetRunBadge(configId, projectId, 'analyse', false);
+  ltSetProjectStatus(configId, projectId, 'aborted');
+  if (String(ltCurrentConfigId) === String(configId) && String(ltCurrentProjectId) === String(projectId)) {
+    if (ltCurrentAnalysisId && _ltPollTimers[ltCurrentAnalysisId]) {
+      clearInterval(_ltPollTimers[ltCurrentAnalysisId]);
+      delete _ltPollTimers[ltCurrentAnalysisId];
+    }
+    _ltAnalysisRunningConfigId = null; _ltAnalysisRunningProjectId = null;
+    ltShowAborted();
+    ltUpdateStartBtn(configId, projectId);
+  } else {
+    _ltAnalysisRunningConfigId = null; _ltAnalysisRunningProjectId = null;
+    ltUpdateStartBtn(configId, projectId);
+  }
+  ltLoadHistory(configId, projectId, 'gitlab');
+}
+
+function ltRestoreRunningState(analysisId) {
+  var savedConfigId   = ltCurrentConfigId;
+  var savedProjectId  = ltCurrentProjectId;
+  var savedRepoType   = ltCurrentRepoType;
+  var savedGhRepoId   = ltCurrentGithubRepoId;
+  var savedLocalRepoId = ltCurrentLocalRepoId;
+  fetch('/api/loadtest-analysis/analysis/' + analysisId + '/k6-status')
+    .then(function(r) { return r.json(); })
+    .then(function(st) {
+      if (ltCurrentAnalysisId !== analysisId || !st.running) return;
+      _ltK6RunningConfigId  = savedConfigId;
+      _ltK6RunningProjectId = savedProjectId;
+      _ltK6RunningCard = savedRepoType === 'github' ? document.getElementById('ltGhCard-' + savedGhRepoId) :
+                         savedRepoType === 'local'  ? document.getElementById('ltRepoCard-' + savedLocalRepoId) : null;
+      _ltSetCardBusy(_ltK6RunningCard, true);
+      ltSetRunBadge(savedConfigId, savedProjectId, 'k6', true);
+      var btn     = document.getElementById('ltK6RunBtn');
+      var stopBtn = document.getElementById('ltK6StopBtn');
+      if (btn)     { btn.disabled = true; btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>' + (window.i18n ? window.i18n.t('load_test.running') : 'Läuft…'); btn.className = 'btn btn-sm btn-secondary'; btn.style.borderRadius = '999px'; btn.style.fontSize = '12px'; }
+      if (stopBtn) stopBtn.style.display = '';
+      var prog      = document.getElementById('ltK6Progress');
+      if (prog)      prog.style.display = '';
+      if (!_ltK6StartTime)  _ltK6StartTime  = Date.now();
+      if (!_ltK6PollTimer)  _ltK6PollTimer  = setInterval(ltPollK6Status, 2000);
+      ltRenderK6Running(st.output, st.error);
+    }).catch(function(){});
+}
+
+function ltFetchStatus(analysisId) {
+  return fetch('/api/loadtest-analysis/analysis/' + analysisId + '/status')
+    .then(function(r) {
+      if (!r.ok) return { gone: true };
+      return r.json().then(function(data) { return { data: data }; },
+                            function() { return { gone: true }; });
+    }, function() { return { retry: true }; });
+}
+
+function _ltIsStalePoll(repoKey, capturedId) {
+  var latestId = _ltLatestIdByProject[repoKey];
+  return latestId !== undefined && String(latestId) !== String(capturedId);
+}
+
+function _ltDropPoll(analysisId) {
+  clearInterval(_ltPollTimers[analysisId]);
+  delete _ltPollTimers[analysisId];
+}
+
+function _ltReattachRunningAnalysis(repoKey, repoId, startPolling) {
+  var runningId = _ltLatestIdByProject[repoKey];
+  if (!runningId) { ltShowEmpty(); return; }
+  ltCurrentAnalysisId = runningId;
+  ltShowRunning();
+  startPolling(repoId);
+}
+
+function ltStartPolling() {
+  var capturedId        = ltCurrentAnalysisId;
+  var capturedConfigId  = ltCurrentConfigId;
+  var capturedProjectId = ltCurrentProjectId;
+  if (!capturedId) return;
+  if (_ltPollTimers[capturedId]) return;
+  _ltPollTimers[capturedId] = setInterval(function() {
+    ltFetchStatus(capturedId).then(function(res) {
+      if (res.retry) return;
+      var status = res.gone ? 'FAILED' : res.data.status;
+      var dot = document.getElementById('ltDot_' + capturedConfigId + '_' + capturedProjectId);
+      if (dot) {
+        dot.className = 'lt-status-dot ' +
+          (status === 'COMPLETED' ? 'ok' : status === 'FAILED' ? 'fail' :
+           status === 'RUNNING' || status === 'PENDING' ? 'running' : 'none');
+      }
+      if (status !== 'RUNNING' && status !== 'PENDING') {
+        clearInterval(_ltPollTimers[capturedId]);
+        delete _ltPollTimers[capturedId];
+        ltSetRunBadge(capturedConfigId, capturedProjectId, 'analyse', false);
+        ltSetProjectStatus(capturedConfigId, capturedProjectId, status === 'COMPLETED' ? 'completed' : 'aborted');
+        if (String(_ltAnalysisRunningConfigId) === String(capturedConfigId) &&
+            String(_ltAnalysisRunningProjectId) === String(capturedProjectId)) {
+          _ltAnalysisRunningConfigId = null;
+          _ltAnalysisRunningProjectId = null;
+          ltUpdateStartBtn(capturedConfigId, capturedProjectId);
+        }
+      }
+      if (res.gone) {
+        if (ltCurrentAnalysisId === capturedId) {
+          ltCurrentAnalysisId = null;
+          ltShowEmpty();
+        }
+        ltRefreshHistory();
+        return;
+      }
+      if (ltCurrentAnalysisId === capturedId) {
+        ltApplyResult(res.data);
+      }
+    });
+  }, 3000);
+}
+
+function ltApplyResult(data) {
+  var statusType = data.status === 'COMPLETED' ? 'completed' :
+    (data.status === 'FAILED' ? 'aborted' :
+    ((data.status === 'RUNNING' || data.status === 'PENDING') ? 'running' : null));
+
+  if (ltCurrentRepoType === 'local' && ltCurrentLocalRepoId) {
+    _ltSetRepoCardStatus('ltRepoCard-' + ltCurrentLocalRepoId, statusType);
+  } else if (ltCurrentRepoType === 'github' && ltCurrentGithubRepoId) {
+    _ltSetRepoCardStatus('ltGhCard-' + ltCurrentGithubRepoId, statusType);
+  } else {
+    var dot = document.getElementById('ltDot_' + ltCurrentConfigId + '_' + ltCurrentProjectId);
+    if (dot) {
+      dot.className = 'lt-status-dot ' +
+        (data.status === 'COMPLETED' ? 'ok' : data.status === 'FAILED' ? 'fail' :
+         data.status === 'RUNNING' || data.status === 'PENDING' ? 'running' : 'none');
+    }
+    if (data.status !== 'RUNNING' && data.status !== 'PENDING') {
+      if (_ltAnalysisRunningConfigId !== null &&
+          String(_ltAnalysisRunningConfigId) === String(ltCurrentConfigId) &&
+          String(_ltAnalysisRunningProjectId) === String(ltCurrentProjectId)) {
+        ltSetRunBadge(_ltAnalysisRunningConfigId, _ltAnalysisRunningProjectId, 'analyse', false);
+        _ltAnalysisRunningConfigId = null; _ltAnalysisRunningProjectId = null;
+        ltUpdateStartBtn();
+      }
+    }
+    if (statusType) ltSetProjectStatus(ltCurrentConfigId, ltCurrentProjectId, statusType);
+  }
+
+  if (data.status === 'RUNNING' || data.status === 'PENDING') {
+    ltShowRunning();
+    return;
+  }
+  if (data.status === 'FAILED') {
+    ltShowError(data.errorMessage || (window.i18n ? window.i18n.t('lasttest_analysis.analysis_failed') : 'Analyse fehlgeschlagen.'));
+    _ltLoadHistoryForCurrentContext();
+    return;
+  }
+  if (data.status === 'COMPLETED') {
+    document.getElementById('ltTabs').classList.remove('d-none');
+    ltApplyEnvironments(data.environmentsJson);
+    ltShowSummary(data.summaryText);
+    ltShowFindings(data.findingsJson);
+    if (!_ltK6PollTimer && !document.getElementById('ltK6ReadyCard')) {
+      ltShowK6(data.k6Script);
+      if (data.k6ExitCode !== null && data.k6ExitCode !== undefined) {
+        ltShowK6Result({ exitCode: data.k6ExitCode, output: data.k6Output || '', error: data.k6Error || '', summaryJson: data.k6SummaryJson || null });
+      } else {
+        var _savedK6 = _ltLoadResultLS('k6', data.id);
+        if (_savedK6) ltShowK6Result(_savedK6);
+      }
+    }
+    _ltLoadHistoryForCurrentContext();
+  }
+}
+
+function _ltLoadHistoryForCurrentContext() {
+  if (ltCurrentRepoType === 'local' && ltCurrentLocalRepoId) {
+    ltLoadHistory(ltCurrentLocalRepoId, null, 'local');
+  } else if (ltCurrentRepoType === 'github' && ltCurrentGithubRepoId) {
+    ltLoadHistory(ltCurrentGithubRepoId, null, 'github');
+  } else if (ltCurrentConfigId && ltCurrentProjectId) {
+    ltLoadHistory(ltCurrentConfigId, ltCurrentProjectId, 'gitlab');
+  }
+  ltInitTokenUsageBar();
+}
+
+if (window.slTokenUsagePage) window.slTokenUsagePage({
+    kind: 'loadtest',
+    anchor: document.querySelector('.sl-page-header'),
+    resolveId: function () { return ltCurrentAnalysisId; },
+    eager: false
+  });
+function ltInitTokenUsageBar() {
+  if (window.slTokenUsageRebind) window.slTokenUsageRebind('loadtest');
+}
+
+function _ltSetRepoCardStatus(cardId, statusType) {
+  var card = document.getElementById(cardId);
+  if (!card) return;
+  var el = card.querySelector('.lt-card-status');
+  if (!el) return;
+  var apiStatus = statusType === 'running' ? 'RUNNING' :
+    statusType === 'completed' ? 'COMPLETED' :
+    statusType === 'aborted' ? 'FAILED' : '';
+  if (el.dataset.ltStatus === apiStatus) return;
+  el.dataset.ltStatus = apiStatus;
+  el.innerHTML = _ltStatusPill(apiStatus);
+}
+
+
+function _ltSelectLocalRunning(repoId) {
+  if (_ltAnalysisRunningConfigId === null || String(_ltAnalysisRunningConfigId) !== String(repoId)) return false;
+  _ltReattachRunningAnalysis('local:' + repoId, repoId, _ltStartLocalPolling);
+  return true;
+}
+
+function ltSelectLocalRepo(repoId, repoName) {
+  if (_ltK6PollTimer) { clearInterval(_ltK6PollTimer); _ltK6PollTimer = null; }
+  _ltK6StartTime = null;
+  _ltSaveLastProject(repoId, null, repoName, 'local');
+  ltCurrentRepoType = 'local';
+  ltCurrentLocalRepoId = repoId;
+  ltCurrentConfigId = null; ltCurrentProjectId = null; ltCurrentProjectPath = null;
+  ltCurrentGithubRepoId = null;
+
+  document.querySelectorAll('.lt-repo-card, .lt-project-item').forEach(function(el) { el.classList.remove('active'); });
+  var card = document.getElementById('ltRepoCard-' + repoId);
+  if (card) card.classList.add('active');
+
+  document.getElementById('ltHeader').innerHTML =
+    '<div class="lt-project-title"><i class="bi bi-hdd me-2" style="color:var(--lt-accent);"></i>' + escHtml(repoName) + '</div>' +
+    '<div class="ms-auto"><span id="ltStatusBadge"></span></div>';
+
+  ltShowEmpty();
+  ltCurrentAnalysisId = null;
+  ltLoadHistory(repoId, null, 'local');
+  fetch('/api/loadtest-analysis/local/' + repoId + '/latest')
+    .then(function(r){return r.json();})
+    .then(function(data) {
+      if (_ltSelectLocalRunning(repoId)) return;
+      if (!data || data.status === 'NONE') { ltShowEmpty(); }
+      else {
+        ltCurrentAnalysisId = data.id;
+        ltApplyResult(data);
+        if (data.status === 'RUNNING' || data.status === 'PENDING') {
+          _ltStartLocalPolling(repoId);
+        } else if (data.status === 'COMPLETED') {
+          ltRestoreRunningState(data.id);
+        }
+      }
+    }).catch(function(){ ltShowEmpty(); });
+}
+
+function ltClickStartLocal(repoId, repoName) {
+  if (_ltK6PollTimer) { clearInterval(_ltK6PollTimer); _ltK6PollTimer = null; }
+  _ltK6StartTime = null;
+  _ltSaveLastProject(repoId, null, repoName, 'local');
+  ltCurrentRepoType = 'local';
+  ltCurrentLocalRepoId = repoId;
+  ltCurrentConfigId = null; ltCurrentProjectId = null; ltCurrentProjectPath = null;
+  ltCurrentGithubRepoId = null;
+
+  document.querySelectorAll('.lt-repo-card, .lt-project-item').forEach(function(el) { el.classList.remove('active'); });
+  var card = document.getElementById('ltRepoCard-' + repoId);
+  if (card) card.classList.add('active');
+  document.getElementById('ltHeader').innerHTML =
+    '<div class="lt-project-title"><i class="bi bi-hdd me-2" style="color:var(--lt-accent);"></i>' + escHtml(repoName) + '</div>' +
+    '<div class="ms-auto"><span id="ltStatusBadge"></span></div>';
+  ltStartLocalAnalysis();
+}
+
+function ltStartLocalAnalysis() {
+  if (!ltCurrentLocalRepoId) return;
+  ltShowRunning();
+  _ltAnalysisRunningConfigId = ltCurrentLocalRepoId;
+  _ltAnalysisRunningProjectId = null;
+  _ltSetRepoCardStatus('ltRepoCard-' + ltCurrentLocalRepoId, 'running');
+  _ltSetCardBusy(document.getElementById('ltRepoCard-' + ltCurrentLocalRepoId), true);
+
+  fetch('/api/loadtest-analysis/start-local', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({ repoConfigId: ltCurrentLocalRepoId })
+  })
+  .then(function(r){return r.json();})
+  .then(function(data) {
+    var _oldId = _ltLatestIdByProject['local:' + ltCurrentLocalRepoId];
+    if (_oldId && _ltPollTimers[_oldId]) { clearInterval(_ltPollTimers[_oldId]); delete _ltPollTimers[_oldId]; }
+    ltCurrentAnalysisId = data.analysisId;
+    _ltLatestByProject['local:' + ltCurrentLocalRepoId] = 'RUNNING';
+    _ltLatestIdByProject['local:' + ltCurrentLocalRepoId] = data.analysisId;
+    _ltLoadHistoryForCurrentContext();
+    _ltStartLocalPolling(ltCurrentLocalRepoId);
+  })
+  .catch(function(e) { ltShowError((window.i18n ? window.i18n.t('common.error_start') : 'Fehler beim Starten') + ': ' + e); });
+}
+
+function _ltStartLocalPolling(repoId) {
+  var capturedId     = ltCurrentAnalysisId;
+  var capturedRepoId = repoId;
+  if (!capturedId) return;
+  if (_ltPollTimers[capturedId]) return;
+  var capturedKey = 'local:' + capturedRepoId;
+  _ltAnalysisRunningConfigId = capturedRepoId;
+  _ltAnalysisRunningProjectId = null;
+  _ltPollTimers[capturedId] = setInterval(function() {
+    ltFetchStatus(capturedId).then(function(res) {
+      if (res.retry) return;
+      if (_ltIsStalePoll(capturedKey, capturedId)) { _ltDropPoll(capturedId); return; }
+      var data = res.gone ? { status: 'FAILED' } : res.data;
+      var _st = data.status === 'COMPLETED' ? 'completed' : data.status === 'FAILED' ? 'aborted' : (data.status === 'RUNNING' || data.status === 'PENDING') ? 'running' : null;
+      var _isTerminal = (data.status !== 'RUNNING' && data.status !== 'PENDING');
+      if (_st) _ltSetRepoCardStatus('ltRepoCard-' + capturedRepoId, _st);
+      if (_isTerminal) {
+        _ltDropPoll(capturedId);
+        if (String(_ltAnalysisRunningConfigId) === String(capturedRepoId) && _ltAnalysisRunningProjectId === null) {
+          _ltAnalysisRunningConfigId = null; _ltAnalysisRunningProjectId = null;
+        }
+        _ltSetCardBusy(document.getElementById('ltRepoCard-' + capturedRepoId), false);
+      }
+      if (res.gone && ltCurrentAnalysisId === capturedId) {
+        ltCurrentAnalysisId = null;
+        ltShowEmpty();
+        ltRefreshHistory();
+        return;
+      }
+      if (ltCurrentAnalysisId === capturedId) { ltApplyResult(data); }
+    });
+  }, 3000);
+}
+
+
+function _ltUpdateGithubStartBtn(ghRepoId, running) {
+  var startBtn  = document.getElementById('ltGhStartBtn-'  + ghRepoId);
+  var cancelBtn = document.getElementById('ltGhCancelBtn-' + ghRepoId);
+  if (startBtn)  { startBtn.disabled  = running;  startBtn.style.opacity  = running ? '0.55' : ''; startBtn.style.cursor  = running ? 'not-allowed' : ''; }
+  if (cancelBtn) { cancelBtn.disabled = !running; cancelBtn.style.opacity = running ? ''     : '0.4'; cancelBtn.style.cursor = running ? ''     : 'not-allowed'; }
+}
+
+function _ltSetCardBusy(card, busy) {
+  if (!card) return;
+  var startBtn  = card.querySelector('.lt-btn-xs-success');
+  var cancelBtn = card.querySelector('.lt-btn-xs-cancel');
+  if (startBtn)  { startBtn.disabled  = busy;  startBtn.style.opacity  = busy ? '0.55' : ''; startBtn.style.cursor  = busy ? 'not-allowed' : ''; }
+  if (cancelBtn) { cancelBtn.disabled = !busy; cancelBtn.style.opacity = busy ? ''     : '0.4'; cancelBtn.style.cursor = busy ? ''     : 'not-allowed'; }
+}
+
+function _ltSelectGithubRunning(ghRepoId) {
+  if (_ltAnalysisRunningConfigId === null || String(_ltAnalysisRunningConfigId) !== String(ghRepoId)) return false;
+  _ltReattachRunningAnalysis('github:' + ghRepoId, ghRepoId, _ltStartGithubPolling);
+  return true;
+}
+
+function ltSelectGithubRepo(ghRepoId, ghRepoName) {
+  if (_ltK6PollTimer) { clearInterval(_ltK6PollTimer); _ltK6PollTimer = null; }
+  _ltK6StartTime = null;
+  _ltSaveLastProject(ghRepoId, null, ghRepoName, 'github');
+  ltCurrentRepoType = 'github';
+  ltCurrentGithubRepoId = ghRepoId;
+  ltCurrentConfigId = null; ltCurrentProjectId = null; ltCurrentProjectPath = null;
+  ltCurrentLocalRepoId = null;
+
+  document.querySelectorAll('.lt-repo-card, .lt-project-item').forEach(function(el) { el.classList.remove('active'); });
+  var card = document.getElementById('ltGhCard-' + ghRepoId);
+  if (card) card.classList.add('active');
+
+  document.getElementById('ltHeader').innerHTML =
+    '<div class="lt-project-title"><i class="bi bi-github me-2" style="color:#24292e;"></i>' + escHtml(ghRepoName) + '</div>' +
+    '<div class="ms-auto"><span id="ltStatusBadge"></span></div>';
+
+  ltShowEmpty();
+  ltCurrentAnalysisId = null;
+  ltLoadHistory(ghRepoId, null, 'github');
+  fetch('/api/loadtest-analysis/github/' + ghRepoId + '/latest')
+    .then(function(r){return r.json();})
+    .then(function(data) {
+      if (_ltSelectGithubRunning(ghRepoId)) return;
+      if (!data || data.status === 'NONE') { ltShowEmpty(); }
+      else {
+        ltCurrentAnalysisId = data.id;
+        ltApplyResult(data);
+        if (data.status === 'RUNNING' || data.status === 'PENDING') {
+          _ltStartGithubPolling(ghRepoId);
+          _ltUpdateGithubStartBtn(ghRepoId, true);
+        } else if (data.status === 'COMPLETED') {
+          ltRestoreRunningState(data.id);
+        }
+      }
+    }).catch(function(){ ltShowEmpty(); });
+}
+
+function ltClickStartGithub(ghRepoId, ghRepoName) {
+  if (_ltK6PollTimer) { clearInterval(_ltK6PollTimer); _ltK6PollTimer = null; }
+  _ltK6StartTime = null;
+  _ltSaveLastProject(ghRepoId, null, ghRepoName, 'github');
+  ltCurrentRepoType = 'github';
+  ltCurrentGithubRepoId = ghRepoId;
+  ltCurrentConfigId = null; ltCurrentProjectId = null; ltCurrentProjectPath = null;
+  ltCurrentLocalRepoId = null;
+
+  document.querySelectorAll('.lt-repo-card, .lt-project-item').forEach(function(el) { el.classList.remove('active'); });
+  var card = document.getElementById('ltGhCard-' + ghRepoId);
+  if (card) card.classList.add('active');
+  document.getElementById('ltHeader').innerHTML =
+    '<div class="lt-project-title"><i class="bi bi-github me-2" style="color:#24292e;"></i>' + escHtml(ghRepoName) + '</div>' +
+    '<div class="ms-auto"><span id="ltStatusBadge"></span></div>';
+  ltStartGithubAnalysis();
+}
+
+function ltStartGithubAnalysis() {
+  if (!ltCurrentGithubRepoId) return;
+  ltShowRunning();
+  _ltAnalysisRunningConfigId = ltCurrentGithubRepoId;
+  _ltAnalysisRunningProjectId = null;
+  _ltSetRepoCardStatus('ltGhCard-' + ltCurrentGithubRepoId, 'running');
+  _ltUpdateGithubStartBtn(ltCurrentGithubRepoId, true);
+
+  fetch('/api/loadtest-analysis/start-github', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({ githubRepoConfigId: ltCurrentGithubRepoId })
+  })
+  .then(function(r){return r.json();})
+  .then(function(data) {
+    var _oldId = _ltLatestIdByProject['github:' + ltCurrentGithubRepoId];
+    if (_oldId && _ltPollTimers[_oldId]) { clearInterval(_ltPollTimers[_oldId]); delete _ltPollTimers[_oldId]; }
+    ltCurrentAnalysisId = data.analysisId;
+    _ltLatestByProject['github:' + ltCurrentGithubRepoId] = 'RUNNING';
+    _ltLatestIdByProject['github:' + ltCurrentGithubRepoId] = data.analysisId;
+    _ltLoadHistoryForCurrentContext();
+    _ltStartGithubPolling(ltCurrentGithubRepoId);
+  })
+  .catch(function(e) { ltShowError((window.i18n ? window.i18n.t('common.error_start') : 'Fehler beim Starten') + ': ' + e); });
+}
+
+function _ltStartGithubPolling(ghRepoId) {
+  var capturedId   = ltCurrentAnalysisId;
+  var capturedGhId = ghRepoId;
+  if (!capturedId) return;
+  if (_ltPollTimers[capturedId]) return;
+  var capturedKey = 'github:' + capturedGhId;
+  _ltAnalysisRunningConfigId = capturedGhId;
+  _ltAnalysisRunningProjectId = null;
+  _ltPollTimers[capturedId] = setInterval(function() {
+    ltFetchStatus(capturedId).then(function(res) {
+      if (res.retry) return;
+      if (_ltIsStalePoll(capturedKey, capturedId)) { _ltDropPoll(capturedId); return; }
+      var data = res.gone ? { status: 'FAILED' } : res.data;
+      var _st = data.status === 'COMPLETED' ? 'completed' : data.status === 'FAILED' ? 'aborted' : (data.status === 'RUNNING' || data.status === 'PENDING') ? 'running' : null;
+      var _isTerminal = (data.status !== 'RUNNING' && data.status !== 'PENDING');
+      if (_st) _ltSetRepoCardStatus('ltGhCard-' + capturedGhId, _st);
+      if (_isTerminal) {
+        _ltDropPoll(capturedId);
+        if (String(_ltAnalysisRunningConfigId) === String(capturedGhId) && _ltAnalysisRunningProjectId === null) {
+          _ltAnalysisRunningConfigId = null; _ltAnalysisRunningProjectId = null;
+        }
+        _ltUpdateGithubStartBtn(capturedGhId, false);
+      }
+      if (res.gone && ltCurrentAnalysisId === capturedId) {
+        ltCurrentAnalysisId = null;
+        ltShowEmpty();
+        ltRefreshHistory();
+        return;
+      }
+      if (ltCurrentAnalysisId === capturedId) { ltApplyResult(data); }
+    });
+  }, 3000);
+}
+</script>
+</th:block>
+</body>
+</html>

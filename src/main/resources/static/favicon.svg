@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024" role="img" aria-label="StackLens icon">
+  <rect width="1024" height="1024" rx="182" ry="182" fill="#191d32"/>
+
+  <line x1="600" y1="582" x2="812" y2="794" stroke="#f5c300" stroke-width="82" stroke-linecap="round"/>
+
+  <circle cx="430" cy="415" r="216" fill="none" stroke="#f5c300" stroke-width="76"/>
+
+  <g transform="translate(326,324) scale(13)">
+    <path d="M8 1.314C12.438-3.248 23.534 4.735 8 15-7.534 4.736 3.562-3.248 8 1.314z" fill="#f5c300"/>
+  </g>
+</svg>

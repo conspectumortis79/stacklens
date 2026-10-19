@@ -1,0 +1,8 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" lang="de">
+<body>
+<th:block th:fragment="card(page, extraClass)">
+  <div th:class="'hx-card ' + ${extraClass}" th:id="'hxCard-' + ${page}" th:attr="data-hx-page=${page}"></div>
+</th:block>
+</body>
+</html>

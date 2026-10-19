@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" lang="de">
+<body>
+<th:block th:fragment="scripts-history">
+<script>
+  var _ieHistory = null;
+  var _ieLiveItem = null;
+
+  function ieHistory() {
+    if (_ieHistory) return _ieHistory;
+    _ieHistory = window.slHistory.mount({
+      root: 'hxCard-image-extraction',
+      page: 'image-extraction',
+      titleKey: 'image_extraction.history_title',
+      emptyKey: 'image_extraction.empty_history',
+      columns: {
+        title: { key: 'image_extraction.col_file', fallback: 'Datei' },
+        metric: { key: 'image_extraction.col_size', fallback: 'Größe' }
+      },
+      map: {
+        id: function(r) { return r.id; },
+        status: function(r) { return r.status; },
+        createdAt: function(r) { return r.createdAt; },
+        typeIcon: function() { return 'bi-image'; },
+        title: function(r) { return r.originalFileName || ''; },
+        subtitle: function(r) { return r.mimeType || ''; },
+        metric: function(r) { return r.fileSizeBytes ? ieHumanSize(r.fileSizeBytes) : ''; },
+        note: function(r) { return r.errorMessage || ''; },
+        disabled: function(r) { return r.id == null; },
+        isCurrent: function(r) { return !!(window._ie && window._ie.currentHistoryId === r.id); }
+      },
+      actions: {
+        open: function(r) { ieShowHistoryItem(r.id); },
+        remove: function(r) { ieDeleteHistoryItem(r.id); },
+        deleteAll: function() { ieDeleteAllHistory(); }
+      }
+    });
+    return _ieHistory;
+  }
+
+  function ieHistoryItems(list) {
+    var items = (list || []).slice();
+    if (_ieLiveItem) items.unshift(_ieLiveItem);
+    return items;
+  }
+
+  function ieLoadServerHistory() {
+    fetch('/api/image-extraction/history')
+      .then(function(r) { return r.json(); })
+      .then(function(list) { ieRenderServerHistory(list); })
+      .catch(function() {});
+  }
+
+  function ieDeleteAllHistory() {
+    fetch('/api/image-extraction/history', { method: 'DELETE' })
+      .then(function() { ieLoadServerHistory(); })
+      .catch(function() {});
+  }
+
+  function ieRenderServerHistory(list) {
+    ieHistory().setData(ieHistoryItems(list));
+  }
+
+  function ieShowLiveHistoryRow(label) {
+    _ieLiveItem = { id: null, originalFileName: label || '', mimeType: '', fileSizeBytes: 0, status: 'RUNNING', createdAt: new Date().toISOString() };
+    ieHistory().setData(ieHistoryItems(_ieHistory ? _ieHistory.items().filter(function(r) { return r.id != null; }) : []));
+  }
+
+  function ieUpdateLiveHistoryRow(status) {
+    if (!_ieLiveItem) return;
+    _ieLiveItem.status = status;
+    ieHistory().setData(ieHistoryItems(_ieHistory ? _ieHistory.items().filter(function(r) { return r.id != null; }) : []));
+  }
+
+  function ieDropLiveHistoryRow() {
+    if (!_ieLiveItem) return;
+    _ieLiveItem = null;
+    if (_ieHistory) _ieHistory.setData(_ieHistory.items().filter(function(r) { return r.id != null; }));
+  }
+
+  function ieShowHistoryItem(id) {
+    fetch('/api/image-extraction/history/' + id)
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        window._ie.lastExtractedText = data.extractedText || '';
+        window._ie.lastFileName = data.originalFileName || '';
+        window._ie.currentHistoryId = data.id;
+        ieRenderResult({ extractedText: data.extractedText, outputFilePath: data.outputFilePath }, data.originalFileName);
+        if (data.status === 'COMPLETED') {
+          var doneEl = document.getElementById('ieDone');
+          if (doneEl) doneEl.classList.add('visible');
+        }
+        if (typeof ieInitTokenUsageBar === 'function') ieInitTokenUsageBar();
+        if (_ieHistory) _ieHistory.refresh();
+      })
+      .catch(function() {});
+  }
+
+  function ieDeleteHistoryItem(id) {
+    fetch('/api/image-extraction/history/' + id, { method: 'DELETE' })
+      .then(function() { ieLoadServerHistory(); })
+      .catch(function() {});
+  }
+</script>
+</th:block>
+</body>
+</html>

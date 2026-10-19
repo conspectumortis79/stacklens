@@ -1,0 +1,390 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.ultraq.net.nz/thymeleaf/layout"
+      layout:decorate="~{layout}"
+      lang="de">
+<head>
+    <title>Wissensdatenbank – StackLens</title>
+</head>
+<body>
+<th:block layout:fragment="head-extra">
+    <link rel="stylesheet" th:href="@{/css/knowledge.css}"/>
+</th:block>
+<th:block layout:fragment="page-title">
+    <span data-i18n="page_titles.knowledge">Wissensdatenbank</span>
+</th:block>
+
+<th:block layout:fragment="page-subtitle">
+    <p class="page-subtitle kb-page-subtitle" data-i18n="knowledge.subtitle">
+        Manuelle Texte, Dateien, Confluence- und Jira-Snapshots sowie Analyseergebnisse werden hier vektorisiert und vom globalen KI-Chat als Quellen verwendet.
+    </p>
+</th:block>
+
+<th:block layout:fragment="page-actions">
+    <div class="d-flex gap-2">
+        <button class="btn btn-sm btn-outline-secondary" style="border-color:var(--app-border);color:var(--app-text-muted);" onclick="kbOpenExport()">
+            <i class="bi bi-download me-1"></i><span data-i18n="knowledge.export.label">Alle exportieren</span>
+        </button>
+        <button class="btn btn-sm" style="background:linear-gradient(135deg,#7c5cbf,#5b8ef0);color:#fff;border:none;" onclick="kbOpenImport()">
+            <i class="bi bi-upload me-1"></i><span data-i18n="knowledge.import.label">Importieren</span>
+        </button>
+    </div>
+</th:block>
+
+<main layout:fragment="content">
+    <div class="kb-page">
+        <ul class="nav nav-tabs mb-3" id="kbTabs">
+            <li class="nav-item">
+                <button class="nav-link active" data-kb-tab="overview" onclick="kbSwitchTab('overview', this)" title="Übersicht">
+                    <i class="bi bi-speedometer2 me-1"></i><span data-i18n="knowledge.tab.overview">Übersicht</span>
+                </button>
+            </li>
+            <li class="nav-item">
+                <button class="nav-link" data-kb-tab="sources" onclick="kbSwitchTab('sources', this)" title="Inhalte">
+                    <i class="bi bi-list-ul me-1"></i><span data-i18n="knowledge.tab.sources">Inhalte</span>
+                </button>
+            </li>
+            <li class="nav-item">
+                <button class="nav-link" data-kb-tab="bases" onclick="kbSwitchTab('bases', this)" title="Wissensdatenbanken">
+                    <i class="bi bi-database me-1"></i><span data-i18n="knowledge.tab.bases">Wissensdatenbanken</span>
+                </button>
+            </li>
+            <li class="nav-item">
+                <button class="nav-link" data-kb-tab="config" onclick="kbSwitchTab('config', this)" title="Embedding-Konfiguration">
+                    <i class="bi bi-gear me-1"></i><span data-i18n="knowledge.tab.config">Embedding-Konfiguration</span>
+                </button>
+            </li>
+            <li class="nav-item">
+                <button class="nav-link" data-kb-tab="danger" onclick="kbSwitchTab('danger', this)" title="Wartung und Zurücksetzen">
+                    <i class="bi bi-shield-exclamation me-1"></i><span data-i18n="knowledge.tab.danger">Wartung und Zurücksetzen</span>
+                </button>
+            </li>
+        </ul>
+
+        <section class="kb-tab-pane" data-kb-pane="overview">
+            <div class="row g-3" id="kbOverviewCards">
+                <div class="col-md-3">
+                    <div class="card border-0 shadow-sm cf-card h-100">
+                        <div class="card-body">
+                            <div class="text-muted small" data-i18n="knowledge.metric.bases">Wissensdatenbanken</div>
+                            <div class="kb-metric-value mb-0" id="kbMetricBases">0</div>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="card border-0 shadow-sm cf-card h-100">
+                        <div class="card-body">
+                            <div class="text-muted small" data-i18n="knowledge.metric.sources">Quellen</div>
+                            <div class="kb-metric-value mb-0" id="kbMetricSources">0</div>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="card border-0 shadow-sm cf-card h-100">
+                        <div class="card-body">
+                            <div class="text-muted small" data-i18n="knowledge.metric.provider">Embedding-Provider</div>
+                            <div class="kb-metric-text mb-0" id="kbMetricProvider">—</div>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="card border-0 shadow-sm cf-card h-100">
+                        <div class="card-body">
+                            <div class="text-muted small" data-i18n="knowledge.metric.model">Embedding-Modell</div>
+                            <div class="kb-metric-text mb-0" id="kbMetricModel">—</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card border-0 shadow-sm cf-card mt-3">
+                <div class="card-header bg-white py-3">
+                    <h5 class="mb-0 fw-semibold">
+                        <i class="bi bi-info-circle me-2 text-primary"></i>
+                        <span data-i18n="knowledge.how.title">Wie funktioniert die RAG-Anbindung?</span>
+                    </h5>
+                </div>
+                <div class="card-body">
+                    <ul class="mb-0 small">
+                        <li data-i18n="knowledge.how.l1">Inhalte werden beim Anlegen oder Hochladen einmalig in Chunks zerlegt, eingebettet (vektorisiert) und lokal gespeichert — Chunk-Text und Metadaten in H2, Lucene-Volltext-Index und Embedding-Vektoren (KnnFloatVectorField) im Lucene-Index.</li>
+                        <li data-i18n="knowledge.how.l2">Der globale KI-Chat durchsucht den lokalen Lucene-Index per BM25 (Volltextsuche). Die Benutzerfrage wird dabei <strong>nie</strong> an einen Embedding-Provider gesendet — Embeddings werden nur beim Anlegen der Inhalte berechnet. Optional lassen sich die Anfrage per KI-Provider umformulieren (Query Rewriting) und die Top-Treffer nachsortieren (Reranking).</li>
+                        <li data-i18n="knowledge.how.l3">Gefundene Quellen erscheinen im Chat als Citations (z. B. <code>[KB:document-4711#chunk-3]</code>) und werden zusätzlich als Quellen-Chips angezeigt.</li>
+                        <li data-i18n="knowledge.how.l4">Die Embedding-Konfiguration ist unabhängig von der normalen KI-Konfiguration. OpenAI, OpenRouter und Ollama werden unterstützt.</li>
+                        <li data-i18n="knowledge.how.l5">Im Tab <em>Wartung &amp; Gefahrenzone</em> löscht „Wissensdatenbank löschen" alle Quellen, Dokumente, Chunks, Vektoren und den Lucene-Index. Der Werks-Reset unter <em>Konfiguration → Zurücksetzen</em> lässt die Wissensdatenbank standardmäßig <strong>unangetastet</strong>; nur mit <code>KNOWLEDGE_RESET_ON_FACTORY_RESET=true</code> wird sie dort ebenfalls geleert.</li>
+                    </ul>
+                </div>
+            </div>
+        </section>
+
+        <section class="kb-tab-pane d-none" data-kb-pane="sources">
+            <div class="card border-0 shadow-sm cf-card">
+                <div class="card-header bg-white py-3 d-flex align-items-center justify-content-between">
+                    <h5 class="mb-0 fw-semibold">
+                        <i class="bi bi-list-ul text-primary me-2"></i>
+                        <span data-i18n="knowledge.sources.title">Inhalte</span>
+                        <span id="kbSourceCount" class="badge bg-light text-muted ms-2">0</span>
+                    </h5>
+                    <div class="d-flex gap-2">
+                        <button class="btn btn-sm btn-outline-primary" onclick="kbOpenAddSource('manual')">
+                            <i class="bi bi-pencil me-1"></i><span data-i18n="knowledge.add.manual">Manuell</span>
+                        </button>
+                        <button class="btn btn-sm btn-outline-primary" onclick="kbOpenAddSource('file')">
+                            <i class="bi bi-upload me-1"></i><span data-i18n="knowledge.add.file">Datei</span>
+                        </button>
+                        <button class="btn btn-sm btn-outline-primary" onclick="kbOpenAddSource('confluence')">
+                            <i class="bi bi-book me-1"></i><span data-i18n="knowledge.add.confluence">Confluence</span>
+                        </button>
+                        <button class="btn btn-sm btn-outline-primary" onclick="kbOpenAddSource('jira')">
+                            <i class="bi bi-list-check me-1"></i><span data-i18n="knowledge.add.jira">Jira</span>
+                        </button>
+                        <button class="btn btn-sm btn-outline-primary" onclick="kbOpenAddSource('jira-sprint')">
+                            <i class="bi bi-flag me-1"></i><span data-i18n="knowledge.add.jira_sprint">Sprint</span>
+                        </button>
+                    </div>
+                </div>
+                <div class="table-responsive">
+                    <table class="table align-middle mb-0 kb-source-table">
+                        <colgroup>
+                            <col class="col-name"/>
+                            <col class="col-type"/>
+                            <col class="col-base"/>
+                            <col class="col-size"/>
+                            <col class="col-status"/>
+                            <col class="col-updated"/>
+                            <col class="col-actions"/>
+                        </colgroup>
+                        <thead>
+                        <tr>
+                            <th data-i18n="knowledge.sources.col.name">Name</th>
+                            <th data-i18n="knowledge.sources.col.type">Typ</th>
+                            <th data-i18n="knowledge.sources.col.base">Wissensdatenbank</th>
+                            <th data-i18n="knowledge.sources.col.size">Grösse</th>
+                            <th data-i18n="knowledge.sources.col.status">Status</th>
+                            <th data-i18n="knowledge.sources.col.updated">Aktualisiert</th>
+                            <th class="text-end" data-i18n="knowledge.sources.col.actions">Aktionen</th>
+                        </tr>
+                        </thead>
+                        <tbody id="kbSourceRows">
+                        <tr><td colspan="7" class="text-center text-muted py-4">
+                            <i class="bi bi-hourglass-split me-2"></i><span data-i18n="knowledge.sources.loading">Lade…</span>
+                        </td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+
+        <section class="kb-tab-pane d-none" data-kb-pane="bases">
+            <div class="card border-0 shadow-sm cf-card mb-3">
+                <div class="card-header bg-white py-3 d-flex align-items-center justify-content-between">
+                    <h5 class="mb-0 fw-semibold">
+                        <i class="bi bi-database text-info me-2"></i>
+                        <span data-i18n="knowledge.bases.title">Wissensdatenbanken</span>
+                        <span id="kbBaseCount" class="badge bg-light text-muted ms-2">0</span>
+                    </h5>
+                    <button class="btn btn-sm btn-success" onclick="kbShowCreateBaseForm()">
+                        <i class="bi bi-plus-lg me-1"></i>
+                        <span data-i18n="knowledge.bases.create_btn">Neue Wissensdatenbank</span>
+                    </button>
+                </div>
+                <div class="card-body">
+                    <p class="text-muted small mb-3" data-i18n="knowledge.bases.hint">
+                        Jede Quelle (manuell, Datei, Confluence, Jira) wird genau einer Wissensdatenbank zugeordnet.
+                        Aktive Wissensdatenbanken mit "Im globalen Chat verwenden" werden vom KI-Chat durchsucht.
+                    </p>
+                    <div id="kbCreateBaseForm" style="display:none;" class="border rounded p-3 mb-3 bg-light">
+                        <h6 class="mb-3" data-i18n="knowledge.bases.create_title">Neue Wissensdatenbank anlegen</h6>
+                        <div class="row g-2 align-items-end">
+                            <div class="col-md-4">
+                                <label class="form-label small fw-semibold" data-i18n="knowledge.bases.field_name">Name</label>
+                                <input class="form-control form-control-sm" id="kbCreateBaseName" placeholder="Mein Wissen" />
+                            </div>
+                            <div class="col-md-5">
+                                <label class="form-label small fw-semibold" data-i18n="knowledge.bases.field_description">Beschreibung (optional)</label>
+                                <input class="form-control form-control-sm" id="kbCreateBaseDescription" placeholder="Wofür ist diese Wissensdatenbank?" />
+                            </div>
+                            <div class="col-12 col-md-3 d-flex justify-content-end align-items-end pb-1">
+                                <div class="btn-group btn-group-sm" role="group" aria-label="Anlegen / Abbrechen">
+                                    <button type="button" class="btn btn-primary" onclick="kbSubmitCreateBase()">
+                                        <i class="bi bi-check-lg me-1"></i>
+                                        <span data-i18n="common.create">Anlegen</span>
+                                    </button>
+                                    <button type="button" class="btn btn-outline-secondary" onclick="kbHideCreateBaseForm()" aria-label="Abbrechen">
+                                        <i class="bi bi-x-lg"></i>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="table-responsive">
+                        <table class="table align-middle mb-0 kb-bases-table">
+                            <colgroup>
+                                <col class="col-name"/>
+                                <col class="col-description"/>
+                                <col class="col-sources"/>
+                                <col class="col-state"/>
+                                <col class="col-actions"/>
+                            </colgroup>
+                            <thead>
+                                <tr>
+                                    <th data-i18n="knowledge.bases.col_name">Name</th>
+                                    <th data-i18n="knowledge.bases.col_description">Beschreibung</th>
+                                    <th data-i18n="knowledge.bases.col_sources">Quellen</th>
+                                    <th data-i18n="knowledge.bases.col_state">Status</th>
+                                    <th class="text-end" data-i18n="knowledge.bases.col_actions">Aktionen</th>
+                                </tr>
+                            </thead>
+                            <tbody id="kbBaseRows">
+                                <tr><td colspan="5" class="text-center text-muted py-4">
+                                    <i class="bi bi-hourglass-split me-2"></i><span data-i18n="common.loading">Lade…</span>
+                                </td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <section class="kb-tab-pane d-none" data-kb-pane="config">
+            <div class="card border-0 shadow-sm cf-card">
+                <div class="card-header bg-white py-3">
+                    <h5 class="mb-0 fw-semibold">
+                        <i class="bi bi-gear text-primary me-2"></i>
+                        <span data-i18n="knowledge.config.title">Embedding-Konfiguration</span>
+                    </h5>
+                </div>
+                <div class="card-body">
+                    <p class="text-muted small mb-3" data-i18n="knowledge.config.hint">
+                        Diese Konfiguration gilt ausschließlich für die Wissensdatenbank. Sie ist unabhängig von der normalen KI-Konfiguration.
+                    </p>
+                    <div class="row g-3 align-items-start">
+                        <div class="col-md-4">
+                            <label class="form-label fw-semibold" data-i18n="knowledge.config.provider">Provider</label>
+                            <select class="form-select" id="kbConfigProvider" onchange="kbOnProviderChange()">
+                                <option value="OLLAMA">Ollama (lokal)</option>
+                                <option value="OPENAI">OpenAI</option>
+                                <option value="OPENROUTER">OpenRouter</option>
+                            </select>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label fw-semibold" data-i18n="knowledge.config.model">Modell</label>
+                            <div class="input-group">
+                                <select class="form-select" id="kbConfigModel"></select>
+                                <button class="btn btn-outline-secondary" type="button" id="kbConfigModelRefresh" title="Modelle vom Provider neu laden">
+                                    <i class="bi bi-arrow-clockwise"></i>
+                                </button>
+                            </div>
+                            <div class="form-text">
+                                <span id="kbConfigPendingBadge" class="badge text-bg-warning d-none" data-i18n="knowledge.config.pending_badge">— nicht gespeichert</span>
+                            </div>
+                        </div>
+                        <div class="col-md-4" id="kbConfigOllamaSection">
+                            <label class="form-label fw-semibold" data-i18n="knowledge.config.ollama_url">Ollama URL</label>
+                            <input class="form-control" id="kbConfigOllamaUrl" placeholder="http://localhost:11434"/>
+                        </div>
+                        <div class="col-md-4 d-none" id="kbConfigOpenAiSection">
+                            <label class="form-label fw-semibold" data-i18n="knowledge.config.openai_key">OpenAI API-Key</label>
+                            <input class="form-control" type="password" id="kbConfigOpenAiKey" placeholder="sk-..."/>
+                        </div>
+                        <div class="col-md-4 d-none" id="kbConfigOpenRouterSection">
+                            <label class="form-label fw-semibold" data-i18n="knowledge.config.openrouter_key">OpenRouter API-Key</label>
+                            <input class="form-control" type="password" id="kbConfigOpenRouterKey" placeholder="sk-or-..."/>
+                        </div>
+                    </div>
+                    <div class="d-flex gap-2 mt-3">
+                        <button class="btn btn-sm btn-outline-primary" onclick="kbTestConnection()">
+                            <i class="bi bi-plug me-1"></i><span data-i18n="knowledge.config.test">Verbindung testen</span>
+                        </button>
+                        <button id="kbConfigSave" class="btn btn-sm btn-primary" onclick="kbSaveConfig()">
+                            <i class="bi bi-save me-1"></i><span data-i18n="knowledge.config.save">Speichern</span>
+                        </button>
+                    </div>
+                    <div id="kbConfigStatus" class="mt-3"></div>
+                </div>
+            </div>
+        </section>
+
+        <section class="kb-tab-pane d-none" data-kb-pane="danger">
+            <div class="card border-0 shadow-sm cf-card kb-card-warning">
+                <div class="card-header bg-white py-3">
+                    <h5 class="mb-0 fw-semibold">
+                        <i class="bi bi-arrow-clockwise text-warning me-2"></i>
+                        <span data-i18n="knowledge.reindex.title">Wartung: Index neu aufbauen</span>
+                    </h5>
+                </div>
+                <div class="card-body">
+                    <p class="text-muted small mb-3" data-i18n="knowledge.reindex.desc">
+                        Liest alle Quellen, Dokumente und Chunks aus der Datenbank und schreibt den Lucene-Index neu
+                        (z. B. nach einem Embedding-Modell-Wechsel oder um die semantische Suche zu aktivieren).
+                        Bestehende Daten bleiben erhalten; nur der Such-Index wird neu aufgebaut.
+                    </p>
+                    <button class="btn btn-sm btn-outline-warning" onclick="kbReindexAll()">
+                        <i class="bi bi-arrow-clockwise me-2"></i>
+                        <span data-i18n="knowledge.reindex.btn">Alle Wissensdatenbanken reindexieren</span>
+                    </button>
+                    <div id="kbReindexResult" class="mt-3"></div>
+                </div>
+            </div>
+
+            <div class="card border-0 shadow-sm cf-card mt-3 kb-card-danger">
+                <div class="card-header bg-white py-3">
+                    <h5 class="mb-0 fw-semibold">
+                        <i class="bi bi-shield-exclamation text-danger me-2"></i>
+                        <span data-i18n="knowledge.danger.title">Wissensdatenbank zurücksetzen</span>
+                    </h5>
+                </div>
+                <div class="card-body">
+                    <p class="text-muted small mb-3" data-i18n="knowledge.danger.desc">
+                        Setzt die Wissensdatenbank auf den Auslieferungszustand zurück: entfernt alle Quellen, Dokumente, Chunks, Vektoren und den Lucene-Index. Diese Aktion ist unabhängig von "Konfiguration zurücksetzen" und kann nicht rückgängig gemacht werden.
+                    </p>
+                    <div class="alert alert-danger d-flex gap-2 align-items-start mb-3" role="alert">
+                        <i class="bi bi-exclamation-octagon-fill flex-shrink-0 mt-1"></i>
+                        <div>
+                            <strong data-i18n="knowledge.danger.warning_title">Unwiderruflich!</strong>
+                            <span data-i18n="knowledge.danger.warning_text">
+                                Die folgenden Aktionen werden ausgeführt: alle Quellen, Dokumente, Chunks, Vektoren und der Lucene-Index werden dauerhaft entfernt.
+                            </span>
+                        </div>
+                    </div>
+                    <div id="kbResetConfirmBox" style="display:none;" class="mb-3">
+                        <div class="alert alert-danger">
+                            <strong data-i18n="knowledge.danger.confirm_title">Bist du sicher?</strong>
+                            <span data-i18n="knowledge.danger.confirm_text">
+                                Alle Wissensdaten werden unwiderruflich gelöscht. Bitte bestätige durch erneutes Klicken.
+                            </span>
+                        </div>
+                        <div class="d-flex gap-2">
+                            <button id="kbResetConfirmBtn" class="btn btn-sm btn-danger" onclick="kbConfirmReset()">
+                                <i class="bi bi-trash3-fill me-2"></i>
+                                <span data-i18n="knowledge.danger.confirm_yes">Ja, alles löschen</span>
+                            </button>
+                            <button class="btn btn-sm btn-outline-secondary" onclick="kbCancelReset()">
+                                <i class="bi bi-x-lg me-1"></i>
+                                <span data-i18n="common.cancel">Abbrechen</span>
+                            </button>
+                        </div>
+                    </div>
+                    <button class="btn btn-sm btn-outline-danger" id="kbResetBtn" onclick="kbInitReset()">
+                        <i class="bi bi-database-x me-2"></i>
+                        <span data-i18n="knowledge.danger.btn">Wissensdatenbank zurücksetzen</span>
+                    </button>
+                </div>
+            </div>
+        </section>
+    </div>
+
+    <script th:src="@{/js/knowledge/core.js}"></script>
+    <script th:src="@{/js/knowledge/config.js}"></script>
+    <script th:src="@{/js/knowledge/sources.js}"></script>
+    <script th:src="@{/js/knowledge/file-picker.js}"></script>
+    <script th:src="@{/js/knowledge/archive.js}"></script>
+    <script th:src="@{/js/knowledge/bases.js}"></script>
+    <script th:src="@{/js/knowledge/add-source.js}"></script>
+    <script th:src="@{/js/knowledge/maintenance.js}"></script>
+    <script th:src="@{/js/knowledge/bootstrap.js}"></script>
+    <th:block th:replace="~{fragments/knowledge/add-source-modals :: add-source-modals}"></th:block>
+    <th:block th:replace="~{fragments/knowledge/import-overlay :: import-overlay}"></th:block>
+    <th:block th:replace="~{fragments/knowledge/export-password-overlay :: export-password-overlay}"></th:block>
+    <th:block th:replace="~{fragments/knowledge/delete-base-modal :: delete-base-modal}"></th:block>
+</main>
+</body>
+</html>

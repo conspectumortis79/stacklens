@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" lang="de">
+<body>
+<th:block th:fragment="scripts-repo">
+<script th:inline="none">
+/*<![CDATA[*/
+if (typeof window.lgShowToast !== 'function') {
+  window.lgShowToast = function () {};
+}
+
+window._lgFix = window._lgFix || {
+  runId: null,
+  cancelled: false,
+  pollTimer: null,
+  pollFailures: 0,
+  selectedRepoId: null,
+  timerInterval: null,
+  timerStartedAt: 0,
+  writeFiles: []
+};
+
+function lgEscAttr(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+function lgFbOpen() {
+  __kiChatOpenDirBrowser(function (path) {
+    if (!path) return;
+    var name = path.replace(/\\/g, '/').split('/').filter(Boolean).pop() || path;
+    fetch('/api/local-repos', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: null, name: name, path: path, active: true, scope: 'LOGGING_ANALYSIS' })
+    }).then(function (r) { return r.json(); }).then(function (data) {
+      if (data.error) { lgShowToast('error', (window.i18n ? window.i18n.t('common.error') : 'Fehler') + ': ' + data.error); return; }
+      lgAddLocalRepo(data);
+    }).catch(function () {
+      lgShowToast('error', window.i18n ? window.i18n.t('logging.be_repo_save_failed') : 'Fehler beim Speichern des Repositories.');
+    });
+  });
+}
+
+function lgAddLocalRepo(repo) {
+  var hint = document.getElementById('lgNoRepoHint');
+  if (hint) hint.style.display = 'none';
+  var card = document.createElement('div');
+  card.className = 'lg-local-repo-card';
+  card.setAttribute('data-repo-id', String(repo.id));
+  card.setAttribute('data-repo-path', repo.path || '');
+  card.innerHTML =
+    '<span class="lg-local-repo-checkbox"><i class="bi bi-circle lg-local-repo-cb-icon"></i></span>' +
+    '<i class="bi bi-folder2 lg-local-repo-icon"></i>' +
+    '<div style="min-width:0;flex:1;">' +
+      '<div style="display:flex;align-items:center;gap:4px;min-width:0;">' +
+        '<div class="lg-local-repo-name" style="min-width:0;">' + lgEscAttr(repo.name) + '</div>' +
+        '<button class="lg-local-repo-del" data-repo-id="' + lgEscAttr(String(repo.id)) + '">' + lgEscAttr(window.i18n ? window.i18n.t('ticket_implementation.remove_title') : 'Entfernen') + '</button>' +
+      '</div>' +
+      '<div class="lg-local-repo-path">' + lgEscAttr(repo.path) + '</div>' +
+    '</div>';
+  document.getElementById('lgLocalRepoList').appendChild(card);
+  var delBtn = card.querySelector('.lg-local-repo-del');
+  if (delBtn) {
+    delBtn.addEventListener('click', function (e) {
+      e.stopPropagation();
+      e.preventDefault();
+      var id = parseInt(delBtn.getAttribute('data-repo-id'), 10);
+      if (id) lgDeleteLocalRepo(e, delBtn, id);
+    });
+  }
+  card.addEventListener('click', function (e) {
+    if (e.target.closest && !e.target.closest('.lg-local-repo-del')) {
+      lgToggleLocalRepo(card);
+    }
+  });
+  lgUpdateFixButtonState();
+}
+
+function lgToggleLocalRepo(card) {
+  var wasSelected = card.classList.contains('selected');
+  document.querySelectorAll('#lgLocalRepoList .lg-local-repo-card.selected').forEach(function (c) {
+    c.classList.remove('selected');
+    var icon = c.querySelector('.lg-local-repo-icon');
+    var cbIcon = c.querySelector('.lg-local-repo-cb-icon');
+    if (icon) icon.className = 'bi bi-folder2 lg-local-repo-icon';
+    if (cbIcon) cbIcon.className = 'bi bi-circle lg-local-repo-cb-icon';
+    var oldBadge = c.querySelector('.lg-local-repo-match');
+    if (oldBadge) oldBadge.remove();
+  });
+  if (!wasSelected) {
+    card.classList.add('selected');
+    var icon = card.querySelector('.lg-local-repo-icon');
+    var cbIcon = card.querySelector('.lg-local-repo-cb-icon');
+    if (icon) icon.className = 'bi bi-folder2-open lg-local-repo-icon';
+    if (cbIcon) cbIcon.className = 'bi bi-check-circle-fill lg-local-repo-cb-icon';
+    window._lgFix.selectedRepoId = parseInt(card.getAttribute('data-repo-id'), 10);
+    var path = card.getAttribute('data-repo-path') || '';
+    lgAsyncUpdateRepoMatch(card, path);
+  } else {
+    window._lgFix.selectedRepoId = null;
+  }
+  lgUpdateFixButtonState();
+}
+
+function lgAsyncUpdateRepoMatch(cardEl, repoPath) {
+  if (typeof lgDetectRepoStacks !== 'function') return;
+  if (!repoPath) return;
+  lgDetectRepoStacks(repoPath).then(function (info) {
+    window._lgStack.repoStacks = info.stacks || [];
+    window._lgStack.repoIndicators = info.indicators || [];
+    var match = lgComputeMatch(window._lgStack.logStacks, window._lgStack.repoStacks);
+    window._lgStack.repoMatch = match;
+    lgRenderRepoMatchBadge(cardEl, match);
+    lgUpdateFixButtonState();
+  });
+}
+
+function lgDeleteLocalRepo(event, btn, id) {
+  if (event && typeof event.preventDefault === 'function') event.preventDefault();
+  if (event && typeof event.stopPropagation === 'function') event.stopPropagation();
+  if (id === undefined || id === null) {
+    var cardFromBtn = btn && btn.closest && btn.closest('.lg-local-repo-card');
+    if (cardFromBtn) id = parseInt(cardFromBtn.getAttribute('data-repo-id'), 10);
+  }
+  if (!id || isNaN(id)) return;
+  var card = btn && btn.closest && btn.closest('.lg-local-repo-card');
+  if (!card) {
+    card = document.querySelector('#lgLocalRepoList .lg-local-repo-card[data-repo-id="' + id + '"]');
+  }
+  fetch('/api/local-repos/' + id, { method: 'DELETE' }).then(function () {
+    if (card && card.parentNode) {
+      if (card.classList.contains('selected')) {
+        window._lgFix.selectedRepoId = null;
+      }
+      card.parentNode.removeChild(card);
+    } else {
+      var fallback = document.querySelector('#lgLocalRepoList .lg-local-repo-card[data-repo-id="' + id + '"]');
+      if (fallback) fallback.parentNode.removeChild(fallback);
+    }
+    if (!document.querySelectorAll('#lgLocalRepoList .lg-local-repo-card').length) {
+      var hint = document.getElementById('lgNoRepoHint');
+      if (hint) hint.style.display = '';
+    }
+    lgUpdateFixButtonState();
+  }).catch(function () {  });
+}
+
+function lgGetSelectedRepoId() {
+  if (window._lgFix.selectedRepoId) return window._lgFix.selectedRepoId;
+  var card = document.querySelector('#lgLocalRepoList .lg-local-repo-card.selected');
+  if (card) {
+    var id = parseInt(card.getAttribute('data-repo-id'), 10);
+    if (id && !isNaN(id)) return id;
+  }
+  return null;
+}
+
+function lgUpdateFixButtonState() {
+  var toolbar = document.querySelector('.lg-fix-toolbar');
+  var btn = document.getElementById('lgBtnStartFix');
+  if (!toolbar || !btn) return;
+  var hasRepo = !!lgGetSelectedRepoId();
+  var hasResult = !!window._lgLastResult || (document.getElementById('lgResult') && document.getElementById('lgResult').classList.contains('visible'));
+  var activeCount = lgGetActiveBadgeCount();
+  var match = window._lgStack ? window._lgStack.repoMatch : 'unknown';
+  var hasRealMismatch = match === 'mismatch';
+  var showToolbar = hasRepo && hasResult && activeCount > 0 && !hasRealMismatch;
+  toolbar.style.display = showToolbar ? '' : 'none';
+  btn.disabled = activeCount === 0 || hasRealMismatch;
+  var labelEl = btn.querySelector('[data-i18n="logging.fix_btn_label_count"]');
+  if (labelEl) labelEl.textContent = (window.i18n ? window.i18n.t('logging.fix_btn_label_count', String(activeCount)) : 'Fix (' + activeCount + ')');
+  var noteEl = document.querySelector('.lg-fix-toolbar-note');
+  if (noteEl) {
+    var key = !hasRepo
+      ? 'logging.fix_no_repo_note'
+      : 'logging.fix_repo_selected_note';
+    noteEl.textContent = window.i18n ? window.i18n.t(key) : (
+      !hasRepo
+        ? 'Kein Repository ausgewählt — es läuft nur die Diagnose.'
+        : 'Repository verknüpft — Diagnose + Architektur + Code-Fix + Tests.'
+    );
+  }
+  var warnEl = document.getElementById('lgRepoMismatchWarn');
+  if (warnEl) warnEl.style.display = match === 'mismatch' && hasRepo ? '' : 'none';
+}
+
+function lgGetActiveBadgeCount() {
+  return Array.prototype.filter.call(
+    document.querySelectorAll('#lgSummaryBadges .lg-summary-badge-active'),
+    function (b) { return b.getAttribute('data-category') !== 'info'; },
+  ).length;
+}
+/*]]>*/
+</script>
+</th:block>
+</body>
+</html>

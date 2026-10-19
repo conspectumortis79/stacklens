@@ -1,0 +1,12 @@
+services:
+  fake-backend:
+    build: ./fake-backend
+    container_name: stacklens-demo-backend
+    ports:
+      - "8085:8085"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "/app/healthcheck.sh"]
+      interval: 30s
+      timeout: 5s
+      retries: 3

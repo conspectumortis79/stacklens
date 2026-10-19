@@ -1,0 +1,364 @@
+v<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" lang="de">
+<body>
+<th:block th:fragment="sidebar">
+    <nav id="sidebar" class="sidebar d-flex flex-column flex-shrink-0 p-3 text-white">
+        <a href="/" class="d-flex align-items-center mb-4 text-white text-decoration-none sl-brand">
+            <i class="bi bi-search-heart fs-3 me-2 sl-brand-icon"></i>
+            <span class="fs-5 fw-bold sl-brand-text">StackLens</span>
+        </a>
+        <hr class="sl-brand-divider"/>
+        <div id="sidebarNavOuter">
+        <ul class="nav nav-pills flex-column gap-1" id="sidebarNav">
+            <li>
+                <div class="sg-section-header">
+                    <span class="sg-section-label" data-i18n="nav.section_analyses">Analysen</span>
+                </div>
+            </li>
+            <li>
+                <div class="sg-section-body sl-sortable-section" data-section-id="analysen">
+                    <div class="sl-nav-drag-item" data-nav-id="security-analysis">
+                        <a draggable="false" th:href="@{/security-analysis}" class="nav-link text-white sidebar-link">
+                            <i class="bi bi-bug me-2"></i><span data-i18n="nav.bug_analysis">Sicherheit</span>
+                        </a>
+                    </div>
+                    <div class="sl-nav-drag-item" data-nav-id="code-analysis">
+                        <a draggable="false" th:href="@{/code-analysis}" class="nav-link text-white sidebar-link">
+                            <i class="bi bi-code-slash me-2"></i><span data-i18n="nav.code_analysis">Code</span>
+                        </a>
+                    </div>
+                    <div class="sl-nav-drag-item" data-nav-id="pipeline-analysis">
+                        <a draggable="false" th:href="@{/pipeline-analysis}" class="nav-link text-white sidebar-link">
+                            <i class="bi bi-diagram-3 me-2"></i><span data-i18n="nav.pipeline_analysis">Pipeline</span>
+                        </a>
+                    </div>
+                    <div class="sl-nav-drag-item" data-nav-id="grafana-analysis">
+                        <a draggable="false" th:href="@{/grafana-analysis}" class="nav-link text-white sidebar-link">
+                            <i class="bi bi-graph-up-arrow me-2"></i><span data-i18n="nav.grafana_analysis">Grafana</span>
+                        </a>
+                    </div>
+                    <div class="sl-nav-drag-item" data-nav-id="jwt-analysis">
+                        <a draggable="false" th:href="@{/jwt-analysis}" class="nav-link text-white sidebar-link">
+                            <i class="bi bi-shield-lock me-2"></i><span data-i18n="nav.jwt_analysis">JWT</span>
+                        </a>
+                    </div>
+                    <div class="sl-nav-drag-item" data-nav-id="lasttest-analysis">
+                        <a draggable="false" th:href="@{/lasttest-analysis}" class="nav-link text-white sidebar-link">
+                            <i class="bi bi-speedometer2 me-2"></i><span data-i18n="nav.load_test">Lasttest</span>
+                        </a>
+                    </div>
+                    <div class="sl-nav-drag-item" data-nav-id="review-analysis">
+                        <a draggable="false" th:href="@{/review-analysis}" class="nav-link text-white sidebar-link">
+                            <i class="bi bi-clipboard-data me-2"></i><span data-i18n="nav.review_analysis">Sprint</span>
+                        </a>
+                    </div>
+                    <div class="sl-nav-drag-item" data-nav-id="ticket-refinement">
+                        <a draggable="false" th:href="@{/ticket-refinement}" class="nav-link text-white sidebar-link">
+                            <i class="bi bi-calendar-event me-2"></i><span data-i18n="nav.ticket_refinement">Ticket-Aufbereitung</span>
+                        </a>
+                    </div>
+                    <div class="sl-nav-drag-item" data-nav-id="sprint-review">
+                        <a draggable="false" th:href="@{/sprint-review}" class="nav-link text-white sidebar-link">
+                            <i class="bi bi-list-check me-2"></i><span data-i18n="nav.sprint_review">Sprint-Vorbereitung</span>
+                        </a>
+                    </div>
+                    <div class="sl-nav-drag-item" data-nav-id="ticket-creation">
+                        <a draggable="false" th:href="@{/ticket-creation}" class="nav-link text-white sidebar-link">
+                            <i class="bi bi-plus-square me-2"></i><span data-i18n="nav.ticket_creation">Ticket-Erstellung</span>
+                        </a>
+                    </div>
+                    <div class="sl-nav-drag-item" data-nav-id="ticket-summary">
+                        <a draggable="false" th:href="@{/ticket-summary}" class="nav-link text-white sidebar-link">
+                            <i class="bi bi-card-text me-2"></i><span data-i18n="nav.ticket_summary">Ticket-Zusammenfassung</span>
+                        </a>
+                    </div>
+                    <div class="sl-nav-drag-item" data-nav-id="sql-analysis">
+                        <a draggable="false" th:href="@{/sql-analysis}" class="nav-link text-white sidebar-link">
+                            <i class="bi bi-database me-2"></i><span data-i18n="nav.sql_analysis">SQL</span>
+                        </a>
+                    </div>
+                    <div class="sl-nav-drag-item" data-nav-id="logging">
+                        <a draggable="false" th:href="@{/logging}" class="nav-link text-white sidebar-link">
+                            <i class="bi bi-journal-text me-2"></i><span data-i18n="nav.logging">Logging</span>
+                        </a>
+                    </div>
+                    <div class="sl-nav-drag-item" data-nav-id="image-extraction">
+                        <a draggable="false" th:href="@{/image-extraction}" class="nav-link text-white sidebar-link">
+                            <i class="bi bi-image me-2"></i><span data-i18n="nav.image_extraction">Bild-Extraktion</span>
+                        </a>
+                    </div>
+                    <div class="sl-nav-drag-item" data-nav-id="ticket-implementation">
+                        <a draggable="false" th:href="@{/ticket-implementation}" class="nav-link text-white sidebar-link">
+                            <i class="bi bi-ticket-detailed me-2"></i><span data-i18n="nav.ticket_implementation">Ticket</span>
+                        </a>
+                    </div>
+                    <div class="sl-nav-drag-item" data-nav-id="code-qa">
+                        <a draggable="false" th:href="@{/code-qa}" class="nav-link text-white sidebar-link">
+                            <i class="bi bi-git me-2"></i><span data-i18n="nav.mr_analysis">Code QA</span>
+                        </a>
+                    </div>
+                </div>
+            </li>
+            <li><hr style="border:none;border-top:1px solid rgba(255,255,255,0.15);margin:6px 4px;"/></li>
+            <li>
+                <div class="sg-section-header">
+                    <span class="sg-section-label" data-i18n="nav.section_tools">Werkzeuge</span>
+                </div>
+            </li>
+            <li>
+                <div class="sg-section-body sl-sortable-section" data-section-id="werkzeuge">
+                    <div class="sl-nav-drag-item" data-nav-id="tooling">
+                        <a draggable="false" th:href="@{/tooling}" class="nav-link text-white sidebar-link">
+                            <i class="bi bi-cpu me-2"></i><span data-i18n="nav.tooling">Tool Erstellung</span>
+                        </a>
+                    </div>
+                    <div class="sl-nav-drag-item" data-nav-id="knowledge">
+                        <a draggable="false" th:href="@{/knowledge}" class="nav-link text-white sidebar-link">
+                            <i class="bi bi-database-check me-2"></i><span data-i18n="nav.knowledge">Wissensdatenbank</span>
+                        </a>
+                    </div>
+                    <div class="sl-nav-drag-item" data-nav-id="search">
+                        <a draggable="false" th:href="@{/search}" class="nav-link text-white sidebar-link" style="display:flex;align-items:center;">
+                            <i class="bi bi-search me-2"></i><span data-i18n="nav.suche">Suche</span>
+                            <span id="sidebarSearchDot" class="sidebar-search-dot"></span>
+                        </a>
+                    </div>
+                    <div class="sl-nav-drag-item" data-nav-id="docker-test" id="sidebarDockerTestEntry" style="display:none;">
+                        <a draggable="false" th:href="@{/docker-test}" class="nav-link text-white sidebar-link">
+                            <i class="bi bi-box me-2"></i><span data-i18n="nav.docker_test">Testdocker</span>
+                        </a>
+                    </div>
+                </div>
+            </li>
+            <li><hr style="border:none;border-top:1px solid rgba(255,255,255,0.15);margin:6px 4px;"/></li>
+            <li>
+                <div class="sg-section-header">
+                    <span class="sg-section-label" data-i18n="nav.section_config">Konfiguration</span>
+                </div>
+            </li>
+            <li>
+                <div class="sg-section-body sl-sortable-section" data-section-id="konfiguration">
+                    <div class="sl-nav-drag-item" data-nav-id="config">
+                        <a draggable="false" th:href="@{/config}" class="nav-link text-white sidebar-link">
+                            <i class="bi bi-gear me-2"></i><span data-i18n="nav.configuration">Konfiguration</span>
+                        </a>
+                    </div>
+                </div>
+            </li>
+            <li><hr style="border:none;border-top:1px solid rgba(255,255,255,0.15);margin:6px 4px;"/></li>
+            <li>
+                <div class="sg-section-header">
+                    <span class="sg-section-label" data-i18n="nav.section_hilfe">Hilfe</span>
+                </div>
+            </li>
+            <li>
+                <div class="sg-section-body sl-sortable-section" data-section-id="hilfe">
+                    <div class="sl-nav-drag-item" data-nav-id="docs">
+                        <a draggable="false" th:href="@{/docs}" class="nav-link text-white sidebar-link">
+                            <i class="bi bi-book me-2"></i><span data-i18n="nav.documentation">Dokumentation</span>
+                        </a>
+                    </div>
+                </div>
+            </li>
+            <li id="sidebarToolsSeparator" style="display:none;">
+                <hr style="border:none;border-top:1px solid rgba(124,92,191,.20);margin:.25rem 0;"/>
+            </li>
+            <li id="sidebarToolsEmpty" style="display:none;">
+                <span class="nav-link text-white sidebar-tools-label" style="font-size:0.73rem;letter-spacing:0.06em;opacity:0.45;padding:4px 10px;cursor:default;pointer-events:none;">TOOLS</span>
+            </li>
+            <li id="sidebarDynamicToolsLi" style="display:none;">
+                <div class="sg-section-body sl-sortable-section" data-section-id="tools" id="sidebarDynamicTools"></div>
+            </li>
+        </ul>
+        <div class="sl-scroll-track sl-dark" id="sidebarScrollTrack"><div class="sl-scroll-thumb" id="sidebarScrollThumb"></div></div>
+        </div>
+        <hr class="mt-auto" style="border:none;border-top:1px solid rgba(124,92,191,.22);"/>
+        <button id="sidebarQuitBtn" onclick="__sidebarQuit()" class="btn btn-sm w-100 d-flex align-items-center gap-2" style="background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.18);color:#fff;font-size:13px;padding:7px 12px;border-radius:8px;">
+            <i class="bi bi-power" style="color:#f87171;"></i><span data-i18n="nav.quit">Beenden</span>
+        </button>
+        <style>
+        .sl-nav-drag-item {
+            display: flex;
+            align-items: center;
+            border-radius: 6px;
+            transition: background .12s;
+            cursor: pointer;
+        }
+        .sl-nav-drag-item .nav-link {
+            flex: 1;
+            min-width: 0;
+            cursor: pointer;
+            pointer-events: none;
+        }
+        .sl-nav-drag-item.sl-hold-ready,
+        .sl-nav-drag-item.sl-hold-ready .nav-link {
+            cursor: grab !important;
+        }
+        .sl-nav-drag-item.sl-dragging,
+        .sl-nav-drag-item.sl-dragging .nav-link {
+            cursor: grabbing !important;
+        }
+        .sl-nav-drag-item .nav-link:active { cursor: pointer; }
+        .sl-nav-drag-item.sl-drag-over-top {
+            box-shadow: 0 -2px 0 0 rgba(124,92,191,.8);
+        }
+        .sl-nav-drag-item.sl-drag-over-bottom {
+            box-shadow: 0 2px 0 0 rgba(124,92,191,.8);
+        }
+        .sl-nav-drag-item.sl-dragging {
+            opacity: 0.35;
+        }
+        </style>
+    </nav>    <style>
+    #slQuitOverlay {
+      display: none;
+      position: fixed; inset: 0; z-index: 99999;
+      background: rgba(0,0,0,.55);
+      backdrop-filter: blur(3px);
+      align-items: center; justify-content: center;
+    }
+    #slQuitOverlay.sl-quit-open { display: flex; }
+    #slQuitDialog {
+      background: var(--app-cream, #fffdf8);
+      color: var(--app-text, #1f1f1f);
+      border: 1px solid var(--app-border, #ddd7cb);
+      border-radius: 16px;
+      box-shadow: 0 8px 40px rgba(0,0,0,.28);
+      padding: 28px 28px 22px;
+      min-width: 300px; max-width: 360px;
+      width: 90%;
+      animation: slQuitIn .15s ease;
+    }
+    @keyframes slQuitIn {
+      from { opacity:0; transform:scale(.94) translateY(8px); }
+      to   { opacity:1; transform:scale(1)  translateY(0);    }
+    }
+    #slQuitDialog .sl-quit-icon {
+      font-size: 1.6rem; color: #f87171; margin-bottom: 10px;
+    }
+    #slQuitDialog h6 {
+      font-size: 15px; font-weight: 800;
+      color: var(--app-text, #1f1f1f);
+      margin: 0 0 6px;
+    }
+    #slQuitDialog p {
+      font-size: 13px; color: var(--app-text-muted, #6a665f);
+      margin: 0 0 20px; line-height: 1.5;
+    }
+    .sl-quit-actions { display: flex; gap: 8px; justify-content: flex-end; }
+    .sl-quit-btn {
+      border: none; border-radius: 8px; font-size: 13px; font-weight: 700;
+      padding: 7px 16px; cursor: pointer; transition: opacity .12s;
+    }
+    .sl-quit-btn:hover { opacity: .85; }
+    .sl-quit-btn-cancel {
+      background: var(--app-cream-2, #faf6ec);
+      border: 1px solid var(--app-border, #ddd7cb);
+      color: var(--app-text, #1f1f1f);
+    }
+    .sl-quit-btn-confirm {
+      background: #ef4444; color: #fff;
+    }
+    html[data-theme="legacy"] #slQuitDialog {
+      background: #ffffff;
+      border-color: #dee2e6;
+      color: #212529;
+    }
+    html[data-theme="legacy"] #slQuitDialog h6 { color: #212529; }
+    html[data-theme="legacy"] #slQuitDialog p  { color: #6c757d; }
+    html[data-theme="legacy"] .sl-quit-btn-cancel {
+      background: #f8f9fa; border-color: #dee2e6; color: #212529;
+    }
+    html[data-theme="dark"] #slQuitDialog {
+      background: #1f1c2c;
+      border-color: #3a3550;
+      color: #ece6ff;
+    }
+    html[data-theme="dark"] #slQuitDialog h6 { color: #ece6ff; }
+    html[data-theme="dark"] #slQuitDialog p  { color: #9b97b0; }
+    html[data-theme="dark"] .sl-quit-btn-cancel {
+      background: #252235; border-color: #3a3550; color: #ece6ff;
+    }
+    html[data-theme="popos"] #slQuitDialog {
+      background: #1b1b2b;
+      border-color: #363650;
+      color: #e8e8f0;
+    }
+    html[data-theme="popos"] #slQuitDialog h6 { color: #e8e8f0; }
+    html[data-theme="popos"] #slQuitDialog p  { color: #9090a8; }
+    html[data-theme="popos"] .sl-quit-btn-cancel {
+      background: #222234; border-color: #363650; color: #e8e8f0;
+    }
+    html[data-theme="modern"] #slQuitDialog {
+      background: #fffdf8;
+      border-color: #ddd7cb;
+      color: #1f1f1f;
+    }
+    html[data-theme="modern"] #slQuitDialog h6 { color: #1f1f1f; }
+    html[data-theme="modern"] #slQuitDialog p  { color: #6a665f; }
+    html[data-theme="modern"] .sl-quit-btn-cancel {
+      background: #faf6ec; border-color: #ddd7cb; color: #1f1f1f;
+    }
+    </style>
+
+    <div id="slQuitOverlay" role="dialog" aria-modal="true" aria-labelledby="slQuitTitle">
+      <div id="slQuitDialog">
+        <div class="sl-quit-icon"><i class="bi bi-power"></i></div>
+        <h6 id="slQuitTitle" data-i18n="sidebar.quit_title">StackLens beenden</h6>
+        <p data-i18n="sidebar.quit_message">Soll StackLens wirklich beendet werden?</p>
+        <div class="sl-quit-actions">
+          <button class="sl-quit-btn sl-quit-btn-cancel" onclick="__sidebarQuitCancel()" data-i18n="common.cancel">Abbrechen</button>
+          <button class="sl-quit-btn sl-quit-btn-confirm" onclick="__sidebarQuitConfirm()" data-i18n="sidebar.quit_ok">Beenden</button>
+        </div>
+      </div>
+    </div>
+
+    <script>
+    function __sidebarQuit() {
+      var overlay = document.getElementById('slQuitOverlay');
+      if (!overlay) { __sidebarQuitConfirm(); return; }
+      overlay.classList.add('sl-quit-open');
+      overlay.onclick = function(e) { if (e.target === overlay) __sidebarQuitCancel(); };
+      document.addEventListener('keydown', __sidebarQuitEsc, { once: true });
+    }
+    function __sidebarQuitCancel() {
+      var overlay = document.getElementById('slQuitOverlay');
+      if (overlay) overlay.classList.remove('sl-quit-open');
+      document.removeEventListener('keydown', __sidebarQuitEsc);
+    }
+    function __sidebarQuitEsc(e) { if (e.key === 'Escape') __sidebarQuitCancel(); }
+    function __sidebarQuitConfirm() {
+      var overlay = document.getElementById('slQuitOverlay');
+      if (overlay) overlay.classList.remove('sl-quit-open');
+      var ua = (navigator && navigator.userAgent) || '';
+      var isDesktop = !!(window.desktopApp || window.__desktopAppReady) || /JavaFX/i.test(ua);
+      if (isDesktop) {
+        var b = window.desktopApp;
+        if (b && b.quit) { try { b.quit(); return; } catch (_) {} }
+        try {
+          var x = new XMLHttpRequest();
+          x.open('POST', '/api/quit', false);
+          x.send(null);
+        } catch (_) {}
+        return;
+      }
+      try { window.close(); } catch (_) {}
+      setTimeout(function() {
+        if (!document.body) return;
+        var msg  = window.i18n ? window.i18n.t('sidebar.browser_close_msg')  : 'Du kannst diesen Browser-Tab jetzt schlie\u00dfen.';
+        var hint = window.i18n ? window.i18n.t('sidebar.browser_close_hint') : 'Der Server l\u00e4uft weiter.';
+        document.body.style.cssText = 'margin:0;background:#1e1e2e;';
+        document.body.innerHTML =
+          '<div style="display:flex;align-items:center;justify-content:center;' +
+          'height:100vh;font-family:sans-serif;color:#cdd6f4;flex-direction:column;' +
+          'gap:16px;text-align:center;padding:24px;">' +
+          '<span style="font-size:2.5rem;opacity:.8;">\u2713</span>' +
+          '<p style="font-size:1.1rem;margin:0;">' + msg +
+          '<br><small style="opacity:.6;">' + hint + '</small></p>' +
+          '</div>';
+      }, 250);
+    }
+    </script>
+</th:block>
+</body>
+</html>

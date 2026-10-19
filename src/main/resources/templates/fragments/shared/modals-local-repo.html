@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" lang="de">
+<body>
+<th:block th:fragment="modals-local-repo">
+
+<div class="modal fade" id="repoModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content" style="border:1px solid var(--pa-line);border-radius:16px;overflow:hidden;box-shadow:0 8px 32px rgba(0,0,0,.12);">
+      <div class="modal-header fb-modal-header" style="border-bottom:1px solid var(--pa-line);padding:14px 20px;">
+        <h5 class="modal-title" id="repoModalTitle" style="font-size:15px;font-weight:800;">
+          <i class="bi bi-folder2-open me-2" style="color:var(--pa-accent);"></i><span data-i18n="common.repo_add_title">Repository hinzufügen</span>
+        </h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body" style="background:var(--pa-paper);padding:20px 20px 16px;">
+        <input type="hidden" id="repoId"/>
+        <div class="mb-3">
+          <label class="form-label" style="font-weight:700;font-size:13px;color:var(--pa-ink);" data-i18n="common.name">Name</label>
+          <input type="text" id="repoName" class="form-control" placeholder="z.B. Mein Backend"
+                 style="border-color:var(--pa-line);border-radius:10px;background:#fff;font-size:14px;"/>
+        </div>
+        <div class="mb-3">
+          <label class="form-label" style="font-weight:700;font-size:13px;color:var(--pa-ink);" data-i18n="common.repo_path_label">Pfad (absoluter Dateipfad)</label>
+          <div class="input-group">
+            <input type="text" id="repoPath" class="form-control" placeholder="/Users/me/code/my-project"
+                   style="border-color:var(--pa-line);border-radius:10px 0 0 10px;background:#fff;font-size:14px;font-family:monospace;"/>
+            <button class="btn fb-btn-browse" type="button" onclick="browseDirectory()" title="Verzeichnis auswählen" data-i18n-title="common.dir_select_title"
+                    style="border:1px solid var(--pa-line);border-left:none;border-radius:0 10px 10px 0;color:var(--pa-accent);">
+              <i class="bi bi-folder2-open"></i>
+            </button>
+          </div>
+        </div>
+        <div class="form-check form-switch" style="margin-top:4px;">
+          <input class="form-check-input" type="checkbox" id="repoActive" checked/>
+          <label class="form-check-label" style="font-size:13px;color:var(--pa-ink);" for="repoActive" data-i18n="common.active">Aktiv</label>
+        </div>
+        <div id="repoModalError" class="alert alert-danger mt-3 d-none" style="border-radius:10px;font-size:13px;"></div>
+      </div>
+      <div class="modal-footer fb-modal-footer" style="border-top:1px solid var(--pa-line);padding:12px 20px;">
+        <button class="btn btn-outline-secondary" data-bs-dismiss="modal"
+                style="border-radius:999px;font-size:13px;font-weight:600;" data-i18n="common.cancel">Abbrechen</button>
+        <button class="btn" style="background:#7c5cbf;color:#fff;border-radius:999px;font-size:13px;font-weight:700;padding:6px 20px;" onclick="saveRepo()">
+          <i class="bi bi-check-lg me-1"></i><span data-i18n="common.save">Speichern</span>
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+</th:block>
+</body>
+</html>

@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" lang="de">
+<body>
+<th:block th:fragment="scripts-export-import">
+<script>
+var exportToolId = null;
+var exportToolName = null;
+
+function toolingBrowseEntries(url) {
+  return window.slHelpers.browseEntries(url);
+}
+
+function toolingLoadDirectoryEntries(path) {
+  return toolingBrowseEntries('/api/tooling/files/browse?directoriesOnly=true'
+    + (path ? '&path=' + encodeURIComponent(path) : ''));
+}
+
+function toolingLoadJarEntries(path) {
+  return toolingBrowseEntries('/api/tooling/files/browse?fileExtensions=jar'
+    + (path ? '&path=' + encodeURIComponent(path) : ''));
+}
+
+function exportTool(id, toolName) {
+  exportToolId = id;
+  exportToolName = toolName || 'tool';
+  __kiChatOpenDirBrowser(function (dir) {
+    if (dir) exportToolTo(dir);
+  }, {
+    titleKey: 'tooling.save_location',
+    titleFallback: 'Speicherort wählen',
+    load: toolingLoadDirectoryEntries,
+  });
+}
+
+function exportToolTo(dir) {
+  fetch('/api/tooling/' + exportToolId + '/save-to-path', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ path: dir }),
+  }).then(function (r) {
+    return r.json().then(function (data) { return { ok: r.ok, data: data }; });
+  }).then(function (res) {
+    if (!res.ok || res.data.error) {
+      showAlert(res.data.error || (window.i18n ? window.i18n.t('tooling.export_error') : 'Fehler beim Exportieren.'), 'danger');
+      return;
+    }
+    showAlert((window.i18n ? window.i18n.t('tooling.tool_exported') : 'Tool exportiert:') + ' ' + res.data.savedPath, 'success');
+  }).catch(function (e) {
+    showAlert((window.i18n ? window.i18n.t('tooling.error_network') : 'Netzwerkfehler:') + ' ' + e.message, 'danger');
+  });
+}
+
+function toggleImportArea() {
+  __kiChatOpenDirBrowser(function (path) {
+    if (path) openImportNaming(path);
+  }, {
+    files: ['jar'],
+    acceptHint: 'JAR',
+    storageKey: 'stacklens.fb.last.toolImport',
+    titleKey: 'tooling.jar_select',
+    titleFallback: 'JAR-Datei auswählen',
+    load: toolingLoadJarEntries,
+  });
+}
+
+function openImportNaming(path) {
+  var name = String(path).replace(/\\/g, '/').split('/').filter(Boolean).pop() || path;
+  document.getElementById('importSelectedFilePath').value = path;
+  document.getElementById('importSelectedFileName').textContent = name;
+  var nameInput = document.getElementById('importToolName');
+  nameInput.value = name.replace(/\.jar$/i, '').replace(/[-_]/g, ' ');
+  var alertArea = document.getElementById('importAlertArea');
+  if (alertArea) { alertArea.style.display = 'none'; alertArea.innerHTML = ''; }
+  document.getElementById('importOverlay').style.display = 'flex';
+  document.body.style.overflow = 'hidden';
+  nameInput.focus();
+  nameInput.select();
+}
+
+function closeImportOverlay() {
+  document.getElementById('importOverlay').style.display = 'none';
+  document.body.style.overflow = '';
+}
+
+async function uploadImport() {
+
+  const nameInput = document.getElementById('importToolName').value.trim();
+  const filePath = document.getElementById('importSelectedFilePath').value;
+  const alertArea = document.getElementById('importAlertArea');
+  alertArea.innerHTML = ''; alertArea.style.display = 'none';
+
+  const btn = document.getElementById('importOverlayBtn');
+  if (!nameInput) {
+    alertArea.style.display = 'block'; alertArea.innerHTML = `<i class="bi bi-exclamation-circle me-1"></i>${window.i18n ? window.i18n.t('tooling.enter_tool_name') : 'Bitte einen Tool-Namen eingeben.'}`;
+    return;
+  }
+  btn.disabled = true; btn.innerHTML = `<i class="bi bi-arrow-clockwise spin me-2"></i>${window.i18n ? window.i18n.t('tooling.being_imported') : 'Wird importiert…'}`;
+
+  try {
+    const res = await fetch('/api/tooling/import-local', {
+      method: 'POST',
+      headers: {
+          'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+          name: nameInput,
+          path: filePath
+      })
+    });
+    
+    if (!res.ok) {
+      let errorMsg = window.i18n ? window.i18n.t('tooling.import_error') : 'Fehler beim Importieren.';
+      try {
+        const text = await res.text();
+        const data = JSON.parse(text);
+        if (data.error) errorMsg = data.error;
+      } catch(parseErr) {}
+      alertArea.style.display = 'block'; alertArea.innerHTML = '<i class="bi bi-exclamation-circle me-1"></i>' + errorMsg;
+      btn.disabled = false; btn.innerHTML = `<i class="bi bi-upload me-2"></i>${window.i18n ? window.i18n.t('tooling.import_btn') : 'Importieren'}`;
+      return;
+    }
+    
+    closeImportOverlay();
+    showAlert(window.i18n ? window.i18n.t('tooling.success_imported') : 'Tool erfolgreich importiert.', 'success');
+    await reloadToolList(true);
+  } catch (e) {
+    alertArea.style.display = 'block'; alertArea.innerHTML = `<i class="bi bi-exclamation-circle me-1"></i>${(window.i18n ? window.i18n.t('tooling.error_network') : 'Netzwerkfehler:') + ' ' + e.message}`;
+    btn.disabled = false; btn.innerHTML = `<i class="bi bi-upload me-2"></i>${window.i18n ? window.i18n.t('tooling.import_btn') : 'Importieren'}`;
+  }
+}
+
+
+</script>
+</th:block>
+</body>
+</html>

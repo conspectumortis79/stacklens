@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" lang="de">
+<body>
+<th:block th:fragment="modals">
+
+<th:block th:replace="~{fragments/shared/modals-local-repo :: modals-local-repo}"></th:block>
+<div id="paMermaidFullscreen" class="pa-mermaid-fullscreen" onclick="if(event.target===this)paCloseMermaidFullscreen()">
+  <div class="pa-mermaid-fullscreen-inner">
+    <div class="pa-mermaid-fullscreen-header">
+      <span class="pa-mermaid-fullscreen-title">Mermaid-Diagramm</span>
+      <button class="pa-mermaid-fullscreen-close" onclick="paCloseMermaidFullscreen()" aria-label="Schließen" title="Schließen">×</button>
+    </div>
+    <div id="paMermaidFullContainer" class="pa-mermaid-fullscreen-content"></div>
+  </div>
+</div>
+
+<div class="modal fade" id="paMrModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content pa-modal-content" style="border-radius:16px;overflow:hidden;">
+      <div class="modal-header pa-modal-header" style="padding:14px 20px;">
+        <h5 class="modal-title" style="font-size:15px;font-weight:800;">
+          <i class="bi bi-git me-2" style="color:var(--pa-accent);"></i>
+          <span data-i18n="pipeline.mr_modal_title">GitLab-Projekt für den Merge Request wählen</span>
+        </h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" data-i18n-title="common.close" title="Schließen"></button>
+      </div>
+      <div class="modal-body pa-modal-body" style="padding:20px 20px 16px;">
+        <p class="text-muted small" data-i18n="pipeline.mr_modal_subtitle">Wähle eine GitLab-Konfiguration und das Zielprojekt für den MR.</p>
+        <div class="mb-3">
+          <label class="form-label pa-form-label">GitLab-Konfiguration</label>
+          <select id="paMrGitlabConfigSelect" class="form-select pa-form-select" onchange="paMrLoadProjects()">
+            <option value="" data-i18n="code_analysis.please_select_ph">— bitte wählen —</option>
+            <th:block th:each="gc : ${gitlabConfigs}">
+              <option th:value="${gc.id}" th:text="${gc.name}"></option>
+            </th:block>
+          </select>
+        </div>
+        <div class="mb-3" id="paMrProjectRow" style="display:none;">
+          <label class="form-label pa-form-label">Projekt</label>
+          <select id="paMrProjectSelect" class="form-select pa-form-select">
+            <option value="" data-i18n="common.loading">Wird geladen…</option>
+          </select>
+        </div>
+        <div id="paMrModalError" class="alert alert-danger d-none pa-modal-error" style="border-radius:10px;font-size:13px;"></div>
+      </div>
+      <div class="modal-footer pa-modal-footer" style="padding:12px 20px;">
+        <button class="btn btn-outline-secondary pa-btn-cancel" data-bs-dismiss="modal" style="border-radius:999px;font-size:13px;font-weight:600;" data-i18n="common.cancel">Abbrechen</button>
+        <button class="btn pa-btn-mr-create" id="paMrSubmitBtn" style="border-radius:999px;font-size:13px;font-weight:700;padding:6px 20px;" onclick="paSubmitMr()">
+          <i class="bi bi-git me-1"></i><span data-i18n="pipeline.mr_create_btn">Erstellen</span>
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+</th:block>
+</body>
+</html>

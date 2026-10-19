@@ -1,0 +1,357 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org"
+      xmlns:layout="http://www.ultraq.net.nz/thymeleaf/layout"
+      layout:decorate="~{layout}" lang="de">
+<head><title>Tool Erstellung</title></head>
+<body>
+
+<th:block layout:fragment="page-title"><span data-i18n="page_titles.tooling">Tool Erstellung</span></th:block>
+
+<th:block layout:fragment="page-subtitle"><p class="page-subtitle"><span data-i18n="page_subtitles.tooling">Wandelt beliebige Skripte und Code-Snippets per KI in kompilierbare Kotlin-Tools für StackLens um. Code einfügen, Tool-Namen vergeben und generieren lassen.</span></p></th:block>
+
+<th:block layout:fragment="page-actions">
+  <div class="d-flex flex-column align-items-end gap-2">
+    <div class="d-flex gap-2">
+      <button class="btn btn-sm btn-outline-secondary" style="border-color:#ddd7cb;color:#5b564d;"
+              data-prompt-prefix="tooling" disabled
+              onclick="openPromptEditorForPrefix('tooling', 'Tool Erstellung', 'de', 'tooling.codeGeneration', null)">
+        <i class="bi bi-cpu me-1"></i><span>KI-Prompt</span>
+      </button>
+      <button class="btn btn-sm" style="background:linear-gradient(135deg,#7c5cbf,#5b8ef0);color:#fff;border:none;"
+              onclick="kiChatToggle()" title="KI Chat">
+        <i class="bi bi-chat-dots-fill me-1"></i><span data-i18n="common.ki_chat_btn">KI Chat</span>
+      </button>
+    </div>
+    <th:block th:unless="${focusMode}">
+      <button class="tl-btn-outline" onclick="toggleImportArea()">
+        <i class="bi bi-upload me-1"></i><span data-i18n="tooling.import_tool">Tool importieren</span>
+      </button>
+    </th:block>
+  </div>
+</th:block>
+
+<th:block layout:fragment="head-extra">
+<script th:inline="javascript">
+/*<![CDATA[*/
+window.kiChatConfig = {
+  tabId: 'tooling',
+  tabLabel: 'Tooling',
+  tabLabelKey: 'ki_chat.tooling.tab_label',
+  introMessage: 'Hi! Ich helfe dir, eigene StackLens-Tools in Kotlin zu bauen — von Skript-Konvertierung über Argument-Parsing bis zum Veröffentlichen im Tool-Katalog.',
+  introMessageKey: 'ki_chat.tooling.intro',
+  suggestionsKey: 'ki_chat.tooling.suggestions',
+  suggestions: [
+    'Wie schreibe ich ein neues StackLens-Tool — Schritt für Schritt?',
+    'Konvertiere mein Bash-Skript in idiomatischen Kotlin-Code',
+    'Wie sollte das main()-Interface eines StackLens-Tools aussehen?',
+    'Konventionen: Tool-Name, Paket, Argumentnamen',
+    'Wie binde ich externe Libraries (Gradle) ein?',
+    'Tests für ein Tool schreiben (JUnit5 / Kotest)',
+    'Wie importiere ich ein bestehendes Tool aus einem Repo?',
+    'Best-Practice: Logging und Fehlerbehandlung'
+  ],
+  systemHint: 'You are an expert in Kotlin (JVM, idiomatic style) and the StackLens tooling system. Help users convert shell scripts/snippets into well-structured StackLens tools with proper argument parsing, error handling and tests.',
+  contextProvider: function(){ return ''; }
+};
+/*]]>*/
+</script>
+</th:block>
+
+<div layout:fragment="content">
+<th:block th:replace="~{fragments/tooling/styles :: styles}"></th:block>
+<th:block th:replace="~{fragments/shared/token-usage :: styles}"></th:block>
+
+<div class="tl-page" data-cf-token-usage-anchor="">
+
+  <div id="focusView" style="display:none">
+    <div class="mb-3">
+      <a href="/tooling" class="tl-btn-outline" style="text-decoration:none;"><i class="bi bi-arrow-left me-1"></i><span data-i18n="tooling.all_tools">Alle Tools</span></a>
+    </div>
+    <div id="focusCard"></div>
+  </div>
+
+  <div id="newToolCard" class="tl-card">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+      <h4 style="margin:0;font-size:1.1rem;font-weight:700"><i class="bi bi-cpu me-2" style="color:var(--tl-accent)"></i><span data-i18n="tooling.new_tool_title">Neues Tool generieren</span></h4>
+    </div>
+    <div id="newToolFormSection">
+      <p class="text-muted mb-3" style="font-size:13px" data-i18n="tooling.new_tool_hint">
+        Fügen Sie beliebigen Code oder ein Skript (z.B. PHP, Shell, SQL-Query, etc.) ein. Die KI analysiert die Eingabe, erkennt die Funktionalität und generiert daraus lauffähigen Kotlin-Code, der kompiliert und als eigenständiges Tool in StackLens bereitgestellt wird.
+      </p>
+      <div class="row g-3">
+        <div class="col-md-12">
+          <div class="tl-label" data-i18n="tooling.tool_name">Tool-Name</div>
+          <input id="inputToolName" type="text" class="tl-input" placeholder="z.B. DB-Bereinigung Oktober" autocomplete="off"/>
+        </div>
+        <div class="col-md-12">
+          <textarea id="inputScriptContent" class="tl-input" placeholder="Füge hier deinen Code oder Skript ein..." data-i18n-placeholder="tooling.code_placeholder" rows="8"></textarea>
+        </div>
+        <div class="col-12">
+          <div style="display:flex;gap:8px;">
+            <button id="btnGenerate" class="tl-btn-primary" onclick="startGeneration()">
+              <i class="bi bi-cpu me-2" id="btnGenerateIcon"></i><span id="btnGenerateLabel" data-i18n="tooling.generate_btn">Tool generieren</span>
+            </button>
+            <button id="btnCancelTooling" class="tl-btn-danger" type="button" onclick="cancelToolingGeneration()">
+              <i class="bi bi-x-circle me-2"></i><span data-i18n="common.cancel">Abbrechen</span>
+            </button>
+          </div>
+        </div>
+        <div class="col-12" id="tlFormAlertArea"></div>
+      </div>
+    </div>
+    <div id="newToolProgressSection" style="display:none">
+      <h4 style="margin:0 0 10px;font-size:1.05rem;font-weight:700;color:var(--tl-accent2)">
+        <i class="bi bi-arrow-clockwise me-2 spin"></i><span data-i18n="tooling.generating_title">Tool wird generiert…</span>
+      </h4>
+      <div id="progressStepText" class="text-muted mb-3" style="font-size:14px" data-i18n="tooling.generating_start">Wird gestartet…</div>
+      <div class="progress mb-3" style="height:6px">
+        <div id="progressBar" class="progress-bar progress-bar-striped progress-bar-animated" style="background:var(--tl-accent);width:15%"></div>
+      </div>
+      <div class="tl-step-list">
+        <div class="tl-step" id="gStep1" style="display:none;"><span class="tl-step-icon pending">1</span><span data-i18n="tooling.step1">Code wird eingelesen</span></div>
+        <div class="tl-step" id="gStep2"><span class="tl-step-icon pending">2</span><span data-i18n="tooling.step2">KI generiert Kotlin-Code</span></div>
+        <div class="tl-step" id="gStep3"><span class="tl-step-icon pending">3</span><span data-i18n="tooling.step3">Code wird zu JAR kompiliert</span></div>
+      </div>
+      <div class="mt-3">
+        <button class="tl-btn-danger" type="button" onclick="cancelToolingGeneration()">
+          <i class="bi bi-x-circle me-1"></i><span data-i18n="common.cancel">Abbrechen</span>
+        </button>
+      </div>
+    </div>
+    <div id="newToolErrorSection" style="display:none">
+      <h4 style="margin:0 0 10px;font-size:1.05rem;font-weight:700;color:var(--tl-danger)">
+        <i class="bi bi-x-circle me-2"></i><span data-i18n="tooling.error_title">Fehler bei der Tool-Generierung</span>
+      </h4>
+      <p id="errorMessage" class="text-danger mb-3"></p>
+      <button class="tl-btn-outline" onclick="hideError()"><i class="bi bi-arrow-left me-1"></i><span data-i18n="tooling.back">Zurück</span></button>
+    </div>
+  </div>
+
+  <div class="tl-card" id="toolListCard">
+    <div style="display:flex;align-items:center;justify-content:space-between;cursor:pointer;padding-bottom:0;" id="toolListHeader" onclick="tlToggleToolList()">
+      <h2 class="mb-0"><i class="bi bi-collection me-2" style="color:var(--tl-muted)"></i><span data-i18n="tooling.saved_tools_title">Gespeicherte Tools</span></h2>
+      <i class="bi bi-chevron-down" id="toolListChevron" th:style="${#lists.isEmpty(tools)} ? 'transition:transform .2s;transform:rotate(-90deg);color:var(--tl-muted);font-size:16px;' : 'transition:transform .2s;transform:rotate(0deg);color:var(--tl-muted);font-size:16px;'"></i>
+    </div>
+
+    <div id="toolListContent" th:style="${#lists.isEmpty(tools)} ? 'display:none;margin-top:16px;' : 'display:block;margin-top:16px;'">
+
+      <div th:if="${#lists.isEmpty(tools)}" class="tl-empty">
+        <i class="bi bi-tools"></i>
+        <p data-i18n="tooling.no_tools">Noch keine Tools generiert.</p>
+      </div>
+
+      <div th:unless="${#lists.isEmpty(tools)}">
+        <div th:each="tool : ${tools}" class="tl-tool" th:id="'tool-' + ${tool.id}">
+          <div class="d-flex align-items-start justify-content-between gap-3">
+            <div style="flex:1;min-width:0">
+              <div class="d-flex align-items-center gap-2 mb-1">
+                <span class="tl-tool-icon-badge">
+                  <i th:class="${'bi ' + (tool.icon ?: 'bi-play-circle')}"></i>
+                </span>
+                <span class="tl-tool-name" th:text="${tool.name}"></span>
+                <span th:classappend="${'tl-badge tl-badge-' + #strings.toLowerCase(tool.status)}"
+                      th:text="${tool.status}"></span>
+              </div>
+              <div class="tl-tool-url">
+                <i class="bi bi-link-45deg me-1"></i>
+                <span th:if="${tool.confluencePageUrl == 'SCRIPT'}" style="color:var(--tl-muted)" data-i18n="tooling.type_script">Skript/Code</span>
+                <span th:if="${tool.confluencePageUrl == 'IMPORTED'}" style="color:var(--tl-muted)" data-i18n="tooling.type_imported">Importiert</span>
+                <a th:if="${tool.confluencePageUrl != 'SCRIPT' && tool.confluencePageUrl != 'IMPORTED'}" 
+                   th:href="${tool.confluencePageUrl}" target="_blank"
+                   th:text="${tool.confluencePageUrl}" style="color:var(--tl-muted)"></a>
+              </div>
+              <div class="tl-tool-meta">
+                <span data-i18n="tooling.created_at">Erstellt:</span> <span th:text="${#temporals.format(tool.createdAt, 'dd.MM.yyyy HH:mm')}"></span>
+                <span th:if="${tool.lastRunAt != null}">
+                  · <span data-i18n="tooling.last_run">Zuletzt ausgeführt:</span> <span th:text="${#temporals.format(tool.lastRunAt, 'dd.MM.yyyy HH:mm')}"></span>
+                </span>
+              </div>
+              <div th:if="${tool.errorMessage != null}" class="text-danger mt-1" style="font-size:12px"
+                   th:text="${tool.errorMessage}"></div>
+            </div>
+            <div class="d-flex gap-2 flex-shrink-0">
+              <button th:if="${tool.status == 'READY'}"
+                      class="tl-btn-run"
+                      th:data-tool-id="${tool.id}"
+                      onclick="runTool(this.getAttribute('data-tool-id'))"
+                      th:id="'btnRun-' + ${tool.id}">
+                <i class="bi bi-play-fill me-1"></i><span data-i18n="tooling.run">Ausführen</span>
+              </button>
+              <button th:if="${tool.status == 'READY'}" 
+                      th:data-tool-id="${tool.id}" th:data-tool-name="${tool.name}"
+                      onclick="exportTool(this.getAttribute('data-tool-id'), this.getAttribute('data-tool-name'))"
+                      class="tl-btn-outline">
+                <i class="bi bi-download me-1"></i>Export
+              </button>
+              <button th:if="${tool.status == 'READY' or tool.status == 'FAILED'}"
+                      th:data-tool-id="${tool.id}"
+                      onclick="editTool(this.getAttribute('data-tool-id'))"
+                      class="tl-btn-outline">
+                <i class="bi bi-pencil me-1"></i><span data-i18n="tooling.edit">Bearbeiten</span>
+              </button>
+              <button th:if="${tool.generationPrompt != null}"
+                      class="tl-btn-outline"
+                      th:data-tool-id="${tool.id}"
+                      onclick="showPrompt(this.getAttribute('data-tool-id'))">
+                <i class="bi bi-chat-left-text me-1"></i>Prompt
+              </button>
+              <button class="tl-btn-outline"
+                      th:data-tool-id="${tool.id}"
+                      onclick="toggleDetail(this.getAttribute('data-tool-id'))">
+                <i class="bi bi-code-slash me-1"></i>Code
+              </button>
+              <button class="btn btn-sm btn-outline-danger"
+                      th:data-tool-id="${tool.id}"
+                      onclick="deleteTool(this.getAttribute('data-tool-id'))">
+                <i class="bi bi-trash"></i>
+              </button>
+            </div>
+          </div>
+
+          <div th:id="'detail-' + ${tool.id}" style="display:none">
+            <div th:if="${tool.generatedCode != null}">
+              <div class="mt-3 d-flex align-items-center gap-2">
+                <span style="font-size:13px;font-weight:700" data-i18n="tooling.generated_code_title">Generierter Kotlin-Code</span>
+                <button class="tl-btn-outline" style="padding:3px 10px;font-size:12px"
+                        th:data-tool-id="${tool.id}"
+                        onclick="copyCode(this.getAttribute('data-tool-id'))">
+                  <i class="bi bi-clipboard me-1"></i><span data-i18n="tooling.copy">Kopieren</span>
+                </button>
+              </div>
+              <pre class="tl-code" th:id="'code-' + ${tool.id}"
+                   th:text="${tool.generatedCode}"></pre>
+            </div>
+            <div th:if="${tool.lastRunOutput != null}" class="mt-3">
+              <div style="font-size:13px;font-weight:700" data-i18n="tooling.last_output">Letzte Ausgabe</div>
+              <pre class="tl-output" th:text="${tool.lastRunOutput}"></pre>
+            </div>
+          </div>
+
+          <div th:id="'runArea-' + ${tool.id}" style="display:none" class="mt-3">
+            <div style="font-size:13px;font-weight:700" data-i18n="tooling.output">Ausgabe</div>
+            <pre th:id="'runOutput-' + ${tool.id}" class="tl-output"></pre>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+
+</div>
+
+<div id="importOverlay" class="tl-overlay" style="display:none" onclick="if(event.target===this)closeImportOverlay()">
+  <div class="tl-overlay-win" style="max-width:600px; padding: 24px;">
+    <div class="d-flex justify-content-between align-items-center mb-0">
+      <h4 style="margin:0;font-size:1.1rem;font-weight:700"><i class="bi bi-pencil-square me-2" style="color:var(--tl-accent)"></i><span data-i18n="tooling.rename_tool">Tool benennen</span></h4>
+      <button onclick="closeImportOverlay()" class="btn-close" title="Schließen" data-i18n-title="common.close"></button>
+    </div>
+    
+    <div id="importDetailsSection" style="margin-top: 20px;">
+      <div class="mb-3 d-flex align-items-center gap-2 p-3" style="background:var(--tl-bg);border-radius:10px;border:1.5px solid var(--tl-line);">
+        <i class="bi bi-file-earmark-zip" style="font-size:1.5rem;color:var(--tl-accent);flex-shrink:0"></i>
+        <span id="importSelectedFileName" style="font-size:13px;font-weight:500;word-break:break-all;"></span>
+      </div>
+      <div class="mb-4">
+        <label style="font-size:13px;font-weight:700;margin-bottom:6px;display:block;" data-i18n="tooling.tool_name">Tool-Name</label>
+        <input type="text" id="importToolName" class="tl-input" placeholder="Name des Tools" autocomplete="off"/>
+        <input type="hidden" id="importSelectedFilePath" />
+      </div>
+    </div>
+
+    <div id="importAlertArea" class="alert alert-danger py-2 mb-3 mt-3" style="display:none;font-size:13px;border-radius:8px;"></div>
+    
+    <div class="d-flex gap-2 justify-content-end mt-4">
+      <button class="tl-btn-outline" onclick="closeImportOverlay()"><i class="bi bi-x-lg me-1"></i><span data-i18n="common.cancel">Abbrechen</span></button>
+      <button id="importOverlayBtn" class="tl-btn-primary" onclick="uploadImport()"><i class="bi bi-upload me-2"></i><span data-i18n="tooling.import_btn">Importieren</span></button>
+    </div>
+  </div>
+</div>
+
+<div id="editOverlay" class="tl-overlay" style="display:none" onclick="if(event.target===this)closeEditOverlay()">
+  <div class="tl-overlay-win">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+      <h4 style="margin:0;font-size:1.1rem;font-weight:700"><i class="bi bi-pencil-square me-2" style="color:var(--tl-accent)"></i><span data-i18n="tooling.edit_tool_title">Tool bearbeiten</span></h4>
+      <button onclick="closeEditOverlay()" class="btn-close" title="Schließen" data-i18n-title="common.close"></button>
+    </div>
+    <div class="d-flex gap-2 mb-4" id="editModeTabs">
+      <button id="editModeManualBtn" class="tl-mode-tab active" onclick="switchEditMode('manual')">
+        <i class="bi bi-pencil me-1"></i><span data-i18n="tooling.edit_manual">Manuell bearbeiten</span>
+      </button>
+      <button id="editModeAiBtn" class="tl-mode-tab" onclick="switchEditMode('ai')">
+        <i class="bi bi-cpu me-1"></i><span data-i18n="tooling.edit_ai">Mit KI überarbeiten</span>
+      </button>
+    </div>
+    <div id="editOverlayAlert" class="alert alert-danger py-2 mb-3" style="display:none;font-size:13px;border-radius:8px;"></div>
+    <div class="mb-3">
+      <label style="font-size:13px;font-weight:700;margin-bottom:6px;display:block;" data-i18n="tooling.tool_name">Tool-Name</label>
+      <input id="editOverlayName" type="text" class="tl-input" autocomplete="off"/>
+    </div>
+    <div id="editManualSection" class="mb-4">
+      <label style="font-size:13px;font-weight:700;margin-bottom:6px;display:block;" data-i18n="tooling.kotlin_code_label">Kotlin-Code</label>
+      <textarea id="editOverlayCode" rows="22" class="tl-overlay-code" spellcheck="false"></textarea>
+    </div>
+    <div id="editAiSection" style="display:none" class="mb-4">
+      <label style="font-size:13px;font-weight:700;margin-bottom:6px;display:block;" data-i18n="tooling.ai_instructions_label">Überarbeitungsanweisungen für die KI</label>
+      <textarea id="editAiInstructions" rows="10" class="tl-overlay-code" spellcheck="false"
+                data-i18n-placeholder="tooling.ai_instructions_placeholder"
+                placeholder="Beschreibe, welche Änderungen die KI am Code vornehmen soll...&#10;&#10;Beispiele:&#10;- Füge Retry-Logik bei Datenbankfehlern hinzu&#10;- Ergänze eine Kommandozeilen-Option für den Timeout&#10;- Verbessere die Fehlerausgaben"></textarea>
+      <div class="mt-2 p-2 rounded" style="background:var(--tl-bg);border:1px solid var(--tl-line);font-size:12px;color:var(--tl-muted)">
+        <i class="bi bi-info-circle me-1"></i>
+        <span data-i18n="tooling.ai_edit_hint">Die KI erhält den aktuellen Code + deine Anweisungen und generiert eine überarbeitete Version.
+        Das Ergebnis wird direkt kompiliert und ersetzt den bestehenden Code.</span>
+      </div>
+    </div>
+    <div class="d-flex gap-2 justify-content-end">
+      <button class="tl-btn-outline" onclick="closeEditOverlay()"><i class="bi bi-x-lg me-1"></i><span data-i18n="common.cancel">Abbrechen</span></button>
+      <button id="editOverlaySaveBtn" class="tl-btn-primary" onclick="handleEditSave()"><i class="bi bi-floppy me-2"></i><span data-i18n="tooling.save_compile">Speichern &amp; Kompilieren</span></button>
+    </div>
+  </div>
+</div>
+
+<div id="promptOverlay" class="tl-overlay" style="display:none" onclick="if(event.target===this)closePromptOverlay()">
+  <div class="tl-overlay-win" style="max-width:640px">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+      <h4 style="margin:0;font-size:1.1rem;font-weight:700">
+        <i class="bi bi-chat-left-text me-2" style="color:var(--tl-accent)"></i><span data-i18n="tooling.gen_prompt_title">Generierungs-Prompt</span>
+      </h4>
+      <button onclick="closePromptOverlay()" class="btn-close" title="Schließen" data-i18n-title="common.close"></button>
+    </div>
+    <div class="mb-3" style="font-size:13px;color:var(--tl-muted)">
+      <i class="bi bi-info-circle me-1"></i>
+      <span data-i18n="tooling.gen_prompt_edit_hint">Prompt bearbeiten, speichern und die KI damit erneut ausführen, um den Code neu zu generieren.</span>
+    </div>
+    <div id="promptOverlayAlert" class="alert alert-danger py-2 mb-3" style="display:none;font-size:13px;border-radius:8px;"></div>
+    <textarea id="promptContent" class="tl-overlay-code" rows="20" spellcheck="false"></textarea>
+    <div class="d-flex gap-2 justify-content-end mt-4 flex-wrap">
+      <button class="tl-btn-outline" onclick="copyPrompt()">
+        <i class="bi bi-clipboard me-1"></i><span data-i18n="tooling.copy">Kopieren</span>
+      </button>
+      <button class="tl-btn-outline" id="promptSaveBtn" onclick="savePrompt()">
+        <i class="bi bi-floppy me-1"></i><span data-i18n="common.save">Speichern</span>
+      </button>
+      <button class="tl-btn-primary" id="promptRunBtn" onclick="runWithPrompt()">
+        <i class="bi bi-cpu me-1"></i><span data-i18n="tooling.save_ki_run">Speichern &amp; KI ausführen</span>
+      </button>
+      <button class="tl-btn-outline" onclick="closePromptOverlay()">
+        <i class="bi bi-x-lg me-1"></i><span data-i18n="tooling.close">Schließen</span>
+      </button>
+    </div>
+  </div>
+</div>
+
+<th:block th:replace="~{fragments/tooling/scripts :: scripts}"></th:block>
+<th:block th:replace="~{fragments/shared/token-usage :: scripts}"></th:block>
+
+<script>
+  if (window.slTokenUsagePage) window.slTokenUsagePage({
+        kind: 'tooling',
+        anchor: document.querySelector('.sl-page-header'),
+        resolveId: function () { return currentGenerationId; }
+    });
+function tlInitTokenUsageBar() {
+  if (window.slTokenUsageRebind) window.slTokenUsageRebind('tooling');
+}
+</script>
+</div>
+</body>
+</html>

@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" lang="de">
+<body>
+<th:block th:fragment="scripts">
+<script>
+  if (window._baPollTimerGlobal) { clearInterval(window._baPollTimerGlobal); window._baPollTimerGlobal = null; }
+  var baCurrentRepoId      = null;
+  var baCurrentRepoName    = '';
+  var baCurrentAnalysisId  = null;
+  if (!window._ba) window._ba = {};
+  window._ba.analysisId = window._ba.analysisId || null;
+  var baPollTimer          = null;
+  var baGitlabConfigId     = null;
+  var baGitlabProjectId    = null;
+  var baGitlabProjectPath  = null;
+  var baGithubRepoConfigId = null;
+  var baGithubRepoName     = '';
+  var baAllFindings        = [];
+  var baActiveSevFilter    = 'ALL';
+  var baActiveTypeFilter   = 'ALL';
+  var _baCancelledIds      = new Set();
+  var _baStartGen          = 0;
+  var _baPollVersion       = 0;
+  var _baGlConfigGen       = 0;
+  window._baGlVisitSeq = (window._baGlVisitSeq || 0) + 1;
+  var _baGlVisitSeq = window._baGlVisitSeq;
+  var _baHighWaterIteration = 0;
+  var _baStepLog           = [];
+  var _baViewCache         = {};
+  var _baFixPrRunning      = 0;
+  var _baFixPrDetails      = [];
+
+  if (!window._baFixPrs) window._baFixPrs = {};
+  window._baFixPrHook = null;
+
+  function _baRepoKey() {
+    if (baGithubRepoConfigId) return 'github:' + baGithubRepoConfigId;
+    if (baGitlabConfigId != null && baGitlabProjectId != null) return 'gitlab:' + baGitlabConfigId + ':' + baGitlabProjectId;
+    if (baCurrentRepoId != null) return 'local:' + baCurrentRepoId;
+    return null;
+  }
+
+  function _baAppendStep(step) {
+    if (!step) return;
+    if (_baStepLog.length === 0 || _baStepLog[_baStepLog.length - 1] !== step) {
+      _baStepLog.push(step);
+    }
+  }
+  function _baStepLogHtml() {
+    var n = _baStepLog.length;
+    return _baStepLog.map(function(s, i) {
+      return '<div class="ba-live-log-entry ' + (i === n - 1 ? 'current' : 'done') + '">' + baEsc(s) + '</div>';
+    }).join('');
+  }
+  function _baScrollLog() {
+    var el = document.getElementById('baLiveLog');
+    if (el) el.scrollTop = el.scrollHeight;
+  }
+
+</script>
+<th:block th:replace="~{fragments/security-analysis/scripts-repo-run :: scripts-repo-run}"></th:block>
+<th:block th:replace="~{fragments/security-analysis/scripts-render :: scripts-render}"></th:block>
+<th:block th:replace="~{fragments/security-analysis/scripts-history :: scripts-history}"></th:block>
+<th:block th:replace="~{fragments/security-analysis/scripts-generate-fix :: scripts-generate-fix}"></th:block>
+<th:block th:replace="~{fragments/security-analysis/scripts-helpers :: scripts-helpers}"></th:block>
+<th:block th:replace="~{fragments/security-analysis/scripts-fix-pr :: scripts-fix-pr}"></th:block>
+<th:block th:replace="~{fragments/security-analysis/scripts-repo-panel :: scripts-repo-panel}"></th:block>
+</th:block>
+</body>
+</html>

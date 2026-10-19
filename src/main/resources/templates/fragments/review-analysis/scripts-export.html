@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" lang="de">
+<body>
+<th:block th:fragment="scripts-export">
+<script>
+var _raExportFormat = null;
+var _raExportTitleKeys = {
+  md: 'review_analysis.export_md',
+  html: 'review_analysis.export_html',
+  dashboard: 'review_analysis.export_dashboard',
+};
+var _raExportTitleDefaults = {
+  md: 'Markdown exportieren',
+  html: 'HTML exportieren',
+  dashboard: 'Dashboard exportieren',
+};
+
+function raExportLoadDirectoryEntries(path) {
+  return window.slHelpers.browseDirectories('/api/review-analyse/files/browse', path);
+}
+
+function raExport(format) {
+  var analysisId = _raAnalysisId || window._ra.completedId;
+  if (!analysisId) { showAlert(window.i18n.t('review_analysis.no_active_analysis'), 'warning'); return; }
+  _raExportFormat = format;
+  __kiChatOpenDirBrowser(function (dir) {
+    if (dir) raSaveExportTo(dir);
+  }, {
+    titleKey: _raExportTitleKeys[format] || 'common.save_location',
+    titleFallback: _raExportTitleDefaults[format] || 'Speicherort wählen',
+    load: raExportLoadDirectoryEntries,
+  });
+}
+
+function raSaveExportTo(dir) {
+  var analysisId = _raAnalysisId || window._ra.completedId;
+  fetch('/api/review-analyse/' + analysisId + '/save-to-path', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ path: dir, format: _raExportFormat }),
+  }).then(function (r) {
+    return r.json().then(function (data) { return { ok: r.ok, data: data }; });
+  }).then(function (res) {
+    if (!res.ok || res.data.error) {
+      showAlert(res.data.error || window.i18n.t('review_analysis.export_error'), 'danger');
+      return;
+    }
+    showAlert(window.i18n.t('review_analysis.export_saved_prefix') + res.data.savedPath, 'success');
+  }).catch(function (e) {
+    showAlert(window.i18n.t('common.network_error') + e.message, 'danger');
+  });
+}
+
+</script>
+</th:block>
+</body>
+</html>

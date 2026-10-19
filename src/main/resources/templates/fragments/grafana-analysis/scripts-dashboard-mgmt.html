@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" lang="de">
+<body>
+<th:block th:fragment="scripts-dashboard-mgmt">
+<script>
+
+function _clearForNewDashboard() {
+  dashboards.length = 0;
+  _updateRemoveAllBtn();
+
+  if (window.GrafanaBoard) GrafanaBoard.destroy();
+  const boardSection = document.getElementById('gaBoardSection');
+  if (boardSection) boardSection.style.display = 'none';
+  const boardChatRowClear = document.getElementById('gaBoardChatRow');
+  if (boardChatRowClear) boardChatRowClear.classList.add('no-board');
+  const boardChatHeaderClear = document.getElementById('gaBoardChatHeader');
+  if (boardChatHeaderClear) boardChatHeaderClear.style.display = 'none';
+
+  const ta = document.getElementById('inputDashboardJson');
+  if (ta) ta.value = '';
+
+  rebuiltDashboardData = null;
+  const rebuildError  = document.getElementById('rebuildError');
+  if (rebuildError)  rebuildError.style.display  = 'none';
+  const btnExport = document.getElementById('btnDashExport');
+  if (btnExport) btnExport.style.display = 'none';
+}
+
+function clearDashboardInputs() {
+  var urlInput = document.getElementById('inputDashUrl');
+  if (urlInput) urlInput.value = '';
+  var heightInput = document.getElementById('inputDashHeight');
+  if (heightInput) heightInput.value = '480';
+  var configSel = document.getElementById('selectGrafanaConfig');
+  if (configSel) configSel.value = '';
+  _clearForNewDashboard();
+  saveState();
+}
+
+async function addDashboard() {
+  const url   = document.getElementById('inputDashUrl').value.trim();
+  const title = 'Dashboard ' + (dashboards.length + 1);
+  const height = parseInt(document.getElementById('inputDashHeight').value, 10) || 480;
+  if (!url) { document.getElementById('inputDashUrl').focus(); return; }
+
+  const id = 'dash-' + Date.now();
+  dashboards.push({ id, url, title, height });
+  document.getElementById('inputDashUrl').value = '';
+  _updateRemoveAllBtn();
+  saveState();
+
+
+  const btn = document.getElementById('btnAddDashboard');
+  const origHtml = btn ? btn.innerHTML : null;
+  if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1" role="status"></span>' + (window.i18n ? window.i18n.t('common.loading_short') : 'Laden…'); }
+
+  try {
+    const configSel = document.getElementById('selectGrafanaConfig');
+    const presetConfigId = parseInt(configSel ? configSel.value : '', 10);
+    const resp = await fetch('/api/grafana-analyse/fetch-dashboard-json', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ grafanaUrl: url, configId: isNaN(presetConfigId) ? null : presetConfigId }),
+    });
+    const text = await resp.text();
+    if (resp.ok) {
+      setDashboardJson(text);
+      visualizeDashboard();
+    } else {
+      let errMsg = (window.i18n ? window.i18n.t('common.error') : 'Fehler') + ' ' + resp.status;
+      try { errMsg = JSON.parse(text).error || errMsg; } catch (_) {}
+      showAlert((window.i18n ? window.i18n.t('grafana_analysis.dash_load_error') : 'Dashboard-JSON konnte nicht geladen werden') + ': ' + errMsg, 'warning');
+    }
+  } catch (e) {
+    showAlert((window.i18n ? window.i18n.t('grafana_analysis.dash_network_error') : 'Netzwerkfehler beim Laden des Dashboards') + ': ' + e.message, 'warning');
+  } finally {
+    if (btn && origHtml) { btn.disabled = false; btn.innerHTML = origHtml; }
+  }
+}
+
+async function loadFromConfig() {
+  const sel      = document.getElementById('selectGrafanaConfig');
+  const baseUrl  = sel.value;
+  const opt      = sel.options[sel.selectedIndex];
+  const name     = opt?.getAttribute('data-name') || 'Dashboard';
+  const configId = opt?.getAttribute('data-config-id');
+  if (!baseUrl) return;
+
+  _clearForNewDashboard();
+
+  document.getElementById('inputDashUrl').value   = baseUrl.trimEnd('/') + '/dashboards';
+
+  const btn2 = document.querySelector('button[onclick="loadFromConfig()"]');
+  const origHtml2 = btn2 ? btn2.innerHTML : null;
+  if (btn2) { btn2.disabled = true; btn2.innerHTML = '<span class="spinner-border spinner-border-sm me-1" role="status"></span>' + (window.i18n ? window.i18n.t('common.loading_short') : 'Laden…'); }
+
+  try {
+    const resp = configId
+      ? await fetch('/api/grafana-analyse/home-dashboard/' + configId)
+      : await fetch('/api/grafana-analyse/fetch-dashboard-json', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ grafanaUrl: baseUrl }),
+        });
+    const text = await resp.text();
+    if (resp.ok) {
+      setDashboardJson(text);
+      visualizeDashboard();
+    } else {
+      let errMsg = (window.i18n ? window.i18n.t('common.error') : 'Fehler') + ' ' + resp.status;
+      try { errMsg = JSON.parse(text).error || errMsg; } catch (_) {}
+      showAlert((window.i18n ? window.i18n.t('grafana_analysis.dash_load_error') : 'Dashboard-JSON konnte nicht geladen werden') + ': ' + errMsg, 'warning');
+    }
+  } catch (e) {
+    showAlert((window.i18n ? window.i18n.t('common.network_error') : 'Netzwerkfehler') + ': ' + e.message, 'warning');
+  } finally {
+    if (btn2 && origHtml2) { btn2.disabled = false; btn2.innerHTML = origHtml2; }
+  }
+}
+
+function _updateRemoveAllBtn() {
+}
+
+function renderDashboards() {
+  _updateRemoveAllBtn();
+}
+
+function _getCurrentDashboardJsonString() {
+  return document.getElementById('inputDashboardJson')?.value?.trim() || '';
+}
+
+</script>
+</th:block>
+</body>
+</html>

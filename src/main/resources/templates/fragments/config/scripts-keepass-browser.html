@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" lang="de">
+<body>
+<th:block th:fragment="scripts-keepass-browser">
+<script th:inline="none">
+var _kpBrowserCurrentPath = null;
+
+function cfOpenKeepassBrowser() {
+    _kpBrowserCurrentPath = null;
+    var alertEl = document.getElementById('kpBrowserAlert');
+    if (alertEl) alertEl.style.display = 'none';
+    var overlay = document.getElementById('kpBrowserOverlay');
+    if (overlay) overlay.style.display = 'flex';
+    document.body.style.overflow = 'hidden';
+    kpLoadBrowserDir('');
+}
+
+function kpCloseBrowser() {
+    var overlay = document.getElementById('kpBrowserOverlay');
+    if (overlay) overlay.style.display = 'none';
+    document.body.style.overflow = '';
+}
+
+function kpLoadBrowserDir(path) {
+    var content = document.getElementById('kpBrowserContent');
+    if (!content) return;
+    content.innerHTML = '<div class="p-3 text-center text-muted"><i class="bi bi-arrow-clockwise me-2"></i>Lade Verzeichnis...</div>';
+    var url = '/api/tooling/files/browse?fileExtensions=xml';
+    if (path) url += '&path=' + encodeURIComponent(path);
+    fetch(url)
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            _kpBrowserCurrentPath = data.currentPath;
+            var pathEl = document.getElementById('kpBrowserPath');
+            if (pathEl) pathEl.textContent = data.currentPath;
+            var html = '';
+            if (data.parentPath) {
+                var pp = data.parentPath.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+                html += '<div class="d-flex align-items-center p-2 sl-file-row" '
+                    + 'onclick="kpLoadBrowserDir(\'' + pp + '\')">'
+                    + '<i class="bi bi-arrow-90deg-up me-2 text-muted"></i>'
+                    + '<span style="font-size:13px;">... (eine Ebene h\u00f6her)</span></div>';
+            }
+            var items = data.items || [];
+            for (var i = 0; i < items.length; i++) {
+                var item = items[i];
+                var isDir = item.type === 'directory';
+                var icon = isDir
+                    ? '<i class="bi bi-folder-fill me-2" style="color:#eab308;"></i>'
+                    : '<i class="bi bi-file-earmark-code me-2" style="color:var(--ns-accent);"></i>';
+                var safePath = item.path.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+                var safeName = item.name.replace(/'/g, "\\'");
+                var onclick = isDir
+                    ? 'kpLoadBrowserDir(\'' + safePath + '\')'
+                    : 'kpSelectXmlFile(\'' + safePath + '\',\'' + safeName + '\')';
+                html += '<div class="d-flex align-items-center p-2 sl-file-row" '
+                    + 'onclick="' + onclick + '">'
+                    + icon
+                    + '<span style="font-size:13px;">' + item.name.replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</span></div>';
+            }
+            if (!html) {
+                html = '<div class="p-3 text-center text-muted" style="font-size:13px;">Keine .xml Dateien gefunden.</div>';
+            }
+            content.innerHTML = html;
+        })
+        .catch(function(e) {
+            content.innerHTML = '<div class="p-3 text-center text-danger" style="font-size:13px;">'
+                + '<i class="bi bi-exclamation-triangle me-2"></i>'
+                + ((e && e.message) || 'Fehler').replace(/</g, '&lt;') + '</div>';
+        });
+}
+
+function kpSelectXmlFile(path, name) {
+    var alertEl = document.getElementById('kpBrowserAlert');
+    if (alertEl) alertEl.style.display = 'none';
+    fetch('/api/prompts/read-file?path=' + encodeURIComponent(path))
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            if (data.error) {
+                if (alertEl) { alertEl.textContent = data.error; alertEl.style.display = 'block'; }
+                return;
+            }
+            kpCloseBrowser();
+            kpHandleXmlContent(data.content);
+        })
+        .catch(function(e) {
+            if (alertEl) { alertEl.textContent = (e && e.message) || (window.i18n ? window.i18n.t('common.network_error') : 'Netzwerkfehler'); alertEl.style.display = 'block'; }
+        });
+}
+</script>
+</th:block>
+</body>
+</html>

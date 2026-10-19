@@ -1,0 +1,163 @@
+{
+  "version": 1,
+  "exportedAt": "2026-05-25T00:00:00",
+  "gitlab": [
+    {
+      "name": "Demo GitLab",
+      "baseUrl": "http://localhost:3080",
+      "accessToken": "demo-token",
+      "groupId": "10",
+      "projectIds": null,
+      "defaultBranch": "main",
+      "active": true
+    }
+  ],
+  "databases": [
+    {
+      "name": "Demo MySQL – ecommerce",
+      "dbType": "MYSQL",
+      "host": "localhost",
+      "port": 3306,
+      "databaseName": "ecommerce",
+      "username": "stacklens",
+      "password": "stacklens",
+      "schemas": null,
+      "active": true
+    },
+    {
+      "name": "Demo MySQL – auth_db",
+      "dbType": "MYSQL",
+      "host": "localhost",
+      "port": 3306,
+      "databaseName": "auth_db",
+      "username": "stacklens",
+      "password": "stacklens",
+      "schemas": null,
+      "active": true
+    },
+    {
+      "name": "Demo MySQL – analytics_db",
+      "dbType": "MYSQL",
+      "host": "localhost",
+      "port": 3306,
+      "databaseName": "analytics_db",
+      "username": "stacklens",
+      "password": "stacklens",
+      "schemas": null,
+      "active": true
+    }
+  ],
+  "confluence": [
+    {
+      "name": "Demo Confluence",
+      "baseUrl": "http://localhost:8081",
+      "username": "demo",
+      "apiToken": "demo-token",
+      "spaceKeys": "TECH,ARCH,OPS",
+      "cloudMode": false,
+      "searchRootUrl": null,
+      "active": true
+    }
+  ],
+  "grafana": [
+    {
+      "name": "Demo Grafana",
+      "baseUrl": "http://localhost:3000",
+      "username": "admin",
+      "password": "stacklens",
+      "apiToken": "",
+      "orgId": 1,
+      "scanPanelQueries": true,
+      "active": true
+    }
+  ],
+  "jira": [
+    {
+      "name": "Demo Jira",
+      "baseUrl": "http://localhost:8081",
+      "projectKey": "DEMO",
+      "username": "demo",
+      "apiToken": "demo-token",
+      "cloudMode": false,
+      "commentVisibilityRole": "",
+      "active": true
+    },
+    {
+      "name": "Demo Jira – Backend",
+      "baseUrl": "http://localhost:8081",
+      "projectKey": "BACKEND",
+      "username": "demo",
+      "apiToken": "demo-token",
+      "cloudMode": false,
+      "commentVisibilityRole": "",
+      "active": true
+    }
+  ],
+  "github": [
+    {
+      "name": "Demo GitHub – backend-api",
+      "owner": "demo-org",
+      "repo": "backend-api",
+      "branch": "main",
+      "accessToken": "demo-token",
+      "apiBase": "http://localhost:8082",
+      "active": true
+    },
+    {
+      "name": "Demo GitHub – frontend-app",
+      "owner": "demo-org",
+      "repo": "frontend-app",
+      "branch": "main",
+      "accessToken": "demo-token",
+      "apiBase": "http://localhost:8082",
+      "active": true
+    },
+    {
+      "name": "Demo GitHub – auth-service",
+      "owner": "demo-org",
+      "repo": "auth-service",
+      "branch": "main",
+      "accessToken": "demo-token",
+      "apiBase": "http://localhost:8082",
+      "active": true
+    },
+    {
+      "name": "Demo GitHub – devops-infra",
+      "owner": "demo-org",
+      "repo": "devops-infra",
+      "branch": "main",
+      "accessToken": "demo-token",
+      "apiBase": "http://localhost:8082",
+      "active": true
+    }
+  ],
+  "mcp": [
+    {
+      "name": "Demo MCP Server",
+      "baseUrl": "http://localhost:7456",
+      "authToken": "",
+      "active": true,
+      "routeJira": true,
+      "routeConfluence": true,
+      "routeGitlab": true,
+      "routeGithub": true,
+      "routeGrafana": true,
+      "routeDatabase": true,
+      "jiraBaseUrl": "http://localhost:8081",
+      "jiraUsername": "demo",
+      "jiraApiToken": "demo-token",
+      "jiraCloudMode": false,
+      "confluenceBaseUrl": "http://localhost:8081",
+      "confluenceUsername": "demo",
+      "confluenceApiToken": "demo-token",
+      "confluenceCloudMode": false,
+      "gitlabBaseUrl": "http://localhost:3080",
+      "gitlabAccessToken": "demo-token",
+      "githubApiBase": "http://localhost:8082",
+      "githubToken": "demo-token",
+      "grafanaBaseUrl": "http://localhost:3000",
+      "grafanaApiKey": ""
+    }
+  ],
+  "ai": null
+}

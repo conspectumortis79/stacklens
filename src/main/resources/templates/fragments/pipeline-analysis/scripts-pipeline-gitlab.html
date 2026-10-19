@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" lang="de">
+<body>
+<th:block th:fragment="scripts-pipeline-gitlab">
+<script>
+  function _paGlSetPref(key, value) {
+  window.slHelpers.setPref(key, value);
+}
+  function _paGlGetPref(key) {
+  return window.slHelpers.getPref(key);
+}
+
+  window._paGlVisitSeq = (window._paGlVisitSeq || 0) + 1;
+  var _paGlVisitSeq = window._paGlVisitSeq;
+  var _paGlConfigGen = 0;
+  var _paGlLoaded = {};
+
+  function paGitlabLoadConfigs() {
+    var _gen = ++_paGlConfigGen;
+    var _seq = _paGlVisitSeq;
+    var container = document.getElementById('paGitlabConfigList');
+    if (!container) return;
+    fetch('/api/local-repos/gitlab/configs')
+      .then(function (r) { return r.json().then(function (d) { return { ok: r.ok, body: d }; }); })
+      .then(function (resp) {
+        if (_gen !== _paGlConfigGen || _seq !== _paGlVisitSeq) return;
+        var data = resp.body;
+        if (!resp.ok || (data && data.error)) {
+          var errMsg = (data && data.error) ? data.error : paT('common.load_failed');
+          container.innerHTML =
+            '<div class="text-danger small text-center py-2">' + paEsc(errMsg) + '</div>';
+          return;
+        }
+        var configs = data || [];
+        if (!configs.length) {
+          container.innerHTML =
+            '<div class="text-muted small text-center py-3">' +
+              '<i class="bi bi-gitlab d-block fs-4 mb-1" style="color:#fc6d26;opacity:.5;"></i>' +
+              paT('pipeline.no_gitlab_config') + '<br>' +
+              '<a href="/config" class="sl-link small">' +
+                '<i class="bi bi-gear me-1"></i>' + paT('code_analysis.configure_now') +
+              '</a>' +
+            '</div>';
+          paGitlabRestoreAccordion();
+          return;
+        }
+        container.innerHTML = '';
+        _paGlLoaded = {};
+        configs = configs.slice().sort(function (a, b) {
+          return (a.name || '').localeCompare(b.name || '');
+        });
+        configs.forEach(function (cfg) {
+          var wrapper = document.createElement('div');
+          wrapper.className = 'pa-gitlab-cfg mb-2';
+          wrapper.innerHTML =
+            '<div class="d-flex align-items-center gap-2 p-2 rounded pa-gitlab-header" ' +
+              'data-cfg-id="' + cfg.id + '" ' +
+              'onclick="paGitlabToggleConfig(this,' + cfg.id + ')" ' +
+              'style="border:1px solid var(--pa-line);cursor:pointer;">' +
+              '<i class="bi bi-gitlab" style="color:#fc6d26;"></i>' +
+              '<span class="fw-bold flex-grow-1" style="font-size:13px;word-break:break-all;">' +
+                paEsc(cfg.name) +
+              '</span>' +
+              '<i class="bi bi-chevron-down small text-muted pa-gl-chevron"></i>' +
+            '</div>' +
+            '<div class="pa-gitlab-projects d-none" data-config-id="' + cfg.id + '" ' +
+                 'style="padding:4px 0 4px 8px;">' +
+              '<div class="text-muted small py-2">' + paT('common.loading') + '</div>' +
+            '</div>';
+          container.appendChild(wrapper);
+        });
+        paGitlabRestoreAccordion();
+      })
+      .catch(function () {
+        if (_gen !== _paGlConfigGen || _seq !== _paGlVisitSeq) return;
+        container.innerHTML =
+          '<div class="text-muted small text-center py-2">' +
+            '<i class="bi bi-exclamation-circle me-1 text-warning"></i>' +
+            paT('common.load_failed') +
+          '</div>';
+      });
+  }
+
+  function paGitlabToggleConfig(headerEl, configId) {
+    var projectsDiv = headerEl.parentElement.querySelector('.pa-gitlab-projects');
+    var chevron = headerEl.querySelector('.pa-gl-chevron');
+    if (!projectsDiv) return;
+    var isOpen = !projectsDiv.classList.contains('d-none');
+    if (isOpen) {
+      projectsDiv.classList.add('d-none');
+      if (chevron) chevron.classList.replace('bi-chevron-up', 'bi-chevron-down');
+      _paGlSetPref('pa_gl_open_' + configId, '0');
+    } else {
+      projectsDiv.classList.remove('d-none');
+      if (chevron) chevron.classList.replace('bi-chevron-down', 'bi-chevron-up');
+      _paGlSetPref('pa_gl_open_' + configId, '1');
+      if (!_paGlLoaded[configId]) {
+        _paGlLoaded[configId] = true;
+        paGitlabFetchProjects(configId, projectsDiv);
+      }
+    }
+  }
+
+  function paGitlabRestoreAccordion() {
+    var cont = document.getElementById('paGitlabConfigList');
+    if (!cont) return;
+    var saved = null;
+    try { saved = JSON.parse(localStorage.getItem('pa_state') || 'null'); } catch (_) {}
+    cont.querySelectorAll('.pa-gitlab-projects[data-config-id]').forEach(function (div) {
+      var cfgId = div.getAttribute('data-config-id');
+      var open = _paGlGetPref('pa_gl_open_' + cfgId);
+      var shouldOpen = open === '1' ||
+        (saved && String(saved.gitlabConfigId) === String(cfgId) && open !== '0');
+      if (shouldOpen && div.classList.contains('d-none')) {
+        var h = div.previousElementSibling;
+        if (h) paGitlabToggleConfig(h, cfgId);
+      } else if (open === '0' && !div.classList.contains('d-none')) {
+        var h2 = div.previousElementSibling;
+        if (h2) paGitlabToggleConfig(h2, cfgId);
+      }
+    });
+  }
+
+  function paGitlabFetchProjects(configId, container) {
+    fetch('/api/local-repos/gitlab/' + configId + '/projects')
+      .then(function (r) { return r.json().then(function (d) { return { ok: r.ok, body: d }; }); })
+      .then(function (resp) {
+        if (!document.body.contains(container)) return;
+        var data = resp.body;
+        if (!resp.ok || (data && data.error)) {
+          var errMsg = (data && data.error) ? data.error : paT('common.load_failed');
+          container.innerHTML =
+            '<div class="text-danger small p-2">' + paEsc(errMsg) + '</div>';
+          return;
+        }
+        var projects = data || [];
+        if (!projects.length) {
+          container.innerHTML =
+            '<div class="text-muted small text-center p-2">' +
+              paT('code_analysis.no_projects') +
+            '</div>';
+          return;
+        }
+        paGitlabRenderProjectList(configId, container, projects);
+      })
+      .catch(function (e) {
+        if (!document.body.contains(container)) return;
+        container.innerHTML =
+          '<div class="text-danger small p-2">' +
+            (e && e.message ? paEsc(e.message) : paT('common.load_failed')) +
+          '</div>';
+      });
+  }
+
+  function paGitlabRenderProjectList(configId, container, projects) {
+    var filterInput = document.createElement('input');
+    filterInput.type = 'search';
+    filterInput.className = 'form-control form-control-sm mb-2 mt-1 sl-search-input';
+    filterInput.setAttribute('autocomplete', 'off');
+    filterInput.placeholder = paT('code_analysis.filter_projects');
+    filterInput.style.borderRadius = '999px';
+
+    var listDiv = document.createElement('div');
+    container.innerHTML = '';
+    container.appendChild(filterInput);
+    container.appendChild(listDiv);
+
+    function renderProjects(term) {
+      var filtered = term
+        ? projects.filter(function (p) {
+            return (p.path || '').toLowerCase().indexOf(term.toLowerCase()) >= 0;
+          })
+        : projects;
+      filtered = filtered.slice().sort(function (a, b) {
+        return (a.name || a.path || '').localeCompare(b.name || b.path || '');
+      });
+      listDiv.innerHTML = '';
+      filtered.slice(0, 100).forEach(function (p) {
+        var card = document.createElement('div');
+        card.className = 'pa-repo-card pa-gitlab-project';
+        card.setAttribute('data-config-id', configId);
+        card.setAttribute('data-project-id', p.id);
+        card.setAttribute('data-project-path', p.path || p.pathWithNamespace || p.name || '');
+        card.setAttribute('data-project-name', p.name || '');
+        card.setAttribute('data-http-url', p.httpUrl || '');
+        card.innerHTML =
+          '<div class="pa-repo-row1"><div class="pa-repo-name">' +
+            paEsc(p.name || p.path || '') +
+          '</div></div>' +
+          '<div class="pa-repo-path">' + paEsc(p.path || p.pathWithNamespace || '') + '</div>' +
+          '<div class="pa-card-status"></div>' +
+          '<div class="pa-btn-row">' +
+            '<button class="pa-btn-xs pa-btn-xs-success" data-action="gl-play">' +
+              '<i class="bi bi-play-fill"></i> ' + paT('pipeline.btn_start') +
+            '</button>' +
+            '<button class="pa-btn-xs pa-btn-xs-cancel" data-action="gl-cancel">' +
+              '<i class="bi bi-x-circle"></i>' +
+            '</button>' +
+          '</div>';
+        card.addEventListener('click', function (e) {
+          if (e.target.closest('button')) return;
+          var pid = +card.dataset.projectId;
+          var cid = +card.dataset.configId;
+          var pp = card.dataset.projectPath;
+          var nm = card.dataset.projectName || pp;
+          if (typeof paSelectGitlab === 'function') {
+            paSelectGitlab(cid, pid, pp, nm);
+          }
+        });
+        var playBtn = card.querySelector('[data-action="gl-play"]');
+        if (playBtn) {
+          playBtn.addEventListener('click', function (e) {
+            e.stopPropagation();
+            var pid = +card.dataset.projectId;
+            var cid = +card.dataset.configId;
+            var pp = card.dataset.projectPath;
+            var nm = card.dataset.projectName || pp;
+            if (typeof paSelectGitlab === 'function') paSelectGitlab(cid, pid, pp, nm);
+            if (typeof paStartGitlab === 'function') paStartGitlab(cid, pid, pp, nm);
+          });
+        }
+        var cancelBtn = card.querySelector('[data-action="gl-cancel"]');
+        if (cancelBtn) {
+          cancelBtn.addEventListener('click', function (e) {
+            e.stopPropagation();
+            if (typeof paCancelForCard === 'function') paCancelForCard(card);
+          });
+        }
+        listDiv.appendChild(card);
+      });
+      if (typeof paRefreshCardStatuses === 'function') {
+        try { paRefreshCardStatuses(); } catch (_) {}
+      }
+    }
+    renderProjects('');
+    filterInput.addEventListener('input', function () { renderProjects(filterInput.value.trim()); });
+    filterInput.addEventListener('keydown', function (e) {
+      if ((e.key === 'Escape' || e.key === 'Esc') && filterInput.value) {
+        filterInput.value = '';
+        filterInput.dispatchEvent(new Event('input', { bubbles: true }));
+      }
+    });
+  }
+
+  (function () {
+    function _boot() {
+      if (document.getElementById('paGitlabConfigList')) {
+        paGitlabLoadConfigs();
+      }
+    }
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', _boot);
+    } else {
+      _boot();
+    }
+    document.addEventListener('app:navigate', _boot);
+  })();
+</script>
+</th:block>
+</body>
+</html>

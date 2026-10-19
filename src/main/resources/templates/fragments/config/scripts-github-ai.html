@@ -1,0 +1,1221 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" lang="de">
+<body>
+<th:block th:fragment="scripts-github-ai">
+<script th:inline="none">
+function openGithubRepoModal(cfg) {
+  resetForm(['ghId','ghName','ghOwner','ghRepo','ghBranch','ghToken']);
+  document.getElementById('ghActive').checked = true;
+  document.getElementById('ghModalTitle').textContent = cfg ? 'GitHub-Repository bearbeiten' : 'Neues GitHub-Repository';
+  var ghTestResult = document.getElementById('ghTestResult');
+  if (ghTestResult) { ghTestResult.style.display = 'none'; ghTestResult.innerHTML = ''; }
+  if (cfg) {
+    document.getElementById('ghId').value    = cfg.id;
+    document.getElementById('ghName').value  = cfg.name;
+    document.getElementById('ghOwner').value = cfg.owner;
+    document.getElementById('ghRepo').value  = cfg.repo;
+    document.getElementById('ghBranch').value = cfg.branch || '';
+    document.getElementById('ghToken').value  = cfg.accessTokenSet ? '••••••••' : '';
+    document.getElementById('ghActive').checked = cfg.active;
+  }
+  showModalById('githubRepoModal');
+}
+function editGithubRepo(id) { openGithubRepoModal(githubRepoConfigs[id]); }
+async function saveGithubRepo() {
+  const id = +document.getElementById('ghId').value || null;
+  const name    = document.getElementById('ghName').value.trim();
+  const owner   = document.getElementById('ghOwner').value.trim();
+  const repo    = document.getElementById('ghRepo').value.trim();
+  const branch  = document.getElementById('ghBranch').value.trim() || null;
+  const token   = document.getElementById('ghToken').value;
+  const active  = document.getElementById('ghActive').checked;
+  if (!name || !owner || !repo) { showAlert(window.i18n ? window.i18n.t('config.github_repo_required') : 'Name, Owner und Repository sind Pflichtfelder.', 'danger'); return; }
+  const body = { name, owner, repo, branch, active, accessToken: (token && token !== '••••••••') ? token.trim() : null };
+  const url = id ? `/api/github-repos/${id}` : '/api/github-repos';
+  const method = id ? 'PUT' : 'POST';
+  const res = await fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  if (res.ok) { showAlert(window.i18n ? window.i18n.t('config.github_repo_saved') : 'GitHub-Repository gespeichert.', 'success'); location.reload(); }
+  else { const d = await res.json().catch(() => ({})); showAlert((window.i18n ? window.i18n.t('common.error') : 'Fehler') + ': ' + (d.error || res.statusText), 'danger'); }
+}
+function deleteGithubRepo(id) { showConfirm(window.i18n ? window.i18n.t('config.github_repo_delete_confirm') : 'GitHub-Repository wirklich löschen?', window.i18n ? window.i18n.t('config.github_repo_delete_title') : 'GitHub-Repository löschen', async function() { const res=await fetch(`/api/github-repos/${id}`,{method:'DELETE'}); if(res.ok){showAlert(_t('config.deleted'),'success');location.reload();}else showAlert(_t('config.error_delete'),'danger'); }); }
+async function testGithubRepoConnection() {
+  await window.slHelpers.testConnection({ idElement: 'ghId', resultElement: 'ghTestResult', buttonElement: 'ghTestBtn', endpoint: '/api/github-repos/{id}/test' });
+}
+
+
+function openExternal(url) {
+    if (!url) return;
+    if (window.desktopApp && typeof window.desktopApp.openInBrowser === 'function') {
+        window.desktopApp.openInBrowser(url);
+    } else {
+        window.open(url, '_blank');
+    }
+}
+
+(function() {
+    if (window.__configExtLinkHandler) return;
+    window.__configExtLinkHandler = true;
+    document.addEventListener('click', function(e) {
+        var link = e.target.closest('.config-ext-link');
+        if (!link) return;
+        e.preventDefault();
+        e.stopPropagation();
+        var url = link.href || link.getAttribute('href');
+        if (url && url.indexOf('javascript:') !== 0 && url !== '#') {
+            openExternal(url);
+        }
+    }, false);
+})();
+
+var _aiModelPerProvider = {};
+var _prevAiProvider = null;
+var _compatibleModelSelection = '';
+var _compatibleModelsLoadedFor = '';
+var _claudeCodeModelsLoaded = false;
+var _claudeCodeModelsAttempted = false;
+var _AI_PROVIDER_REGISTRY = {
+    copilot:    { optgroup: 'aiCopilotModelsGroup',    banner: 'aiInfoBannerCopilot',    load: _loadCopilotModels },
+    openai:     { optgroup: 'aiOpenAiModelsGroup',     banner: 'aiInfoBannerOpenAi',     load: _loadOpenAiModels },
+    ollama:     { optgroup: 'aiOllamaModelsGroup',     banner: 'aiInfoBannerOllama',     load: _loadOllamaModels },
+    lmstudio:   { optgroup: 'aiLmStudioModelsGroup',   banner: 'aiInfoBannerLmStudio',   load: _loadLmStudioModels },
+    openrouter: { optgroup: 'aiOpenRouterModelsGroup', banner: 'aiInfoBannerOpenRouter', load: _loadOpenRouterModels },
+    claudecode: { optgroup: 'aiClaudeCodeModelsGroup', banner: 'aiInfoBannerClaudeCode', load: _loadClaudeCodeModels },
+    compatible: { optgroup: null,                      banner: 'aiInfoBannerCompatible', load: _loadCompatibleModels },
+};
+
+function _aiProviderEntry(provider) {
+    return _AI_PROVIDER_REGISTRY[provider] || null;
+}
+
+function _aiProviderOptgroupId(provider) {
+    var entry = _aiProviderEntry(provider);
+    return entry ? entry.optgroup : null;
+}
+
+function _aiModelOptgroupIds() {
+    return Object.keys(_AI_PROVIDER_REGISTRY)
+        .map(function (provider) { return _AI_PROVIDER_REGISTRY[provider].optgroup; })
+        .filter(function (id) { return !!id; });
+}
+
+function _loadAiModelStorage() {
+    try { var s = localStorage.getItem('stacklens_ai_model_per_provider'); return s ? JSON.parse(s) : {}; } catch(e) { return {}; }
+}
+function _saveAiModelStorage() {
+    try { localStorage.setItem('stacklens_ai_model_per_provider', JSON.stringify(_aiModelPerProvider)); } catch(e) {}
+    _scheduleAiModelPrefsSync();
+}
+
+var _AI_MODEL_PREFS_KEY = 'ai_model_per_provider';
+var _aiModelPrefsReady = Promise.resolve();
+var _aiModelPrefsTimer = null;
+var _aiModelPrefsSent = null;
+
+function _currentAiProvider() {
+    return document.querySelector('input[name="aiProvider"]:checked')?.value || 'copilot';
+}
+
+function _parseAiModelPrefs(payload) {
+    if (!payload || !payload.value) return null;
+    try {
+        var parsed = JSON.parse(payload.value);
+        return (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) ? parsed : null;
+    } catch(e) { return null; }
+}
+
+function _scheduleAiModelPrefsSync() {
+    var value = JSON.stringify(_aiModelPerProvider);
+    if (value === _aiModelPrefsSent) return;
+    if (_aiModelPrefsTimer) clearTimeout(_aiModelPrefsTimer);
+    _aiModelPrefsTimer = setTimeout(function() {
+        _aiModelPrefsTimer = null;
+        _aiModelPrefsSent = value;
+        fetch('/api/ui-prefs/' + _AI_MODEL_PREFS_KEY, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ value: value })
+        }).catch(function() {});
+    }, 300);
+}
+
+function _adoptAiModelPrefsFromServer() {
+    _aiModelPrefsReady = fetch('/api/ui-prefs/' + _AI_MODEL_PREFS_KEY)
+        .then(function(r) { return r.ok ? r.json() : null; })
+        .then(function(payload) {
+            var stored = _parseAiModelPrefs(payload);
+            if (!stored) return;
+            var active = _currentAiProvider();
+            Object.keys(stored).forEach(function(provider) {
+                if (provider === active || !stored[provider]) return;
+                _aiModelPerProvider[provider] = stored[provider];
+            });
+            if (_aiModelPerProvider['compatible']) _compatibleModelSelection = _aiModelPerProvider['compatible'];
+            _restoreCompatibleModelSelection();
+        })
+        .catch(function() {});
+    return _aiModelPrefsReady;
+}
+
+function _rememberModelForProvider(provider, model) {
+    _aiModelPerProvider[provider] = model;
+    if (provider === 'compatible') _compatibleModelSelection = model;
+    _saveAiModelStorage();
+}
+
+function _isKiTabActive() {
+    var kiPane = document.getElementById('tab-ki');
+    return kiPane != null && kiPane.classList.contains('active');
+}
+
+function _loadModelsForCurrentProvider() {
+    _aiModelPrefsReady.then(_loadAiModelsOfCurrentProvider);
+}
+
+function _loadAiModelsOfCurrentProvider() {
+    const provider = _currentAiProvider();
+    const entry = _aiProviderEntry(provider);
+    if (!entry) {
+        console.error('no ai provider model loader registered for provider: ' + provider);
+        return;
+    }
+    entry.load();
+}
+
+function onAiProviderChange() {
+    const model = document.getElementById('aiModel');
+    if (_prevAiProvider && model) {
+        if (_prevAiProvider === 'compatible') {
+            _rememberCompatibleModel(_compatibleModelValue());
+        }
+        var _departingGroupId = _aiProviderOptgroupId(_prevAiProvider);
+        var _departingGroup = _departingGroupId ? document.getElementById(_departingGroupId) : null;
+        var _departingOptions = _departingGroup
+            ? Array.from(_departingGroup.querySelectorAll('option')).map(function(o) { return o.value; })
+            : [];
+        if (_departingOptions.length > 0 && _departingOptions.includes(model.value)) {
+            _aiModelPerProvider[_prevAiProvider] = model.value;
+            _saveAiModelStorage();
+        }
+    }
+
+    const provider = document.querySelector('input[name="aiProvider"]:checked')?.value || 'copilot';
+    _prevAiProvider = provider;
+    const isOpenAi = provider === 'openai';
+    const isOllama = provider === 'ollama';
+    const isLmStudio = provider === 'lmstudio';
+    const isOpenRouter = provider === 'openrouter';
+    const isCompatible = provider === 'compatible';
+    const isClaudeCode = provider === 'claudecode';
+    const isCopilot = !isOpenAi && !isOllama && !isLmStudio && !isOpenRouter && !isClaudeCode && !isCompatible;
+
+    Object.keys(_AI_PROVIDER_REGISTRY).forEach(function(k) {
+        var el = document.getElementById(_AI_PROVIDER_REGISTRY[k].banner);
+        if (el) el.style.visibility = (k === provider) ? 'visible' : 'hidden';
+    });
+
+    function toggleOptional(id, hidden) {
+        var element = document.getElementById(id);
+        if (element) element.classList.toggle('d-none', hidden);
+    }
+
+    toggleOptional('aiTokenSection', !isCopilot);
+    toggleOptional('aiTokenHint', !isCopilot);
+    toggleOptional('aiTestTokenBtn', !isCopilot);
+    toggleOptional('aiTestModelBtn', !isCopilot);
+
+    toggleOptional('aiOpenAiKeySection', !isOpenAi);
+    toggleOptional('aiOpenAiKeyHint', !isOpenAi);
+    toggleOptional('aiTestOpenAiBtn', !isOpenAi);
+    toggleOptional('aiOpenAiReasoningSection', !isOpenAi);
+
+    toggleOptional('aiOllamaUrlSection', !isOllama);
+    toggleOptional('aiOllamaUrlHint', !isOllama);
+    toggleOptional('aiTestOllamaBtn', !isOllama);
+    toggleOptional('aiOllamaNumCtxSection', !isOllama);
+
+    toggleOptional('aiLmStudioUrlSection', !isLmStudio);
+    toggleOptional('aiLmStudioUrlHint', !isLmStudio);
+    toggleOptional('aiTestLmStudioBtn', !isLmStudio);
+
+    toggleOptional('aiOpenRouterKeySection', !isOpenRouter);
+    toggleOptional('aiOpenRouterKeyHint', !isOpenRouter);
+    toggleOptional('aiTestOpenRouterBtn', !isOpenRouter);
+
+    toggleOptional('aiClaudeCodeKeySection', !isClaudeCode);
+    toggleOptional('aiClaudeCodeKeyHint', !isClaudeCode);
+    toggleOptional('aiTestClaudeCodeBtn', !isClaudeCode);
+
+    toggleOptional('aiCompatibleUrlSection', !isCompatible);
+    toggleOptional('aiCompatibleKeySection', !isCompatible);
+    toggleOptional('aiCompatibleModelSection', !isCompatible);
+    toggleOptional('aiCompatibleUrlHint', !isCompatible);
+    toggleOptional('aiCompatibleKeyHint', !isCompatible);
+    toggleOptional('aiTestCompatibleBtn', !isCompatible);
+    toggleOptional('aiModelSelectSection', isCompatible);
+
+    var _aiModelSelectEl = document.getElementById('aiModel');
+    var _modelGroupsPool = document.getElementById('aiModelGroupsPool');
+    if (_aiModelSelectEl && _modelGroupsPool) {
+        var _allGroupIds = _aiModelOptgroupIds();
+        var _activeGroupId = _aiProviderOptgroupId(provider);
+        _allGroupIds.forEach(function(gid) {
+            var g = document.getElementById(gid);
+            if (g && gid !== _activeGroupId && g.parentNode !== _modelGroupsPool) _modelGroupsPool.appendChild(g);
+        });
+        var _activeGroup = _activeGroupId ? document.getElementById(_activeGroupId) : null;
+        if (_activeGroup && _activeGroup.parentNode !== _aiModelSelectEl) _aiModelSelectEl.appendChild(_activeGroup);
+    }
+
+    var _providerCheckMap = {
+        copilot:  ['aiProviderCheckCopilot',  'aiActiveBadgeCopilot'],
+        openai:   ['aiProviderCheckOpenAi',    'aiActiveBadgeOpenAi'],
+        ollama:   ['aiProviderCheckOllama',    'aiActiveBadgeOllama'],
+        lmstudio: ['aiProviderCheckLmStudio',  'aiActiveBadgeLmStudio'],
+        openrouter: ['aiProviderCheckOpenRouter', 'aiActiveBadgeOpenRouter'],
+        claudecode: ['aiProviderCheckClaudeCode', 'aiActiveBadgeClaudeCode'],
+        compatible: ['aiProviderCheckCompatible', 'aiActiveBadgeCompatible']
+    };
+    Object.keys(_providerCheckMap).forEach(function(p) {
+        var ids = _providerCheckMap[p];
+        var wrap  = document.getElementById(ids[0]);
+        var badge = document.getElementById(ids[1]);
+        var active = (p === provider);
+        if (wrap)  { wrap.classList.toggle('ki-provider-active-wrap', active); }
+        if (badge) { badge.classList.toggle('active', active); }
+    });
+
+    const storedModel = _aiModelPerProvider[provider];
+    if (isCompatible) {
+        _restoreCompatibleModelSelection();
+    } else if (storedModel && model) {
+        model.value = storedModel;
+    } else if (model) {
+        const ollamaGroup = document.getElementById('aiOllamaModelsGroup');
+        const ollamaOptions = ollamaGroup ? Array.from(ollamaGroup.querySelectorAll('option')).map(o => o.value) : [];
+        const openAiGroup = document.getElementById('aiOpenAiModelsGroup');
+        const openAiOptions = openAiGroup ? Array.from(openAiGroup.querySelectorAll('option')).map(o => o.value) : [];
+        if (isOpenAi && openAiOptions.length > 0 && !openAiOptions.includes(model.value)) {
+            model.value = openAiOptions[0];
+        } else if (isOllama && ollamaOptions.length > 0 && !ollamaOptions.includes(model.value)) {
+            model.value = ollamaOptions[0];
+        } else if (isLmStudio) {
+            const lmGroup = document.getElementById('aiLmStudioModelsGroup');
+            const lmOptions = lmGroup ? Array.from(lmGroup.querySelectorAll('option')).map(o => o.value) : [];
+            if (lmOptions.length > 0 && !lmOptions.includes(model.value)) model.value = lmOptions[0];
+        } else if (isClaudeCode) {
+            const ccGroup = document.getElementById('aiClaudeCodeModelsGroup');
+            const ccOptions = ccGroup ? Array.from(ccGroup.querySelectorAll('option')).map(o => o.value) : [];
+            if (ccOptions.length > 0 && !ccOptions.includes(model.value)) model.value = ccOptions[0];
+        }
+    }
+
+    if (_isKiTabActive() && window.i18n && typeof window.i18n.onReady === 'function') {
+        window.i18n.onReady(_loadModelsForCurrentProvider);
+    }
+}
+
+(function() {
+    if (typeof document !== 'undefined') {
+        function _watchKiTabActivation() {
+            var kiPane = document.getElementById('tab-ki');
+            if (!kiPane) return;
+            var _wasActive = kiPane.classList.contains('active');
+            new MutationObserver(function() {
+                var isActive = kiPane.classList.contains('active');
+                if (isActive && !_wasActive && window.i18n && typeof window.i18n.onReady === 'function') {
+                    window.i18n.onReady(_loadModelsForCurrentProvider);
+                }
+                _wasActive = isActive;
+            }).observe(kiPane, { attributes: true, attributeFilter: ['class'] });
+        }
+        function _initAiProviderTracking() {
+            var lsData = _loadAiModelStorage();
+            Object.keys(lsData).forEach(function(k) { _aiModelPerProvider[k] = lsData[k]; });
+            _compatibleModelSelection = _aiModelPerProvider['compatible'] || '';
+
+            var initProvider = _currentAiProvider();
+            var initModel = _resolveSavedModelFromDom(initProvider);
+            if (initProvider && initModel) _rememberModelForProvider(initProvider, initModel);
+            _prevAiProvider = initProvider;
+            _saveAiModelStorage();
+            _adoptAiModelPrefsFromServer();
+        }
+
+        function _resolveSavedModelFromDom(provider) {
+            if (provider === 'compatible') return _compatibleModelValue();
+            var groupId = _aiProviderOptgroupId(provider);
+            if (!groupId) return '';
+            var group = document.getElementById(groupId);
+            if (!group) return '';
+            var selectedOption = group.querySelector('option[selected]');
+            if (selectedOption) return selectedOption.value;
+            var firstOption = group.querySelector('option');
+            return firstOption ? firstOption.value : '';
+        }
+        document.addEventListener('DOMContentLoaded', function() {
+            _initAiProviderTracking();
+            _syncCompatiblePresetFromUrl();
+            onAiProviderChange();
+            _watchKiTabActivation();
+        });
+        if (document.readyState !== 'loading') {
+            _initAiProviderTracking();
+            _syncCompatiblePresetFromUrl();
+            onAiProviderChange();
+            _watchKiTabActivation();
+        }
+    }
+})();
+
+async function saveAiConfig() {
+    const provider = document.querySelector('input[name="aiProvider"]:checked')?.value || 'copilot';
+    const token = document.getElementById('aiGithubToken').value;
+    const openAiApiKey = document.getElementById('aiOpenAiApiKey')?.value || '';
+    const openAiReasoningEffort = document.getElementById('aiOpenAiReasoningEffort')?.value || 'medium';
+    const model = document.getElementById('aiModel').value;
+    const ollamaUrl = document.getElementById('aiOllamaUrl')?.value || '';
+    const ollamaNumCtxRaw = parseInt(document.getElementById('aiOllamaNumCtx')?.value || '32768', 10);
+    const ollamaNumCtx = isNaN(ollamaNumCtxRaw) || ollamaNumCtxRaw <= 0 ? 32768 : ollamaNumCtxRaw;
+    const lmStudioUrl = document.getElementById('aiLmStudioUrl')?.value || '';
+    const openRouterApiKey = document.getElementById('aiOpenRouterApiKey')?.value || '';
+    const claudeCodeApiKey = document.getElementById('aiClaudeCodeApiKey')?.value || '';
+    const compatibleApiKey = document.getElementById('aiCompatibleApiKey')?.value || '';
+    const compatibleBaseUrl = (document.getElementById('aiCompatibleUrl')?.value || '').trim();
+    const compatibleModel = _compatibleModelValue();
+    const hasNewToken = token && token !== '••••••••';
+    const tokenPayload = hasNewToken ? token : null;
+    const hasNewOpenAiKey = openAiApiKey && openAiApiKey !== '••••••••';
+    const openAiKeyPayload = hasNewOpenAiKey ? openAiApiKey : null;
+    const hasNewOpenRouterKey = openRouterApiKey && openRouterApiKey !== '••••••••';
+    const openRouterKeyPayload = hasNewOpenRouterKey ? openRouterApiKey : null;
+    const hasNewClaudeCodeKey = claudeCodeApiKey && claudeCodeApiKey !== '••••••••';
+    const claudeCodeKeyPayload = hasNewClaudeCodeKey ? claudeCodeApiKey : null;
+    const hasNewCompatibleKey = compatibleApiKey && compatibleApiKey !== '••••••••';
+    const compatibleKeyPayload = hasNewCompatibleKey ? compatibleApiKey : null;
+    const selectedModel = provider === 'compatible' ? (compatibleModel || null) : (model || null);
+    const res = await fetch('/api/config/ai', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ githubToken: tokenPayload, openAiApiKey: openAiKeyPayload, openRouterApiKey: openRouterKeyPayload, claudeCodeApiKey: claudeCodeKeyPayload, compatibleApiKey: compatibleKeyPayload, compatibleBaseUrl: compatibleBaseUrl || null, openAiReasoningEffort: provider === 'openai' ? openAiReasoningEffort : null, model: selectedModel, aiProvider: provider, ollamaUrl: ollamaUrl || null, ollamaNumCtx: ollamaNumCtx, lmStudioUrl: lmStudioUrl || null })
+    });
+    if (!res.ok) { showAlert(_t('config.error_save'), 'danger'); return; }
+    showAlert(window.i18n.t('config.ai.js_saved', 'KI-Konfiguration gespeichert!'), 'success');
+    if (selectedModel) _rememberModelForProvider(provider, selectedModel);
+    location.reload();
+}
+
+async function testOpenAiConnection() {
+    const t = window.i18n.t.bind(window.i18n);
+    const statusEl = document.getElementById('aiTestStatus');
+    statusEl.className = 'small';
+    statusEl.textContent = '⏳ ' + t('config.ai.js_openai_testing', 'Verbinde mit OpenAI…');
+    statusEl.classList.remove('d-none');
+    try {
+        const openAiApiKey = document.getElementById('aiOpenAiApiKey')?.value || '';
+        const body = openAiApiKey && openAiApiKey !== '••••••••' ? JSON.stringify({ openAiApiKey }) : '{}';
+        const res = await fetch('/api/config/ai/test-openai', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: body
+        });
+        const d = await res.json();
+        if (d.success) {
+            statusEl.className = 'small text-success';
+            const hint = d.accountHint ? ' (' + d.accountHint + ')' : '';
+            statusEl.textContent = '\u2713 ' + t('config.ai.js_openai_ok', 'OpenAI erreichbar ({count} Modell(e) gefunden)').replace('{count}', d.modelCount) + hint;
+            if (d.models && d.models.length > 0) _populateOpenAiModels(d.models);
+        } else {
+            statusEl.className = 'small text-danger';
+            statusEl.textContent = `✗ ${d.error}`;
+        }
+    } catch (e) {
+        statusEl.className = 'small text-danger';
+        statusEl.textContent = '✗ ' + t('config.ai.js_network_error', 'Netzwerkfehler');
+    }
+}
+
+async function _loadOpenAiModels() {
+    const t = window.i18n.t.bind(window.i18n);
+    const requestedFor = document.querySelector('input[name="aiProvider"]:checked')?.value;
+    const statusEl = document.getElementById('aiTestStatus');
+    statusEl.className = 'small';
+    statusEl.textContent = '⏳ ' + t('config.ai.js_openai_testing', 'Verbinde mit OpenAI…');
+    statusEl.classList.remove('d-none');
+    try {
+        const openAiApiKey = document.getElementById('aiOpenAiApiKey')?.value || '';
+        const body = openAiApiKey && openAiApiKey !== '••••••••' ? JSON.stringify({ openAiApiKey }) : '{}';
+        const res = await fetch('/api/config/ai/test-openai', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: body
+        });
+        const d = await res.json();
+        if (document.querySelector('input[name="aiProvider"]:checked')?.value !== requestedFor) return;
+        if (d.success && d.models && d.models.length > 0) {
+            _populateOpenAiModels(d.models);
+            statusEl.className = 'small text-success';
+            const hint = d.accountHint ? ' (' + d.accountHint + ')' : '';
+            statusEl.textContent = '\u2713 ' + t('config.ai.js_openai_models_loaded', '{count} Modell(e) geladen').replace('{count}', d.modelCount) + hint;
+        } else if (d.success) {
+            statusEl.className = 'small text-warning';
+            statusEl.textContent = '⚠ ' + t('config.ai.js_openai_no_models', 'Keine GPT-Modelle gefunden');
+        } else {
+            statusEl.className = 'small text-danger';
+            statusEl.textContent = `✗ ${d.error}`;
+        }
+    } catch (e) {
+        if (document.querySelector('input[name="aiProvider"]:checked')?.value !== requestedFor) return;
+        statusEl.className = 'small text-danger';
+        statusEl.textContent = '✗ ' + t('config.ai.js_network_error', 'Netzwerkfehler');
+    }
+}
+
+function _populateOpenAiModels(models) {
+    const modelSelect = document.getElementById('aiModel');
+    const target = _aiModelPerProvider['openai'] || (modelSelect ? modelSelect.value : '');
+    _replaceOptgroup('aiOpenAiModelsGroup', 'OpenAI GPT', 'ai-openai-models', models, target);
+    _aiModelPerProvider['openai'] = models.includes(target) ? target : (models[0] || target);
+    _saveAiModelStorage();
+    const activeProvider = document.querySelector('input[name="aiProvider"]:checked')?.value;
+    if (modelSelect && activeProvider === 'openai') modelSelect.value = _aiModelPerProvider['openai'];
+}
+
+async function testOllamaConnection() {
+    const t = window.i18n.t.bind(window.i18n);
+    const statusEl = document.getElementById('aiTestStatus');
+    statusEl.className = 'small';
+    statusEl.textContent = '⏳ ' + t('config.ai.js_ollama_testing', 'Verbinde mit Ollama…');
+    statusEl.classList.remove('d-none');
+    try {
+        const ollamaUrl = document.getElementById('aiOllamaUrl')?.value || '';
+        const res = await fetch('/api/config/ai/test-ollama', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ ollamaUrl: ollamaUrl || null })
+        });
+        const d = await res.json();
+        if (d.success) {
+            statusEl.className = 'small text-success';
+            statusEl.textContent = '✓ ' + t('config.ai.js_ollama_ok', 'Ollama erreichbar ({count} Modell(e) gefunden)').replace('{count}', d.modelCount);
+            if (d.models && d.models.length > 0) _populateOllamaModels(d.models);
+        } else {
+            statusEl.className = 'small text-danger';
+            statusEl.textContent = `✗ ${d.error}`;
+        }
+    } catch (e) {
+        statusEl.className = 'small text-danger';
+        statusEl.textContent = '✗ ' + t('config.ai.js_network_error', 'Netzwerkfehler');
+    }
+}
+
+async function _loadOllamaModels() {
+    const t = window.i18n.t.bind(window.i18n);
+    const requestedFor = document.querySelector('input[name="aiProvider"]:checked')?.value;
+    const statusEl = document.getElementById('aiTestStatus');
+    statusEl.className = 'small';
+    statusEl.textContent = '⏳ ' + t('config.ai.js_ollama_testing', 'Verbinde mit Ollama…');
+    statusEl.classList.remove('d-none');
+    try {
+        const ollamaUrl = document.getElementById('aiOllamaUrl')?.value || '';
+        const res = await fetch('/api/config/ai/test-ollama', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ ollamaUrl: ollamaUrl || null })
+        });
+        const d = await res.json();
+        if (document.querySelector('input[name="aiProvider"]:checked')?.value !== requestedFor) return;
+        if (d.success && d.models && d.models.length > 0) {
+            _populateOllamaModels(d.models);
+            statusEl.className = 'small text-success';
+            statusEl.textContent = '✓ ' + t('config.ai.js_ollama_models_loaded', '{count} Modell(e) geladen').replace('{count}', d.modelCount);
+        } else if (d.success) {
+            statusEl.className = 'small text-warning';
+            statusEl.textContent = '⚠ ' + t('config.ai.js_ollama_no_models', 'Keine Modelle gefunden – läuft Ollama?');
+        } else {
+            statusEl.className = 'small text-danger';
+            statusEl.textContent = `✗ ${d.error}`;
+        }
+    } catch (e) {
+        if (document.querySelector('input[name="aiProvider"]:checked')?.value !== requestedFor) return;
+        statusEl.className = 'small text-danger';
+        statusEl.textContent = '✗ ' + t('config.ai.js_network_error', 'Netzwerkfehler');
+    }
+}
+
+function _populateOllamaModels(models) {
+    const modelSelect = document.getElementById('aiModel');
+    const target = _aiModelPerProvider['ollama'] || (modelSelect ? modelSelect.value : '');
+    _replaceOptgroup('aiOllamaModelsGroup', 'Ollama (lokal)', 'ai-ollama-models', models, target);
+    _aiModelPerProvider['ollama'] = models.includes(target) ? target : (models[0] || target);
+    _saveAiModelStorage();
+    const activeProvider = document.querySelector('input[name="aiProvider"]:checked')?.value;
+    if (modelSelect && activeProvider === 'ollama') modelSelect.value = _aiModelPerProvider['ollama'];
+}
+
+function _replaceOptgroup(id, label, className, models, currentVal) {
+    const oldGroup = document.getElementById(id);
+    if (!oldGroup || !oldGroup.parentNode) return;
+    const newGroup = document.createElement('optgroup');
+    newGroup.id = id;
+    newGroup.label = label;
+    newGroup.className = className;
+    models.forEach(function(m) {
+        const opt = document.createElement('option');
+        opt.value = m;
+        opt.text = m;
+        if (m === currentVal) opt.selected = true;
+        newGroup.appendChild(opt);
+    });
+    oldGroup.parentNode.replaceChild(newGroup, oldGroup);
+}
+
+async function testLmStudioConnection() {
+    const t = window.i18n.t.bind(window.i18n);
+    const statusEl = document.getElementById('aiTestStatus');
+    statusEl.className = 'small';
+    statusEl.textContent = '⏳ ' + t('config.ai.js_lmstudio_testing', 'Verbinde mit LM Studio…');
+    statusEl.classList.remove('d-none');
+    try {
+        const lmStudioUrl = document.getElementById('aiLmStudioUrl')?.value || '';
+        const res = await fetch('/api/config/ai/test-lmstudio', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ lmStudioUrl: lmStudioUrl || null })
+        });
+        const d = await res.json();
+        if (d.success) {
+            statusEl.className = 'small text-success';
+            statusEl.textContent = '✓ ' + t('config.ai.js_lmstudio_ok', 'LM Studio erreichbar ({count} Modell(e) gefunden)').replace('{count}', d.modelCount);
+        } else {
+            statusEl.className = 'small text-danger';
+            statusEl.textContent = `✗ ${d.error}`;
+        }
+    } catch (e) {
+        statusEl.className = 'small text-danger';
+        statusEl.textContent = '✗ ' + t('config.ai.js_network_error', 'Netzwerkfehler');
+    }
+}
+
+async function _loadLmStudioModels() {
+    const t = window.i18n.t.bind(window.i18n);
+    const requestedFor = document.querySelector('input[name="aiProvider"]:checked')?.value;
+    const statusEl = document.getElementById('aiTestStatus');
+    statusEl.className = 'small';
+    statusEl.textContent = '⏳ ' + t('config.ai.js_lmstudio_testing', 'Verbinde mit LM Studio…');
+    statusEl.classList.remove('d-none');
+    try {
+        const lmStudioUrl = document.getElementById('aiLmStudioUrl')?.value || '';
+        const res = await fetch('/api/config/ai/test-lmstudio', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ lmStudioUrl: lmStudioUrl || null })
+        });
+        const d = await res.json();
+        if (document.querySelector('input[name="aiProvider"]:checked')?.value !== requestedFor) return;
+        if (d.success && d.models && d.models.length > 0) {
+            const modelSelect = document.getElementById('aiModel');
+            const target = _aiModelPerProvider['lmstudio'] || (modelSelect ? modelSelect.value : '');
+            _replaceOptgroup('aiLmStudioModelsGroup', 'LM Studio (lokal)', 'ai-lmstudio-models', d.models, target);
+            _aiModelPerProvider['lmstudio'] = d.models.includes(target) ? target : (d.models[0] || target);
+            _saveAiModelStorage();
+            const activeProvider = document.querySelector('input[name="aiProvider"]:checked')?.value;
+            if (modelSelect && activeProvider === 'lmstudio') modelSelect.value = _aiModelPerProvider['lmstudio'];
+            statusEl.className = 'small text-success';
+            statusEl.textContent = '✓ ' + t('config.ai.js_lmstudio_models_loaded', '{count} Modell(e) geladen').replace('{count}', d.modelCount);
+        } else if (d.success) {
+            statusEl.className = 'small text-warning';
+            statusEl.textContent = '⚠ ' + t('config.ai.js_lmstudio_no_models', 'Keine Modelle gefunden – läuft LM Studio?');
+        } else {
+            statusEl.className = 'small text-danger';
+            statusEl.textContent = `✗ ${d.error}`;
+        }
+    } catch (e) {
+        if (document.querySelector('input[name="aiProvider"]:checked')?.value !== requestedFor) return;
+        statusEl.className = 'small text-danger';
+        statusEl.textContent = '✗ ' + t('config.ai.js_network_error', 'Netzwerkfehler');
+    }
+}
+
+async function _loadCopilotModels(githubUser) {
+    const t = window.i18n ? window.i18n.t.bind(window.i18n) : (k, fb) => fb || k;
+    const requestedFor = document.querySelector('input[name="aiProvider"]:checked')?.value;
+    const statusEl = document.getElementById('aiTestStatus');
+    if (statusEl) {
+        statusEl.className = 'small';
+        statusEl.textContent = '⏳ ' + t('config.ai.js_copilot_loading', 'Lade Copilot Modelle…');
+        statusEl.classList.remove('d-none');
+    }
+    try {
+        const token = document.getElementById('aiGithubToken')?.value || '';
+        const body = token && token !== '••••••••' ? JSON.stringify({ githubToken: token }) : '{}';
+        const res = await fetch('/api/config/ai/copilot-models', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: body
+        });
+        const d = await res.json();
+        if (document.querySelector('input[name="aiProvider"]:checked')?.value !== requestedFor) return;
+        if (d.success && d.models && d.models.length > 0) {
+            _populateCopilotModels(d.models);
+            if (statusEl) {
+                statusEl.className = 'small text-success';
+                const userHint = (githubUser || d.githubUser) ? ' (@' + (githubUser || d.githubUser) + ')' : '';
+                statusEl.textContent = '\u2713 ' + t('config.ai.js_copilot_models_loaded', '{count} Copilot-Modell(e) geladen').replace('{count}', d.modelCount) + userHint;
+            }
+        } else if (d.success) {
+            if (statusEl) {
+                statusEl.className = 'small text-warning';
+                statusEl.textContent = '⚠ ' + t('config.ai.js_copilot_no_models', 'Keine Copilot Modelle gefunden');
+            }
+        } else {
+            if (statusEl) {
+                statusEl.className = 'small text-danger';
+                statusEl.textContent = `✗ ${t('config.ai.js_copilot_models_failed', 'Copilot-Modelle konnten nicht geladen werden')}: ${d.error || ''}`;
+            }
+        }
+    } catch (e) {
+        if (statusEl) { statusEl.className = 'small d-none'; }
+    }
+}
+
+function _populateCopilotModels(models) {
+    const modelSelect = document.getElementById('aiModel');
+    const target = _aiModelPerProvider['copilot'] || (modelSelect ? modelSelect.value : '');
+    const oldGroup = document.getElementById('aiCopilotModelsGroup');
+    if (!oldGroup || !oldGroup.parentNode) return;
+    const newGroup = document.createElement('optgroup');
+    newGroup.id = 'aiCopilotModelsGroup';
+    newGroup.label = 'GitHub Copilot';
+    newGroup.className = 'ai-copilot-models';
+    const ids = [];
+    models.forEach(function(m) {
+        const id = typeof m === 'string' ? m : (m.id || '');
+        const name = typeof m === 'object' ? (m.name || id) : id;
+        ids.push(id);
+        const opt = document.createElement('option');
+        opt.value = id;
+        opt.text = name;
+        if (id === target) opt.selected = true;
+        newGroup.appendChild(opt);
+    });
+    oldGroup.parentNode.replaceChild(newGroup, oldGroup);
+    _aiModelPerProvider['copilot'] = ids.includes(target) ? target : (ids.length > 0 ? ids[0] : target);
+    _saveAiModelStorage();
+    const activeProvider = document.querySelector('input[name="aiProvider"]:checked')?.value;
+    if (modelSelect && activeProvider === 'copilot') modelSelect.value = _aiModelPerProvider['copilot'];
+}
+
+async function testCopilotModel() {
+    const t = window.i18n.t.bind(window.i18n);
+    const statusEl = document.getElementById('aiTestStatus');
+    const model = document.getElementById('aiModel')?.value || '';
+    statusEl.className = 'small';
+    statusEl.textContent = '\u23f3 ' + t('config.ai.js_model_testing', 'Teste Modell {model}\u2026').replace('{model}', model);
+    statusEl.classList.remove('d-none');
+    try {
+        const token = document.getElementById('aiGithubToken').value;
+        const body = { model: model };
+        if (token && token !== '\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022') body.githubToken = token;
+        const res = await fetch('/api/config/ai/test-model', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body)
+        });
+        const d = await res.json();
+        if (d.success) {
+            statusEl.className = 'small text-success';
+            statusEl.textContent = '\u2713 ' + t('config.ai.js_model_ok', '\u2713 {model} ist verf\u00fcgbar').replace('{model}', model);
+        } else {
+            statusEl.className = 'small text-danger';
+            statusEl.textContent = '\u2717 ' + (d.error || t('config.ai.js_model_test_failed', 'Test fehlgeschlagen f\u00fcr {model}: {error}').replace('{model}', model).replace('{error}', ''));
+        }
+    } catch (e) {
+        statusEl.className = 'small text-danger';
+        statusEl.textContent = '\u2717 ' + t('config.ai.js_network_error', 'Netzwerkfehler');
+    }
+}
+
+async function testAiToken() {
+    const t = window.i18n.t.bind(window.i18n);
+    const statusEl = document.getElementById('aiTestStatus');
+    statusEl.className = 'small';
+    statusEl.textContent = '⏳ ' + t('config.ai.js_testing', 'Teste Token…');
+    statusEl.classList.remove('d-none');
+    try {
+        const token = document.getElementById('aiGithubToken').value;
+        const body = token && token !== '••••••••' ? JSON.stringify({ githubToken: token }) : '{}';
+        const res = await fetch('/api/config/ai/test-token', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: body
+        });
+        const d = await res.json();
+        if (d.success) {
+            statusEl.className = 'small text-success';
+            statusEl.textContent = '✓ ' + t('config.ai.js_token_ok', 'Token OK ({user})').replace('{user}', d.githubUser);
+            await _loadCopilotModels(d.githubUser);
+        } else {
+            statusEl.className = 'small text-danger';
+            statusEl.textContent = `✗ ${d.error}`;
+        }
+    } catch (e) {
+        statusEl.className = 'small text-danger';
+        statusEl.textContent = '✗ ' + t('config.ai.js_network_error', 'Netzwerkfehler');
+    }
+}
+
+async function testOpenRouterConnection() {
+    const t = window.i18n.t.bind(window.i18n);
+    const statusEl = document.getElementById('aiTestStatus');
+    statusEl.className = 'small';
+    statusEl.textContent = '⏳ ' + t('config.ai.js_openrouter_testing', 'Verbinde mit OpenRouter…');
+    statusEl.classList.remove('d-none');
+    try {
+        const openRouterApiKey = document.getElementById('aiOpenRouterApiKey')?.value || '';
+        const body = openRouterApiKey && openRouterApiKey !== '••••••••' ? JSON.stringify({ openRouterApiKey }) : '{}';
+        const res = await fetch('/api/config/ai/test-openrouter', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: body
+        });
+        const d = await res.json();
+        if (d.success) {
+            statusEl.className = 'small text-success';
+            const hint = d.accountHint ? ' (' + d.accountHint + ')' : '';
+            statusEl.textContent = '\u2713 ' + t('config.ai.js_openrouter_ok', 'OpenRouter erreichbar ({count} Modell(e) gefunden)').replace('{count}', d.modelCount) + hint;
+            if (d.models && d.models.length > 0) _populateOpenRouterModels(d.models);
+        } else {
+            statusEl.className = 'small text-danger';
+            statusEl.textContent = `✗ ${d.error}`;
+        }
+    } catch (e) {
+        statusEl.className = 'small text-danger';
+        statusEl.textContent = '✗ ' + t('config.ai.js_network_error', 'Netzwerkfehler');
+    }
+}
+
+async function _loadOpenRouterModels() {
+    const t = window.i18n.t.bind(window.i18n);
+    const requestedFor = document.querySelector('input[name="aiProvider"]:checked')?.value;
+    const statusEl = document.getElementById('aiTestStatus');
+    statusEl.className = 'small';
+    statusEl.textContent = '⏳ ' + t('config.ai.js_openrouter_testing', 'Verbinde mit OpenRouter…');
+    statusEl.classList.remove('d-none');
+    try {
+        const openRouterApiKey = document.getElementById('aiOpenRouterApiKey')?.value || '';
+        const body = openRouterApiKey && openRouterApiKey !== '••••••••' ? JSON.stringify({ openRouterApiKey }) : '{}';
+        const res = await fetch('/api/config/ai/test-openrouter', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: body
+        });
+        const d = await res.json();
+        if (document.querySelector('input[name="aiProvider"]:checked')?.value !== requestedFor) return;
+        if (d.success && d.models && d.models.length > 0) {
+            _populateOpenRouterModels(d.models);
+            statusEl.className = 'small text-success';
+            const hint = d.accountHint ? ' (' + d.accountHint + ')' : '';
+            statusEl.textContent = '\u2713 ' + t('config.ai.js_openrouter_models_loaded', '{count} Modell(e) geladen').replace('{count}', d.modelCount) + hint;
+        } else if (d.success) {
+            statusEl.className = 'small text-warning';
+            statusEl.textContent = '⚠ ' + t('config.ai.js_openrouter_no_models', 'Keine Modelle gefunden');
+        } else {
+            statusEl.className = 'small text-danger';
+            statusEl.textContent = `✗ ${d.error}`;
+        }
+    } catch (e) {
+        if (document.querySelector('input[name="aiProvider"]:checked')?.value !== requestedFor) return;
+        statusEl.className = 'small text-danger';
+        statusEl.textContent = '✗ ' + t('config.ai.js_network_error', 'Netzwerkfehler');
+    }
+}
+
+function _populateOpenRouterModels(models) {
+    const modelSelect = document.getElementById('aiModel');
+    const target = _aiModelPerProvider['openrouter'] || (modelSelect ? modelSelect.value : '');
+    _replaceOptgroup('aiOpenRouterModelsGroup', 'OpenRouter', 'ai-openrouter-models', models, target);
+    _aiModelPerProvider['openrouter'] = models.includes(target) ? target : (models[0] || target);
+    _saveAiModelStorage();
+    const activeProvider = document.querySelector('input[name="aiProvider"]:checked')?.value;
+    if (modelSelect && activeProvider === 'openrouter') modelSelect.value = _aiModelPerProvider['openrouter'];
+}
+
+function _compatibleBaseUrl() {
+    return (document.getElementById('aiCompatibleUrl')?.value || '').trim();
+}
+
+function _compatibleSelect() {
+    return document.getElementById('aiCompatibleModel');
+}
+
+function _compatibleManualSection() {
+    return document.getElementById('aiCompatibleModelManualSection');
+}
+
+function _compatibleManualInput() {
+    return document.getElementById('aiCompatibleModelManual');
+}
+
+function _compatibleUsesManualModel() {
+    const section = _compatibleManualSection();
+    return !!section && !section.classList.contains('d-none');
+}
+
+function _compatibleModelValue() {
+    const input = _compatibleManualInput();
+    if (_compatibleUsesManualModel() && input) return input.value.trim();
+    const select = _compatibleSelect();
+    return select ? select.value.trim() : '';
+}
+
+function _compatibleRequestBody() {
+    const body = { compatibleBaseUrl: _compatibleBaseUrl() || null, model: _compatibleModelValue() || null };
+    const key = document.getElementById('aiCompatibleApiKey')?.value || '';
+    if (key && key !== '••••••••') body.compatibleApiKey = key;
+    return JSON.stringify(body);
+}
+
+function _compatibleLoadingLabel() {
+    const key = 'config.ai.compatible_model_loading';
+    const label = window.i18n && window.i18n.t ? window.i18n.t(key) : key;
+    return label === key ? 'Modelle werden geladen…' : label;
+}
+
+function _compatibleEndpointSignature() {
+    return _compatibleBaseUrl() + '|' + (document.getElementById('aiCompatibleApiKey')?.value || '');
+}
+
+function _showCompatibleModelList() {
+    const section = _compatibleManualSection();
+    if (section) section.classList.add('d-none');
+    const select = _compatibleSelect();
+    if (select) select.classList.remove('d-none');
+}
+
+function _showCompatibleModelManualInput() {
+    const section = _compatibleManualSection();
+    if (section) section.classList.remove('d-none');
+    const select = _compatibleSelect();
+    if (select) select.classList.add('d-none');
+}
+
+function _rememberCompatibleModel(model) {
+    if (!model) return;
+    _rememberModelForProvider('compatible', model);
+}
+
+function _onCompatibleModelChange() {
+    _rememberCompatibleModel(_compatibleModelValue());
+}
+
+function _onCompatibleModelManualInput() {
+    _rememberCompatibleModel(_compatibleModelValue());
+}
+
+function _resetCompatibleModelList() {
+    const select = _compatibleSelect();
+    if (!select) return;
+    select.innerHTML = '';
+    const placeholder = document.createElement('option');
+    placeholder.value = '';
+    placeholder.text = _compatibleLoadingLabel();
+    select.appendChild(placeholder);
+    _showCompatibleModelList();
+}
+
+function _renderCompatibleModelOptions(models, selected) {
+    const select = _compatibleSelect();
+    if (!select) return;
+    const items = selected && models.indexOf(selected) === -1 ? [selected].concat(models) : models.slice();
+    select.innerHTML = '';
+    items.forEach(function (id) {
+        const option = document.createElement('option');
+        option.value = id;
+        option.text = id;
+        if (id === selected) option.selected = true;
+        select.appendChild(option);
+    });
+    if (selected) select.value = selected;
+}
+
+function _populateCompatibleModels(models) {
+    if (!_compatibleSelect()) return;
+    const list = (models || []).filter(function (id) { return typeof id === 'string' && id.trim() !== ''; });
+    const stored = _compatibleModelSelection;
+    if (list.length === 0) {
+        const input = _compatibleManualInput();
+        if (input && !input.value) input.value = stored;
+        _showCompatibleModelManualInput();
+        return;
+    }
+    const selected = stored || list[0];
+    _renderCompatibleModelOptions(list, selected);
+    _showCompatibleModelList();
+    _rememberCompatibleModel(selected);
+    _compatibleModelsLoadedFor = _compatibleEndpointSignature();
+}
+
+function _restoreCompatibleModelSelection() {
+    const stored = _compatibleModelSelection;
+    if (!stored) return;
+    if (_compatibleUsesManualModel()) {
+        const input = _compatibleManualInput();
+        if (input && !input.value) input.value = stored;
+        return;
+    }
+    const select = _compatibleSelect();
+    if (!select) return;
+    const known = Array.prototype.some.call(select.options, function (o) { return o.value === stored; });
+    if (!known) {
+        const option = document.createElement('option');
+        option.value = stored;
+        option.text = stored;
+        select.insertBefore(option, select.firstChild);
+    }
+    select.value = stored;
+}
+
+function _forgetCompatibleEndpointModels() {
+    _compatibleModelsLoadedFor = '';
+    _compatibleModelSelection = '';
+    delete _aiModelPerProvider['compatible'];
+    _saveAiModelStorage();
+    const input = _compatibleManualInput();
+    if (input) input.value = '';
+    _resetCompatibleModelList();
+}
+
+function _syncCompatiblePresetFromUrl() {
+    const presetSelect = document.getElementById('aiCompatiblePreset');
+    if (!presetSelect) return;
+    const url = _compatibleBaseUrl();
+    const matchesPreset = Array.prototype.some.call(presetSelect.options, function (option) {
+        return option.value !== '' && option.value === url;
+    });
+    presetSelect.value = matchesPreset ? url : '';
+}
+
+function applyCompatiblePreset() {
+    const preset = document.getElementById('aiCompatiblePreset')?.value || '';
+    const urlInput = document.getElementById('aiCompatibleUrl');
+    if (!preset || !urlInput) return;
+    urlInput.value = preset;
+    _forgetCompatibleEndpointModels();
+    _loadCompatibleModels(true);
+}
+
+function _onCompatibleUrlInput() {
+    const presetSelect = document.getElementById('aiCompatiblePreset');
+    if (presetSelect) presetSelect.value = '';
+}
+
+function _onCompatibleUrlChange() {
+    _syncCompatiblePresetFromUrl();
+    _forgetCompatibleEndpointModels();
+    _loadCompatibleModels(true);
+}
+
+function _showCompatibleFailure(d, t) {
+    const statusEl = document.getElementById('aiTestStatus');
+    const severity = d.severity || 'error';
+    if (severity === 'info') {
+        statusEl.className = 'small text-muted';
+        statusEl.textContent = '\u2139 ' + d.error;
+    } else if (severity === 'warning') {
+        statusEl.className = 'small text-warning';
+        statusEl.textContent = '\u26a0 ' + d.error;
+    } else {
+        statusEl.className = 'small text-danger';
+        statusEl.textContent = '\u2717 ' + d.error;
+    }
+}
+
+async function _requestCompatibleTest(t) {
+    const statusEl = document.getElementById('aiTestStatus');
+    statusEl.className = 'small';
+    statusEl.textContent = '⏳ ' + t('config.ai.js_compatible_testing', 'Verbinde mit dem Endpunkt…');
+    statusEl.classList.remove('d-none');
+    const requestedUrl = _compatibleBaseUrl();
+    if (!requestedUrl) {
+        statusEl.className = 'small text-danger';
+        statusEl.textContent = '\u2717 ' + t('config.ai.js_compatible_invalid_url', 'Bitte zuerst eine Basis-URL angeben.');
+        return null;
+    }
+    const res = await fetch('/api/config/ai/test-compatible', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: _compatibleRequestBody()
+    });
+    const d = await res.json();
+    if (_compatibleBaseUrl() !== requestedUrl) return null;
+    return d;
+}
+
+function _renderCompatibleSuccess(statusEl, t, d, loadedKey) {
+    const models = d.models || [];
+    _populateCompatibleModels(models);
+    if (models.length === 0) {
+        statusEl.className = 'small text-warning';
+        statusEl.textContent = '\u26a0 ' + t('config.ai.js_compatible_no_models');
+        return;
+    }
+    const hint = d.accountHint ? ' (' + d.accountHint + ')' : '';
+    statusEl.className = 'small text-success';
+    statusEl.textContent = '\u2713 ' + t(loadedKey).replace('{count}', d.modelCount) + hint;
+}
+
+async function testCompatibleConnection() {
+    const t = window.i18n.t.bind(window.i18n);
+    const statusEl = document.getElementById('aiTestStatus');
+    try {
+        const d = await _requestCompatibleTest(t);
+        if (!d) return;
+        if (d.success) {
+            _renderCompatibleSuccess(statusEl, t, d, 'config.ai.js_compatible_ok');
+        } else {
+            _showCompatibleFailure(d, t);
+        }
+    } catch (e) {
+        statusEl.className = 'small text-danger';
+        statusEl.textContent = '✗ ' + t('config.ai.js_network_error', 'Netzwerkfehler');
+    }
+}
+
+async function _loadCompatibleModels(force) {
+    const t = window.i18n.t.bind(window.i18n);
+    const statusEl = document.getElementById('aiTestStatus');
+    if (!force && _compatibleModelsLoadedFor && _compatibleModelsLoadedFor === _compatibleEndpointSignature()) return;
+    try {
+        const d = await _requestCompatibleTest(t);
+        if (!d) return;
+        if (d.success) {
+            _renderCompatibleSuccess(statusEl, t, d, 'config.ai.js_compatible_models_loaded');
+        } else {
+            _showCompatibleFailure(d, t);
+        }
+    } catch (e) {
+        statusEl.className = 'small text-danger';
+        statusEl.textContent = '✗ ' + t('config.ai.js_network_error', 'Netzwerkfehler');
+    }
+}
+
+function _claudeCodeRequestBody(model) {
+    const claudeCodeApiKey = document.getElementById('aiClaudeCodeApiKey')?.value || '';
+    const payload = {};
+    if (claudeCodeApiKey && claudeCodeApiKey !== '••••••••') payload.claudeCodeApiKey = claudeCodeApiKey;
+    if (model) payload.model = model;
+    return JSON.stringify(payload);
+}
+
+async function testClaudeCodeConnection() {
+    const t = window.i18n.t.bind(window.i18n);
+    const statusEl = document.getElementById('aiTestStatus');
+    const now = Date.now();
+    const last = window._aiLastClaudeCodeTest || 0;
+    if (now - last < 5000) {
+        statusEl.className = 'small text-warning';
+        const wait = Math.ceil((5000 - (now - last)) / 1000);
+        statusEl.textContent = '⏳ ' + t('config.ai.js_claudecode_cooldown', 'Bitte ' + wait + 's warten…');
+        statusEl.classList.remove('d-none');
+        return;
+    }
+    window._aiLastClaudeCodeTest = now;
+    statusEl.className = 'small';
+    statusEl.textContent = '⏳ ' + t('config.ai.js_claudecode_testing', 'Verbinde mit Claude Code…');
+    statusEl.classList.remove('d-none');
+    try {
+        const res = await fetch('/api/config/ai/test-claudecode', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: _claudeCodeRequestBody(document.getElementById('aiModel')?.value || '')
+        });
+        const d = await res.json();
+        if (d.success) {
+            statusEl.className = 'small text-success';
+            const hint = d.accountHint ? ' (' + d.accountHint + ')' : '';
+            statusEl.textContent = '\u2713 ' + t('config.ai.js_claudecode_ok', 'Claude Code erreichbar') + hint;
+            if (d.models && d.models.length > 0) _populateClaudeCodeModels(d.models);
+        } else {
+            const severity = d.severity || 'error';
+            if (severity === 'info') {
+                statusEl.className = 'small text-muted';
+                statusEl.textContent = '\u2139 ' + d.error;
+            } else if (severity === 'warning') {
+                statusEl.className = 'small text-warning';
+                statusEl.textContent = '\u26a0 ' + d.error;
+            } else {
+                statusEl.className = 'small text-danger';
+                statusEl.textContent = '\u2717 ' + d.error;
+            }
+        }
+    } catch (e) {
+        statusEl.className = 'small text-danger';
+        statusEl.textContent = '✗ ' + t('config.ai.js_network_error', 'Netzwerkfehler');
+    }
+}
+
+async function _loadClaudeCodeModels(force) {
+    const t = window.i18n.t.bind(window.i18n);
+    const requestedFor = document.querySelector('input[name="aiProvider"]:checked')?.value;
+    if (requestedFor !== 'claudecode') return;
+    if (!force && (_claudeCodeModelsLoaded || _claudeCodeModelsAttempted)) {
+        _restoreClaudeCodeModelSelection();
+        return;
+    }
+    _claudeCodeModelsAttempted = true;
+    const statusEl = document.getElementById('aiTestStatus');
+    statusEl.className = 'small';
+    statusEl.textContent = '⏳ ' + t('config.ai.js_claudecode_testing', 'Verbinde mit Claude Code…');
+    statusEl.classList.remove('d-none');
+    try {
+        const res = await fetch('/api/config/ai/test-claudecode', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: _claudeCodeRequestBody('')
+        });
+        const d = await res.json();
+        if (document.querySelector('input[name="aiProvider"]:checked')?.value !== requestedFor) return;
+        if (d.success && d.models && d.models.length > 0) {
+            _populateClaudeCodeModels(d.models);
+            statusEl.className = 'small text-success';
+            const hint = d.accountHint ? ' (' + d.accountHint + ')' : '';
+            statusEl.textContent = '\u2713 ' + t('config.ai.js_claudecode_models_loaded', '{count} Modell(e) geladen').replace('{count}', d.modelCount) + hint;
+        } else if (d.success) {
+            statusEl.className = 'small text-warning';
+            statusEl.textContent = '\u26a0 ' + t('config.ai.js_claudecode_no_models', 'Keine Modelle gefunden — gespeicherte Auswahl bleibt');
+        } else {
+            statusEl.className = 'small text-danger';
+            statusEl.textContent = `\u2717 ${d.error}`;
+        }
+    } catch (e) {
+        if (document.querySelector('input[name="aiProvider"]:checked')?.value !== requestedFor) return;
+        statusEl.className = 'small text-danger';
+        statusEl.textContent = '✗ ' + t('config.ai.js_network_error', 'Netzwerkfehler');
+    }
+}
+
+function _restoreClaudeCodeModelSelection() {
+    const modelSelect = document.getElementById('aiModel');
+    const target = _aiModelPerProvider['claudecode'] || (modelSelect ? modelSelect.value : '');
+    if (target && modelSelect && Array.from(modelSelect.options).some(function(o) { return o.value === target; })) {
+        modelSelect.value = target;
+    }
+}
+
+function _populateClaudeCodeModels(models) {
+    const modelSelect = document.getElementById('aiModel');
+    const target = _aiModelPerProvider['claudecode'] || (modelSelect ? modelSelect.value : '');
+    const discovered = (models || []).filter(function(id) { return typeof id === 'string' && id.trim() !== ''; });
+    if (discovered.length === 0) return;
+    const ids = discovered.indexOf(target) >= 0 ? discovered : [target].concat(discovered).filter(function(id) { return id !== ''; });
+    _replaceOptgroup('aiClaudeCodeModelsGroup', 'Claude Code', 'ai-claudecode-models', ids, target);
+    _claudeCodeModelsLoaded = true;
+    _aiModelPerProvider['claudecode'] = ids.indexOf(target) >= 0 ? target : ids[0];
+    _saveAiModelStorage();
+    const activeProvider = document.querySelector('input[name="aiProvider"]:checked')?.value;
+    if (modelSelect && activeProvider === 'claudecode') modelSelect.value = _aiModelPerProvider['claudecode'];
+}
+</script>
+</th:block>
+</body>
+</html>

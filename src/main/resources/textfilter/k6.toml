@@ -1,0 +1,23 @@
+[filters.k6]
+description = "Compact k6 load-test output - strip per-metric histogram lines, keep summary + errors"
+match_command = "^k6\\s+(run|exec)\\b"
+strip_ansi = true
+strip_lines_matching = [
+  "^\\s*$",
+  "^\\s+checks\\s*\\.+\\s*:",
+  "^\\s+data_(received|sent)\\s*\\.+\\s*:",
+  "^\\s+http_req_(blocked|connecting|duration|failed|receiving|waiting|sending|tls_handshaking)\\s*\\.+\\s*:",
+  "^\\s+iteration(_duration)?\\s*\\.+\\s*:",
+  "^\\s+iterations\\s*\\.+\\s*:",
+  "^\\s+vus(_max)?\\s*\\.+\\s*:",
+  "^\\s+dropped_iterations\\s*\\.+\\s*:",
+  "^\\s+network_data_(received|sent)\\s*\\.+\\s*:",
+  "^\\s*running \\(",
+  "^\\s*started\\s+\\d{4}",
+  "^\\s*paused\\s+",
+  "^\\s*resumed\\s+",
+  "^\\s*stopped\\s+",
+]
+truncate_lines_at = 200
+max_lines = 60
+on_empty = "k6: ok"

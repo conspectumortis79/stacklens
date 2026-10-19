@@ -1,0 +1,711 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" lang="de">
+<body>
+<th:block th:fragment="scripts-page">
+<script th:inline="none">
+  var _cfInlineEscHandler = null;
+
+  function __showModal(modalId) {
+    var modalEl = document.getElementById(modalId);
+    if (!modalEl) return;
+    if (modalEl.className.indexOf('show') === -1) {
+      modalEl.className += ' show';
+    }
+    modalEl.style.setProperty('display', 'block', 'important');
+    modalEl.removeAttribute('aria-hidden');
+    modalEl.setAttribute('aria-modal', 'true');
+
+    if (document.body.className.indexOf('modal-open') === -1) {
+      document.body.className += ' modal-open';
+    }
+
+    if (!document.querySelector('.modal-backdrop')) {
+      var backdrop = document.createElement('div');
+      backdrop.className = 'modal-backdrop fade show';
+      backdrop.style.setProperty('display', 'block', 'important');
+      document.body.appendChild(backdrop);
+    }
+
+    if (_cfInlineEscHandler) window.removeEventListener('keydown', _cfInlineEscHandler, true);
+    _cfInlineEscHandler = function(e) {
+      if (e.key === 'Escape' || e.key === 'Esc') {
+        e.preventDefault();
+        __hideModal(modalId);
+      }
+    };
+    window.addEventListener('keydown', _cfInlineEscHandler, true);
+  }
+
+  function __hideModal(modalId) {
+    var modalEl = document.getElementById(modalId);
+    if (!modalEl) return;
+    modalEl.className = modalEl.className.replace(/\bshow\b/g, '').trim();
+    modalEl.style.setProperty('display', 'none', 'important');
+    modalEl.setAttribute('aria-hidden', 'true');
+    modalEl.removeAttribute('aria-modal');
+
+    var backdrop = document.querySelector('.modal-backdrop');
+    if (backdrop && backdrop.parentNode) {
+      backdrop.parentNode.removeChild(backdrop);
+    }
+    if (!document.querySelector('.modal.show')) {
+      document.body.className = document.body.className.replace(/\bmodal-open\b/g, '').trim();
+    }
+
+    if (_cfInlineEscHandler) {
+      window.removeEventListener('keydown', _cfInlineEscHandler, true);
+      _cfInlineEscHandler = null;
+    }
+  }
+
+  function __resetFields(ids) {
+    var i;
+    for (i = 0; i < ids.length; i++) {
+      var el = document.getElementById(ids[i]);
+      if (el) el.value = '';
+    }
+  }
+
+  function __openGitlabModal() {
+    __resetFields(['glId', 'glName', 'glUrl', 'glToken', 'glGroup', 'glProjects', 'glBranch']);
+    var active = document.getElementById('glActive');
+    var title = document.getElementById('gitlabModalTitle');
+    if (active) active.checked = true;
+    if (title) title.textContent = window.i18n ? window.i18n.t('config.gitlab.new') : 'Neue GitLab-Verbindung';
+    __showModal('gitlabModal');
+  }
+
+  function __openDbModal() {
+    __resetFields(['dbId', 'dbName', 'dbHost', 'dbDatabase', 'dbUser', 'dbPass', 'dbSchemas']);
+    var type = document.getElementById('dbType');
+    var port = document.getElementById('dbPort');
+    var active = document.getElementById('dbActive');
+    var title = document.getElementById('dbModalTitle');
+    if (type) type.value = 'POSTGRESQL';
+    if (port) port.value = 5432;
+    if (active) active.checked = true;
+    if (title) title.textContent = window.i18n ? window.i18n.t('config.database.new') : 'Neue Datenbank-Verbindung';
+    __showModal('dbModal');
+  }
+
+  function __openConfluenceModal() {
+    __resetFields(['cfId', 'cfName', 'cfUrl', 'cfUser', 'cfToken', 'cfSearchRoot']);
+    var cloud = document.getElementById('cfCloud');
+    var active = document.getElementById('cfActive');
+    var title = document.getElementById('cfModalTitle');
+    if (cloud) cloud.checked = true;
+    if (active) active.checked = true;
+    if (title) title.textContent = window.i18n ? window.i18n.t('config.confluence.new') : 'Neue Confluence-Verbindung';
+    __showModal('confluenceModal');
+  }
+
+  function __openGrafanaModal() {
+    __resetFields(['grId', 'grName', 'grUrl', 'grToken']);
+    var org = document.getElementById('grOrg');
+    var scan = document.getElementById('grScanQueries');
+    var active = document.getElementById('grActive');
+    var title = document.getElementById('grModalTitle');
+    if (org) org.value = 1;
+    if (scan) scan.checked = true;
+    if (active) active.checked = true;
+    if (title) title.textContent = window.i18n ? window.i18n.t('config.grafana.new') : 'Neue Grafana-Verbindung';
+    __showModal('grafanaModal');
+  }
+
+  function __openJiraModal() {
+    __resetFields(['jrId', 'jrName', 'jrUrl', 'jrProject', 'jrUser', 'jrToken', 'jrVisibilityRole']);
+    var cloud = document.getElementById('jrCloud');
+    var active = document.getElementById('jrActive');
+    var title = document.getElementById('jrModalTitle');
+    if (cloud) cloud.checked = true;
+    if (active) active.checked = true;
+    if (title) title.textContent = window.i18n ? window.i18n.t('config.jira.new') : 'Neue Jira-Verbindung';
+    __showModal('jiraModal');
+  }
+
+  function __openKeepassImportModal() {
+    var step1 = document.getElementById('kpStep1');
+    var step2 = document.getElementById('kpStep2');
+    var importBtn = document.getElementById('kpImportBtn');
+    var importResult = document.getElementById('kpImportResult');
+    if (step1) step1.style.display = '';
+    if (step2) step2.style.display = 'none';
+    if (importBtn) importBtn.style.display = 'none';
+    if (importResult) { importResult.style.display = 'none'; importResult.innerHTML = ''; }
+    if (typeof cfOpenKeepassBrowser === 'function') {
+      cfOpenKeepassBrowser();
+    }
+  }
+
+  function cfSwitchTab(id, btn) {
+    document.querySelectorAll('.cf-tab').forEach(function(t) { t.classList.remove('active'); });
+    document.querySelectorAll('.cf-tab-pane').forEach(function(p) { p.classList.remove('active'); });
+    btn.classList.add('active');
+    var pane = document.getElementById('tab-' + id);
+    if (pane) { pane.classList.add('active'); }
+    try { localStorage.setItem('cf_active_tab', id); } catch(e) {}
+  }
+
+  function cfCurrentTheme() {
+    try { return localStorage.getItem('stacklens-theme') || 'modern'; } catch(e) { return 'modern'; }
+  }
+  function cfRefreshThemeChoice() {
+    var cur = cfCurrentTheme();
+    document.querySelectorAll('.cf-theme-card').forEach(function(c) {
+      if (c.getAttribute('data-theme-choice') === cur) c.classList.add('selected');
+      else c.classList.remove('selected');
+    });
+  }
+  function cfSetTheme(name) {
+    try { localStorage.setItem('stacklens-theme', name); } catch(e) {}
+    document.documentElement.setAttribute('data-theme', name);
+    fetch('/api/ui-prefs/theme', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ value: name })
+    }).catch(function() {});
+    cfRefreshThemeChoice();
+  }
+  function cfApplyUiPreferences(prefs) {
+    if (!prefs) return;
+    var theme = prefs.theme;
+    if (theme) {
+      var existingTheme = null;
+      try { existingTheme = localStorage.getItem('stacklens-theme'); } catch(e) {}
+      if (!existingTheme) {
+        try { localStorage.setItem('stacklens-theme', theme); } catch(e) {}
+        document.documentElement.setAttribute('data-theme', theme);
+      }
+    }
+    var mappings = {
+      dev_show_prompt_buttons: 'dev_show_prompt_buttons',
+      dev_show_token_usage: 'dev_show_token_usage',
+      dev_docker_test_env: 'dev_docker_test_env',
+      dev_docker_auto_start: 'dev_docker_auto_start',
+      text_filter_enabled: 'dev_text_filter_enabled'
+    };
+    Object.keys(mappings).forEach(function(key) {
+      if (prefs[key] == null) return;
+      try { localStorage.setItem(mappings[key], String(prefs[key])); } catch(e) {}
+    });
+    if (prefs.dev_show_prompt_buttons != null) {
+      var prompt = prefs.dev_show_prompt_buttons === 'true' || prefs.dev_show_prompt_buttons === true;
+      document.body.classList.toggle('hide-prompt-buttons', !prompt);
+    } else {
+      try {
+        var lsPrompt = localStorage.getItem('dev_show_prompt_buttons');
+        if (lsPrompt != null) {
+          var lsPromptOn = (lsPrompt === 'true' || lsPrompt === true);
+          document.body.classList.toggle('hide-prompt-buttons', !lsPromptOn);
+        }
+      } catch(e) {}
+    }
+    var dockerEntry = document.getElementById('sidebarDockerTestEntry');
+    if (dockerEntry) {
+      if (prefs.dev_docker_test_env != null) {
+        dockerEntry.style.display = (prefs.dev_docker_test_env === 'true' || prefs.dev_docker_test_env === true) ? '' : 'none';
+      } else {
+        try {
+          var lsDocker = localStorage.getItem('dev_docker_test_env');
+          if (lsDocker != null) {
+            dockerEntry.style.display = (lsDocker === 'true' || lsDocker === true) ? '' : 'none';
+          }
+        } catch(e) {}
+      }
+    }
+    var controls = [
+      ['devShowPromptButtons', 'dev_show_prompt_buttons'],
+      ['devShowTokenUsage', 'dev_show_token_usage'],
+      ['devDockerTestEnv', 'dev_docker_test_env'],
+      ['devDockerAutoStart', 'dev_docker_auto_start'],
+      ['devTextFilterEnabled', 'text_filter_enabled']
+    ];
+    controls.forEach(function(pair) {
+      var checkbox = document.getElementById(pair[0]);
+      if (!checkbox || prefs[pair[1]] == null) return;
+      checkbox.checked = prefs[pair[1]] === 'true' || prefs[pair[1]] === true;
+    });
+    cfRefreshThemeChoice();
+  }
+
+  function cfLoadUiPreferences() {
+    fetch('/api/ui-prefs')
+      .then(function(r) { return r.json(); })
+      .then(function(prefs) {
+        prefs = prefs || {};
+        if (!prefs.theme) {
+          var localTheme = cfCurrentTheme();
+          prefs.theme = localTheme;
+          fetch('/api/ui-prefs/theme', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ value: localTheme })
+          }).catch(function() {});
+        }
+        cfApplyUiPreferences(prefs);
+      })
+      .catch(function() {});
+  }
+
+  function cfInitPage() {
+    cfLoadUiPreferences();
+    var id;
+    try { id = localStorage.getItem('cf_active_tab'); } catch(e) {}
+    if (id) {
+      var btn = document.querySelector('.cf-tab[data-tab="' + id + '"]');
+      if (btn) { cfSwitchTab(id, btn); }
+      if (id === 'tools') { try { cfLoadToolsStatus(); } catch(e) {} }
+    }
+    cfRefreshThemeChoice();
+    var showPromptBtn = document.getElementById('devShowPromptButtons');
+    if (showPromptBtn) {
+      var devOptVal = '';
+      try { devOptVal = localStorage.getItem('dev_show_prompt_buttons') || ''; } catch(e) {}
+      showPromptBtn.checked = (devOptVal === 'true');
+    }
+    var showTokenUsageBtn = document.getElementById('devShowTokenUsage');
+    if (showTokenUsageBtn) {
+      var tokenUsageVal = '';
+      try { tokenUsageVal = localStorage.getItem('dev_show_token_usage') || ''; } catch(e) {}
+      showTokenUsageBtn.checked = (tokenUsageVal !== 'false' && tokenUsageVal !== '0');
+    }
+    var dockerTestChk = document.getElementById('devDockerTestEnv');
+    if (dockerTestChk) {
+      var dockerVal = '';
+      try { dockerVal = localStorage.getItem('dev_docker_test_env') || ''; } catch(e) {}
+      dockerTestChk.checked = (dockerVal === 'true');
+      var dockerSidebar = document.getElementById('sidebarDockerTestEntry');
+      if (dockerSidebar) {
+        dockerSidebar.style.display = (dockerVal === 'true') ? '' : 'none';
+      }
+    }
+    var dockerAutoStartChk = document.getElementById('devDockerAutoStart');
+    if (dockerAutoStartChk) {
+      var dockerAutoVal = '';
+      try { dockerAutoVal = localStorage.getItem('dev_docker_auto_start') || ''; } catch(e) {}
+      var isAutoStart = (dockerAutoVal === 'true');
+      dockerAutoStartChk.checked = isAutoStart;
+      fetch('/api/ui-prefs/dev_docker_auto_start', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ value: isAutoStart ? 'true' : 'false' })
+      }).catch(function() {});
+    }
+    var textFilterChk = document.getElementById('devTextFilterEnabled');
+    if (textFilterChk) {
+      fetch('/api/text-filter/config', { method: 'GET' })
+        .then(function(r) { return r.json(); })
+        .then(function(d) {
+          textFilterChk.checked = d.enabled === true;
+          try { localStorage.setItem('dev_text_filter_enabled', d.enabled === true ? 'true' : 'false'); } catch(e) {}
+        })
+        .catch(function() {
+          var fallback = '';
+          try { fallback = localStorage.getItem('dev_text_filter_enabled') || ''; } catch(e) {}
+          textFilterChk.checked = (fallback === 'true');
+        });
+    }
+    cfLoadAutostartStatus();
+    cfInstallSlLinkExternalOpener();
+  }
+
+  function cfInstallSlLinkExternalOpener() {
+    if (window.__cfSlLinkClickHandler) {
+      document.removeEventListener('click', window.__cfSlLinkClickHandler);
+    }
+    window.__cfSlLinkClickHandler = function(e) {
+      var a = e.target.closest('a.sl-link');
+      if (!a) return;
+      var url = a.href;
+      if (!url || !url.match(/^https?:\/\//)) return;
+      e.preventDefault();
+      e.stopPropagation();
+      if (window.desktopApp && typeof window.desktopApp.openInBrowser === 'function') {
+        window.desktopApp.openInBrowser(url);
+      } else {
+        window.open(url, '_blank', 'noopener,noreferrer');
+      }
+    };
+    document.addEventListener('click', window.__cfSlLinkClickHandler);
+  }
+
+  function cfLoadAutostartStatus() {
+    fetch('/api/autostart/status')
+      .then(function(r) { return r.json(); })
+      .then(function(d) {
+        var unsupported = document.getElementById('autostartUnsupported');
+        var supported = document.getElementById('autostartSupported');
+        var toggle = document.getElementById('autostartToggle');
+        var hint = document.getElementById('autostartPlatformHint');
+        var modeBox = document.getElementById('autostartModeBox');
+        var modeDesktop = document.getElementById('autostartModeDesktop');
+        var modeServer  = document.getElementById('autostartModeServer');
+        var serverUrl   = document.getElementById('autostartServerUrl');
+        var t = window.i18n ? window.i18n.t.bind(window.i18n) : function(k) { return k; };
+        if (!d.supported) {
+          if (unsupported) unsupported.style.display = '';
+          if (supported) supported.style.display = 'none';
+        } else {
+          if (unsupported) unsupported.style.display = 'none';
+          if (supported) supported.style.display = '';
+          if (toggle) toggle.checked = !!d.enabled;
+          if (modeBox) modeBox.style.display = d.enabled ? '' : 'none';
+          var mode = (d.mode === 'server') ? 'server' : 'desktop';
+          if (modeDesktop) modeDesktop.checked = (mode === 'desktop');
+          if (modeServer)  modeServer.checked  = (mode === 'server');
+          if (serverUrl && d.serverPort) serverUrl.textContent = 'http://localhost:' + d.serverPort;
+          if (hint) {
+            if (d.platform === 'macos') {
+              hint.setAttribute('data-i18n', 'config.autostart.hint_macos');
+              hint.textContent = t('config.autostart.hint_macos');
+            } else if (d.platform === 'linux') {
+              hint.setAttribute('data-i18n', 'config.autostart.hint_linux');
+              hint.textContent = t('config.autostart.hint_linux');
+            }
+          }
+        }
+      })
+      .catch(function() {});
+  }
+
+  function cfCurrentAutostartMode() {
+    var s = document.getElementById('autostartModeServer');
+    return (s && s.checked) ? 'server' : 'desktop';
+  }
+
+  function cfToggleAutostart(enable) {
+    var errEl = document.getElementById('autostartErrorMsg');
+    if (errEl) errEl.style.display = 'none';
+    var modeBox = document.getElementById('autostartModeBox');
+    if (modeBox) modeBox.style.display = enable ? '' : 'none';
+    if (enable) {
+      var mode = cfCurrentAutostartMode();
+      cfWriteAutostart(mode, null);
+    } else {
+      fetch('/api/autostart/disable', { method: 'POST' })
+        .then(function(r) { return r.json(); })
+        .then(function(d) {
+          if (!d.ok) {
+            var toggle = document.getElementById('autostartToggle');
+            if (toggle) toggle.checked = true;
+            cfShowAutostartError(d.error);
+          }
+        })
+        .catch(function() {
+          var toggle = document.getElementById('autostartToggle');
+          if (toggle) toggle.checked = true;
+        });
+    }
+  }
+
+  function cfSetAutostartMode(mode) {
+    var toggle = document.getElementById('autostartToggle');
+    if (toggle && toggle.checked) {
+      cfWriteAutostart(mode, null);
+    }
+  }
+
+  function cfWriteAutostart(mode, done) {
+    fetch('/api/autostart/enable', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ mode: mode })
+    })
+      .then(function(r) { return r.json(); })
+      .then(function(d) {
+        if (!d.ok) {
+          var toggle = document.getElementById('autostartToggle');
+          if (toggle) toggle.checked = false;
+          var modeBox = document.getElementById('autostartModeBox');
+          if (modeBox) modeBox.style.display = 'none';
+          cfShowAutostartError(d.error);
+          if (done) done(false);
+        } else {
+          if (done) done(true);
+        }
+      })
+      .catch(function() {
+        var toggle = document.getElementById('autostartToggle');
+        if (toggle) toggle.checked = false;
+        var modeBox = document.getElementById('autostartModeBox');
+        if (modeBox) modeBox.style.display = 'none';
+        if (done) done(false);
+      });
+  }
+
+  function cfShowAutostartError(msg) {
+    var errEl = document.getElementById('autostartErrorMsg');
+    if (!errEl) return;
+    var t = window.i18n ? window.i18n.t.bind(window.i18n) : function(k) { return k; };
+    errEl.textContent = t('config.autostart.error') + (msg ? ': ' + msg : '');
+    errEl.style.display = '';
+  }
+
+  function cfLoadToolsStatus() {
+    var body = document.getElementById('toolsTableBody');
+    var label = document.getElementById('toolsPlatformLabel');
+    var unsupported = document.getElementById('toolsUnsupportedAlert');
+    if (body) body.innerHTML = '<tr><td colspan="4" class="text-center text-muted py-4"><i class="bi bi-hourglass-split me-2"></i>' + window.i18n.t('config.tools.loading') + '</td></tr>';
+    fetch('/api/tools/status')
+      .then(function(r) { return r.json(); })
+      .then(function(d) {
+        var p = d.platform || {};
+        if (label) {
+          label.textContent = p.pretty || p.os || window.i18n.t('config.be_unknown');
+          label.className = 'badge ' + (p.supported ? 'bg-success' : 'bg-warning text-dark');
+        }
+        if (unsupported) {
+          if (p.supported) unsupported.classList.add('d-none');
+          else unsupported.classList.remove('d-none');
+        }
+        cfRenderToolsTable(d.tools || [], p);
+      })
+      .catch(function(e) {
+        if (body) body.innerHTML = '<tr><td colspan="4" class="text-center text-danger py-4">' + window.i18n.t('config.tools.load_error') + (e.message || e) + '</td></tr>';
+      });
+  }
+
+  function cfRenderToolsTable(tools, platform) {
+    var body = document.getElementById('toolsTableBody');
+    if (!body) return;
+    if (!tools.length) {
+      body.innerHTML = '<tr><td colspan="4" class="text-center text-muted py-4">' + window.i18n.t('config.tools.no_tools') + '</td></tr>';
+      return;
+    }
+    var rows = '';
+    for (var i = 0; i < tools.length; i++) {
+      var t = tools[i];
+      var statusBadge = t.installed
+        ? '<span class="badge bg-success"><i class="bi bi-check2-circle me-1"></i>' + window.i18n.t('config.tools.installed') + '</span>'
+        : '<span class="badge bg-danger"><i class="bi bi-x-circle me-1"></i>' + window.i18n.t('config.tools.missing') + '</span>';
+      var version = t.version ? '<code style="font-size:11px;">' + cfEscape(t.version) + '</code>' : '<span class="text-muted">—</span>';
+      var actionBtn = t.installed
+        ? '<button class="btn btn-sm btn-outline-secondary" disabled><i class="bi bi-check2 me-1"></i>OK</button>'
+        : (platform.supported
+            ? '<button class="btn btn-sm btn-primary" onclick="cfInstallTool(\'' + cfEscape(t.id) + '\', this)">'
+              + '<i class="bi bi-download me-1"></i>' + window.i18n.t('config.tools.install_btn') + '</button>'
+            : '<button class="btn btn-sm btn-outline-info" onclick="cfShowManualCommand(\'' + cfEscape(t.id) + '\')">'
+              + '<i class="bi bi-terminal me-1"></i>' + window.i18n.t('config.tools.show_cmd_btn') + '</button>');
+      rows += '<tr>'
+        + '<td><strong>' + cfEscape(t.name) + '</strong>'
+        + (t.path ? '<br><small class="text-muted">' + cfEscape(t.path) + '</small>' : '')
+        + '</td>'
+        + '<td>' + statusBadge + '</td>'
+        + '<td>' + version + '</td>'
+        + '<td class="text-end">' + actionBtn + '</td>'
+        + '</tr>';
+    }
+    body.innerHTML = rows;
+  }
+
+  function cfEscape(s) {
+    if (s == null) return '';
+    return String(s).replace(/[&<>"']/g, function(c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+    });
+  }
+
+  function cfInstallTool(toolId, btn) {
+    var box = document.getElementById('toolsInstallOutputBox');
+    var out = document.getElementById('toolsInstallOutput');
+    var badge = document.getElementById('toolsInstallStatusBadge');
+    var manualBox = document.getElementById('toolsManualBox');
+    var manualCmd = document.getElementById('toolsManualCmd');
+    if (box) box.style.display = '';
+    if (out) out.textContent = '$ ' + window.i18n.t('config.tools.install_running') + '\n';
+    if (badge) { badge.textContent = window.i18n.t('config.tools.running'); badge.className = 'badge bg-info'; }
+    if (manualBox) manualBox.style.display = 'none';
+    if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>' + window.i18n.t('config.tools.running_status'); }
+
+    fetch('/api/tools/install', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tool: toolId })
+    })
+      .then(function(r) { return r.json(); })
+      .then(function(d) {
+        var combined = '';
+        if (d.stdout) combined += d.stdout;
+        if (d.stderr) combined += (combined ? '\n--- stderr ---\n' : '') + d.stderr;
+        if (!combined && d.error) combined = d.error;
+        if (out) out.textContent = combined || window.i18n.t('config.tools.no_output');
+        if (badge) {
+          if (d.success) { badge.textContent = window.i18n.t('config.tools.success'); badge.className = 'badge bg-success'; }
+          else { badge.textContent = window.i18n.t('config.tools.failed_code').replace('{0}', d.exitCode != null ? d.exitCode : '?'); badge.className = 'badge bg-danger'; }
+        }
+        if (!d.success && d.manualCommand) {
+          if (manualCmd) manualCmd.textContent = d.manualCommand;
+          if (manualBox) manualBox.style.display = '';
+        }
+        cfLoadToolsStatus();
+      })
+      .catch(function(e) {
+        if (out) out.textContent = window.i18n.t('config.tools.install_error') + ': ' + (e.message || e);
+        if (badge) { badge.textContent = window.i18n.t('config.tools.install_error'); badge.className = 'badge bg-danger'; }
+        if (btn) { btn.disabled = false; btn.innerHTML = '<i class="bi bi-download me-1"></i>' + window.i18n.t('config.tools.install_btn'); }
+      });
+  }
+
+  function cfShowManualCommand(toolId) {
+    var box = document.getElementById('toolsInstallOutputBox');
+    var out = document.getElementById('toolsInstallOutput');
+    var badge = document.getElementById('toolsInstallStatusBadge');
+    var manualBox = document.getElementById('toolsManualBox');
+    var manualCmd = document.getElementById('toolsManualCmd');
+    if (box) box.style.display = '';
+    if (out) out.textContent = '';
+    if (badge) { badge.textContent = window.i18n.t('config.tools.manual_badge'); badge.className = 'badge bg-secondary'; }
+    fetch('/api/tools/install', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tool: toolId })
+    })
+      .then(function(r) { return r.json(); })
+      .then(function(d) {
+        var cmd = d.manualCommand || window.i18n.t('config.tools.no_output');
+        if (manualCmd) manualCmd.textContent = cmd;
+        if (manualBox) manualBox.style.display = '';
+      })
+      .catch(function() {});
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', cfInitPage);
+  } else {
+    cfInitPage();
+  }
+
+  function cfDevTogglePromptButtons(show) {
+    var val = show ? 'true' : 'false';
+    try { localStorage.setItem('dev_show_prompt_buttons', val); } catch(e) {}
+    fetch('/api/ui-prefs/dev_show_prompt_buttons', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ value: val })
+    }).catch(function() {});
+    if (show) {
+      document.body.classList.remove('hide-prompt-buttons');
+    } else {
+      document.body.classList.add('hide-prompt-buttons');
+    }
+  }
+
+  function cfDevToggleDockerTestEnv(show) {
+    var val = show ? 'true' : 'false';
+    try { localStorage.setItem('dev_docker_test_env', val); } catch(e) {}
+    fetch('/api/ui-prefs/dev_docker_test_env', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ value: val })
+    }).catch(function() {});
+    var entry = document.getElementById('sidebarDockerTestEntry');
+    if (entry) { entry.style.display = show ? '' : 'none'; }
+    if (typeof cfApplyDockerTestEnvVisibility === 'function') {
+      cfApplyDockerTestEnvVisibility();
+    }
+  }
+
+  function cfDevToggleDockerAutoStart(show) {
+    var val = show ? 'true' : 'false';
+    try { localStorage.setItem('dev_docker_auto_start', val); } catch(e) {}
+    fetch('/api/ui-prefs/dev_docker_auto_start', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ value: val })
+    }).catch(function() {});
+  }
+
+  function cfDevToggleTextFilter(enabled) {
+    var val = enabled ? 'true' : 'false';
+    try { localStorage.setItem('dev_text_filter_enabled', val); } catch(e) {}
+    fetch('/api/text-filter/config', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ enabled: enabled })
+    }).then(function(r) {
+      if (!r.ok) {
+        var chk = document.getElementById('devTextFilterEnabled');
+        if (chk) chk.checked = !enabled;
+        try { localStorage.setItem('dev_text_filter_enabled', chk && chk.checked ? 'true' : 'false'); } catch(e) {}
+      }
+    }).catch(function() {
+      var chk = document.getElementById('devTextFilterEnabled');
+      if (chk) chk.checked = !enabled;
+      try { localStorage.setItem('dev_text_filter_enabled', chk && chk.checked ? 'true' : 'false'); } catch(e) {}
+    });
+  }
+
+  function cfDevToggleShowTokenUsage(show) {
+    var val = show ? 'true' : 'false';
+    try { localStorage.setItem('dev_show_token_usage', val); } catch(e) {}
+    fetch('/api/ui-prefs/dev_show_token_usage', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ value: val })
+    }).catch(function() {});
+    try {
+      document.dispatchEvent(new CustomEvent('cf:dev-toggle-changed', { detail: { key: 'dev_show_token_usage' } }));
+    } catch(e) {}
+  }
+
+  function cfResetLocalStorage() {
+    var keysToRemove = [];
+    try {
+      for (var i = 0; i < localStorage.length; i++) {
+        var k = localStorage.key(i);
+        if (k && (k.startsWith('lt_') || k.startsWith('cf_'))) keysToRemove.push(k);
+      }
+      keysToRemove.forEach(function(k) { localStorage.removeItem(k); });
+    } catch(e) {}
+    var count = keysToRemove.length;
+    var el = document.getElementById('cfStorageResetResult');
+    var t = window.i18n ? window.i18n.t.bind(window.i18n) : function(k) { return k; };
+    if (el) {
+      el.innerHTML = '<div class="alert alert-success"><i class="bi bi-check-circle me-2"></i><strong>' + t('config.reset.storage_cleared') + '</strong> ' + count + ' ' + (count === 1 ? t('config.reset.storage_entry_deleted') : t('config.reset.storage_entries_deleted')) + ' ' + t('config.reset.storage_reload') + '</div>';
+      el.style.display = '';
+    }
+    setTimeout(function() { window.location.reload(); }, 2000);
+  }
+
+  function cfInitDbReset() {
+    document.getElementById('cfDbResetConfirmBox').style.display = '';
+    document.getElementById('cfDbResetBtn').style.display = 'none';
+  }
+
+  function cfCancelDbReset() {
+    document.getElementById('cfDbResetConfirmBox').style.display = 'none';
+    document.getElementById('cfDbResetBtn').style.display = '';
+  }
+
+  function cfConfirmDbReset() {
+    var btn = document.querySelector('#cfDbResetConfirmBox .btn-danger');
+    var t = window.i18n ? window.i18n.t.bind(window.i18n) : function(k) { return k; };
+    if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>' + t('config.reset.db_deleting'); }
+    fetch('/api/admin/factory-reset-db', { method: 'POST' })
+      .then(function(r) { return r.json(); })
+      .then(function(d) {
+        var el = document.getElementById('cfDbResetResult');
+        if (d.success) {
+          document.getElementById('cfDbResetConfirmBox').style.display = 'none';
+          el.innerHTML = '<div class="alert alert-success"><i class="bi bi-check-circle me-2"></i><strong>' + t('config.reset.db_success_title') + '</strong> ' + t('config.reset.db_success_text') + '</div>';
+          el.style.display = '';
+          setTimeout(function() { window.location.reload(); }, 1500);
+          return;
+        } else {
+          el.innerHTML = '<div class="alert alert-danger"><i class="bi bi-x-circle me-2"></i>' + t('config.reset.db_error_prefix') + (d.error || t('config.reset.db_unknown_error')) + '</div>';
+          if (btn) { btn.disabled = false; btn.innerHTML = '<i class="bi bi-trash3-fill me-2"></i>' + t('config.reset.db_confirm_yes'); }
+        }
+        el.style.display = '';
+      })
+      .catch(function(e) {
+        var el = document.getElementById('cfDbResetResult');
+        el.innerHTML = '<div class="alert alert-danger"><i class="bi bi-x-circle me-2"></i>' + t('config.reset.db_error_prefix') + (e.message || t('config.reset.db_unknown')) + '</div>';
+        el.style.display = '';
+        if (btn) { btn.disabled = false; btn.innerHTML = '<i class="bi bi-trash3-fill me-2"></i>' + t('config.reset.db_confirm_yes'); }
+      });
+  }
+</script>
+
+</th:block>
+</body>
+</html>

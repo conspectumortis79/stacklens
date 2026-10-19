@@ -1,0 +1,889 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" lang="de">
+<body>
+<th:block th:fragment="scripts-agent-pipeline">
+
+<script>
+
+var AP_EVENT_SOURCE   = null;
+var AP_CURRENT_ID     = null;
+var AP_REPO_PATH      = null;
+var AP_FEATURE_SLUG   = null;
+var AP_LAST_STAGE     = null;
+var AP_VISITED_STAGES = {};
+var AP_TIMER_START    = null;
+var AP_TIMER_INTERVAL = null;
+var AP_USER_COLLAPSED = new Set();
+var AP_SCROLLS = {};
+var AP_RAW_SCROLL = null;
+
+
+var TA_MOCKUP_FILES = [];
+
+var TA_MOCKUP_ALLOWED_TYPES = ['image/png', 'image/jpeg', 'image/svg+xml', 'image/heic', 'image/heif', 'image/tiff'];
+var TA_MOCKUP_ALLOWED_EXTS  = ['.png', '.jpg', '.jpeg', '.svg', '.heic', '.tif', '.tiff'];
+var TA_MOCKUP_MAX_BYTES      = 7.5 * 1024 * 1024;
+
+function taMockupFileSelected(input) {
+  var files = input && input.files;
+  if (!files || !files.length) return;
+  for (var i = 0; i < files.length; i++) {
+    taMockupLoadFile(files[i]);
+  }
+}
+
+function taMockupLoadFile(file) {
+  if (!file) return;
+  var mime = file.type || '';
+  var ext = ('.' + file.name.split('.').pop()).toLowerCase();
+  var allowed = TA_MOCKUP_ALLOWED_TYPES.indexOf(mime) >= 0 || TA_MOCKUP_ALLOWED_EXTS.indexOf(ext) >= 0;
+  if (!allowed) {
+    showAlert(t('ticket_implementation.mockup_invalid_type', 'Nicht unterstützter Dateityp. Erlaubt: PNG, JPG, SVG, HEIC, TIFF.'), 'warning');
+    return;
+  }
+  if (file.size > TA_MOCKUP_MAX_BYTES) {
+    showAlert(t('ticket_implementation.mockup_too_large', 'Mockup zu groß. Maximale Dateigröße: ~7,5 MB.'), 'warning');
+    return;
+  }
+  if (TA_MOCKUP_FILES.some(function(f) { return f.name === file.name; })) return;
+  var reader = new FileReader();
+  reader.onload = function(e) {
+    var dataUrl = e.target.result;
+    var commaIdx = dataUrl.indexOf(',');
+    var base64 = commaIdx >= 0 ? dataUrl.slice(commaIdx + 1) : dataUrl;
+    TA_MOCKUP_FILES.push({ name: file.name, base64: base64, mimeType: mime || taMockupMimeFromExt(ext), path: null });
+    taMockupRenderChips();
+    taMockupUpdateFreitextHint();
+  };
+  reader.readAsDataURL(file);
+}
+
+function taMockupMimeFromExt(ext) {
+  var map = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
+              '.svg': 'image/svg+xml', '.heic': 'image/heic', '.heif': 'image/heif',
+              '.tif': 'image/tiff', '.tiff': 'image/tiff' };
+  return map[ext] || 'image/png';
+}
+
+function taMockupRenderChips() {
+  var chips = document.getElementById('taMockupChips');
+  if (!chips) return;
+  if (!TA_MOCKUP_FILES.length) {
+    chips.innerHTML = '';
+    chips.style.display = 'none';
+    return;
+  }
+  chips.style.display = 'flex';
+  chips.innerHTML = '';
+  TA_MOCKUP_FILES.forEach(function(f, idx) {
+    var chip = document.createElement('div');
+    chip.className = 'ta-mockup-chip';
+    chip.innerHTML = '<i class="bi bi-image me-1"></i><span>' + _taFbEscHtml(f.name) + '</span>' +
+      '<button type="button" class="ta-mockup-chip-del ms-1" data-idx="' + idx + '" title="' +
+      (window.i18n ? window.i18n.t('ticket_implementation.mockup_remove_title') : 'Mockup entfernen') + '">&times;</button>';
+    chip.querySelector('.ta-mockup-chip-del').addEventListener('click', function(e) {
+      e.preventDefault();
+      taMockupRemoveFile(parseInt(e.currentTarget.getAttribute('data-idx'), 10));
+    });
+    chips.appendChild(chip);
+  });
+}
+
+function taMockupRemoveFile(idx) {
+  TA_MOCKUP_FILES.splice(idx, 1);
+  taMockupRenderChips();
+  taMockupUpdateFreitextHint();
+}
+
+function taMockupUpdateFreitextHint() {
+  var hint = document.getElementById('taFreitextContextHint');
+  if (!hint) return;
+  var parts = [];
+  var selectedChips = document.querySelectorAll('#taDatabaseMultiSelect .ta-db-chip.selected');
+  if (selectedChips.length) {
+    Array.prototype.forEach.call(selectedChips, function(chip) {
+      var name = chip.getAttribute('data-db-name') || '';
+      parts.push('<i class="bi bi-database me-1"></i>' + _taFbEscHtml(name));
+    });
+  }
+  if (TA_MOCKUP_FILES.length) {
+    var names = TA_MOCKUP_FILES.map(function(f) { return f.name; }).join(', ');
+    parts.push('<i class="bi bi-image me-1"></i>' + _taFbEscHtml(names));
+  }
+  if (parts.length) {
+    hint.innerHTML = '<span style="font-size:11px;color:var(--ta-muted);display:flex;align-items:center;gap:12px;flex-wrap:wrap;">' +
+      '<i class="bi bi-info-circle me-1" style="opacity:.7;"></i>' +
+      (window.i18n ? window.i18n.t('ticket_implementation.freitext_context_hint') : 'Kontext für Agenten:') +
+      ' ' + parts.join(' &nbsp;·&nbsp; ') + '</span>';
+    hint.style.display = '';
+  } else {
+    hint.style.display = 'none';
+  }
+}
+
+function taMockupClear(event) {
+  if (event) event.preventDefault();
+  TA_MOCKUP_FILES = [];
+  var input = document.getElementById('taMockupFileInput');
+  if (input) input.value = '';
+  taMockupRenderChips();
+  taMockupUpdateFreitextHint();
+}
+
+var _MOCKUP_IMAGE_EXTS = 'png,jpg,jpeg,svg,heic,heif,tif,tiff';
+
+function taMockupLoadEntries(path) {
+  var url = '/api/tooling/files/browse?fileExtensions=' + _MOCKUP_IMAGE_EXTS
+    + (path ? '&path=' + encodeURIComponent(path) : '');
+  return fetch(url).then(function (r) {
+    return r.json().then(function (data) {
+      if (!r.ok || data.error) throw new Error(data.error || ('HTTP ' + r.status));
+      var items = data.items || [];
+      return {
+        current: data.currentPath || '',
+        parent: data.parentPath || null,
+        directories: items.filter(function (i) { return i.type === 'directory'; }),
+        files: items.filter(function (i) { return i.type !== 'directory'; }),
+      };
+    });
+  });
+}
+
+function taMockupFbOpen() {
+  var paths = [];
+  TA_MOCKUP_FILES.forEach(function (f) { if (f.path) paths.push(f.path); });
+  __kiChatOpenDirBrowser(function (pickedPaths) {
+    taMockupApplySelection(pickedPaths || []);
+  }, {
+    files: _MOCKUP_IMAGE_EXTS.split(','),
+    multi: true,
+    selected: paths,
+    acceptHint: 'PNG, JPG, JPEG, SVG, HEIC, HEIF, TIFF',
+    storageKey: 'stacklens.fb.last.mockups',
+    titleKey: 'ticket_implementation.mockup_browse_title',
+    titleFallback: 'Mockup-Dateien auswählen',
+    load: taMockupLoadEntries,
+  });
+}
+
+function taMockupApplySelection(paths) {
+  TA_MOCKUP_FILES = TA_MOCKUP_FILES.filter(function (f) {
+    return !f.path || paths.indexOf(f.path) >= 0;
+  });
+  var missing = paths.filter(function (p) {
+    return !TA_MOCKUP_FILES.some(function (f) { return f.path === p; });
+  });
+  if (!missing.length) {
+    taMockupRenderChips();
+    taMockupUpdateFreitextHint();
+    return;
+  }
+  Promise.all(missing.map(function (p) {
+    var name = String(p).replace(/\\/g, '/').split('/').pop() || p;
+    return fetch('/api/agent-pipeline/mockup-file?path=' + encodeURIComponent(p))
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        if (data.error) throw new Error(data.error);
+        TA_MOCKUP_FILES.push({ name: name, base64: data.base64, mimeType: data.mimeType, path: p });
+      });
+  }))
+    .then(function () {
+      taMockupRenderChips();
+      taMockupUpdateFreitextHint();
+    })
+    .catch(function (e) {
+      showAlert((window.i18n ? window.i18n.t('common.error') : 'Fehler') + ': ' + (e.message || ''), 'danger');
+      taMockupRenderChips();
+      taMockupUpdateFreitextHint();
+    });
+}
+
+function taStartAgentPipeline() {
+  var rawText = (document.getElementById('inputRawText') || {}).value || '';
+  if (!rawText.trim()) {
+    showAlert(t('ticket_implementation.agent_pipeline_no_text', 'Bitte zuerst einen Anforderungstext eingeben.'), 'warning');
+    return;
+  }
+  if (typeof taHasSelectedRepo === 'function' && !taHasSelectedRepo()) {
+    showAlert(t('ticket_implementation.repo_selection_required', 'Bitte zuerst ein Repository auswählen.'), 'warning');
+    return;
+  }
+  taStartAgentPipelineWithText(rawText);
+}
+
+function taStartAgentPipelineWithText(rawText) {
+  var selectedCard = document.querySelector('#localRepoList .ta-local-repo-card.selected');
+  var repoId = selectedCard ? (selectedCard.getAttribute('data-repo-id') || null) : null;
+
+  var dbIds = (typeof taGetSelectedDbIds === 'function') ? taGetSelectedDbIds() : [];
+
+  var panel = document.getElementById('agentPipelineCard');
+  if (panel) panel.style.display = '';
+
+  apResetUI();
+
+  var spinner = document.getElementById('apSpinner');
+  var statusText = document.getElementById('apStatusText');
+  if (spinner) spinner.style.display = '';
+  if (statusText) statusText.textContent = t('ticket_implementation.ap_status_starting', 'Pipeline wird gestartet…');
+
+  apSetButtonsLocked(true);
+
+  apTimerStart();
+
+  var payload = { rawText: rawText, localRepoConfigId: repoId ? parseInt(repoId) : null, databaseConfigIds: dbIds };
+  if (TA_MOCKUP_FILES.length > 0) {
+    payload.mockupImages = TA_MOCKUP_FILES.map(function(f) { return { base64: f.base64, mimeType: f.mimeType }; });
+  }
+
+  fetch('/api/agent-pipeline', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  })
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      if (d.error) { apSetButtonsLocked(false); apShowError(d.error); return; }
+      AP_CURRENT_ID = d.id;
+      window._ta.pipelineId = d.id;
+      reloadHistory();
+      apStartPolling(d.id);
+    })
+    .catch(function(e) { apSetButtonsLocked(false); apShowError(e.message || (window.i18n ? window.i18n.t('common.error_start') : 'Fehler beim Starten')); });
+}
+
+function apStartPolling(id) {
+  if (AP_EVENT_SOURCE)  { AP_EVENT_SOURCE.close(); AP_EVENT_SOURCE = null; }
+
+  var es = new EventSource('/api/agent-pipeline/' + id + '/stream');
+  AP_EVENT_SOURCE = es;
+
+  es.addEventListener('update', function(e) {
+    try { apRenderStatus(JSON.parse(e.data)); } catch(_) {}
+  });
+  es.onerror = function() {
+    es.close();
+    AP_EVENT_SOURCE = null;
+    var retries = 0;
+    var maxRetries = 5;
+    var cancelled = false;
+    var originalId = id;
+    function retry() {
+      if (cancelled) return;
+      if (AP_CURRENT_ID !== originalId) { cancelled = true; return; }
+      if (retries >= maxRetries) { apFetchStatus(id); return; }
+      var delay = Math.min(1000 * Math.pow(2, retries), 16000);
+      retries++;
+      setTimeout(function() {
+        if (cancelled || AP_CURRENT_ID !== originalId) return;
+        var es2 = new EventSource('/api/agent-pipeline/' + id + '/stream');
+        AP_EVENT_SOURCE = es2;
+        es2.addEventListener('update', function(e) {
+          try { apRenderStatus(JSON.parse(e.data)); } catch(_) {}
+        });
+        es2.onerror = function() {
+          es2.close();
+          AP_EVENT_SOURCE = null;
+          retry();
+        };
+      }, delay);
+    }
+    retry();
+  };
+
+  apFetchStatus(id);
+}
+
+function apFetchStatus(id) {
+  fetch('/api/agent-pipeline/' + id)
+    .then(function(r) { return r.json(); })
+    .then(function(d) { apRenderStatus(d); })
+    .catch(function() {  });
+}
+
+function apRenderStatus(d) {
+  var spinner    = document.getElementById('apSpinner');
+  var statusText = document.getElementById('apStatusText');
+
+  if (d && (d.status === 'RUNNING' || d.status === 'PENDING')) {
+    apTimerEnsureRunning(d.createdAt);
+  }
+
+  if (d.repoPath) AP_REPO_PATH = d.repoPath;
+  if (d.featureSlug) {
+    AP_FEATURE_SLUG = d.featureSlug;
+    var slugEl = document.getElementById('apFeatureSlug');
+    if (slugEl) slugEl.textContent = '.stacklens/' + d.featureSlug + '/';
+  }
+
+  if (d.stages) {
+    if (d.jiraMode) {
+      var lenaStageEl = document.getElementById('apStage-lena');
+      if (lenaStageEl) lenaStageEl.style.display = '';
+    }
+    d.stages.forEach(function(s) { apRenderStage(s); });
+  }
+
+  if (d.status === 'DONE') {
+    if (AP_EVENT_SOURCE) { AP_EVENT_SOURCE.close(); AP_EVENT_SOURCE = null; }
+    var doneRunId = d.id;
+    window._ta.pipelineId = null;
+    apSetButtonsLocked(false);
+    if (spinner) spinner.style.display = 'none';
+    if (statusText) statusText.textContent = t('ticket_implementation.ap_status_done', '✅ Pipeline abgeschlossen');
+    apTimerStop(true);
+    var prBanner = document.getElementById('apPullRequestBanner');
+    var prLink   = document.getElementById('apPullRequestLink');
+    if (prBanner && prLink && doneRunId) {
+      prLink.href = '/api/agent-pipeline/' + doneRunId + '/pull-request';
+      prBanner.style.display = 'flex';
+    }
+    var writeSection = document.getElementById('apWriteSection');
+    if (writeSection) writeSection.style.display = 'flex';
+    reloadHistory();
+  } else if (d.status === 'ERROR') {
+    if (AP_EVENT_SOURCE) { AP_EVENT_SOURCE.close(); AP_EVENT_SOURCE = null; }
+    window._ta.pipelineId = null;
+    apSetButtonsLocked(false);
+    if (spinner) spinner.style.display = 'none';
+    if (statusText) statusText.textContent = t('ticket_implementation.ap_status_error', '❌ Fehler in der Pipeline');
+    apTimerStop(false);
+    if (d.errorMessage) {
+      if (d.errorMessage.indexOf('[COPILOT_QUOTA]') !== -1) {
+        apShowQuotaError();
+      } else {
+        apShowError(d.errorMessage);
+      }
+    }
+    reloadHistory();
+  } else if (d.currentStage) {
+    if (spinner) spinner.style.display = '';
+    var stageNames = { lena: 'Lena', nora: 'Nora', ivan: 'Ivan', cole: 'Cole', max: 'Max', finn: 'Finn', faye: 'Faye', tess: 'Tess', syd: 'Syd', quinn: 'Quinn', sage: 'Sage', vera: 'Vera', rex: 'Rex' };
+    var label = stageNames[d.currentStage] || d.currentStage;
+    var isLoopback = d.currentStage !== AP_LAST_STAGE && AP_VISITED_STAGES && AP_VISITED_STAGES[d.currentStage];
+    if (isLoopback) {
+      if (statusText) statusText.textContent = t('ticket_implementation.ap_status_loopback', '🔄 {stage} wird erneut ausgeführt…').replace('{stage}', label);
+    } else {
+      if (statusText) statusText.textContent = t('ticket_implementation.ap_status_running', 'Agent {stage} arbeitet…').replace('{stage}', label);
+    }
+    if (d.currentStage !== AP_LAST_STAGE) {
+      AP_LAST_STAGE = d.currentStage;
+      if (!AP_VISITED_STAGES) AP_VISITED_STAGES = {};
+      AP_VISITED_STAGES[d.currentStage] = true;
+    }
+  }
+}
+
+function apRenderStage(s) {
+  var stageEl  = document.getElementById('apStage-' + s.name);
+  var iconEl   = document.getElementById('apIcon-' + s.name);
+  var badgeEl  = document.getElementById('apBadge-' + s.name);
+  var outputEl = document.getElementById('apOutput-' + s.name);
+  if (!stageEl) return;
+
+  stageEl.classList.remove('ap-stage-pending', 'ap-stage-running', 'ap-stage-done', 'ap-stage-error');
+
+  if (s.status === 'PENDING') {
+    stageEl.classList.add('ap-stage-pending');
+    if (iconEl) { iconEl.className = 'bi bi-hourglass'; iconEl.style.color = 'var(--ta-muted)'; }
+    if (badgeEl) { badgeEl.className = 'ap-badge ap-badge-pending'; badgeEl.setAttribute('data-i18n', 'ticket_implementation.ap_pending'); badgeEl.textContent = t('ticket_implementation.ap_pending', 'Ausstehend'); }
+  } else if (s.status === 'RUNNING') {
+    stageEl.classList.add('ap-stage-running');
+    if (iconEl) { iconEl.className = 'bi bi-arrow-clockwise spin'; iconEl.style.color = '#7a5a0a'; }
+    if (badgeEl) { badgeEl.className = 'ap-badge ap-badge-running'; badgeEl.removeAttribute('data-i18n'); badgeEl.innerHTML = '<i class="bi bi-arrow-clockwise spin" style="font-size:11px;"></i>'; }
+    if (!AP_USER_COLLAPSED.has(s.name)) apExpandStage(s.name);
+    if (outputEl && s.output) {
+      if (outputEl.textContent !== s.output) outputEl.textContent = s.output;
+    }
+  } else if (s.status === 'DONE') {
+    stageEl.classList.add('ap-stage-done');
+    if (iconEl) { iconEl.className = 'bi bi-check-circle-fill'; iconEl.style.color = '#1e7a3a'; }
+    if (badgeEl) { badgeEl.className = 'ap-badge ap-badge-done'; badgeEl.setAttribute('data-i18n', 'ticket_implementation.ap_done'); badgeEl.textContent = t('ticket_implementation.ap_done', 'Fertig'); }
+    if (outputEl && s.output) {
+      if (outputEl.textContent !== s.output) outputEl.textContent = s.output;
+    }
+  } else if (s.status === 'ERROR') {
+    stageEl.classList.add('ap-stage-error');
+    if (iconEl) { iconEl.className = 'bi bi-exclamation-triangle-fill'; iconEl.style.color = '#b91c1c'; }
+    if (badgeEl) { badgeEl.className = 'ap-badge ap-badge-error'; badgeEl.setAttribute('data-i18n', 'ticket_implementation.ap_error'); badgeEl.textContent = t('ticket_implementation.ap_error', 'Fehler'); }
+    if (outputEl && s.output) outputEl.textContent = s.output;
+  }
+}
+
+function apInitScrolls() {
+  ['lena','nora','ivan','cole','max','finn','faye','tess','syd','quinn','sage','vera','rex'].forEach(function(name) {
+    if (AP_SCROLLS[name]) return;
+    var box   = document.getElementById('apOutput-' + name);
+    var track = document.getElementById('apScrollTrack-' + name);
+    var thumb = document.getElementById('apScrollThumb-' + name);
+    if (box && track && thumb && window.SLScroll) {
+      AP_SCROLLS[name] = window.SLScroll(box, track, thumb);
+    }
+  });
+  if (!AP_RAW_SCROLL) {
+    var rawBox   = document.getElementById('inputRawText');
+    var rawTrack = document.getElementById('taRawScrollTrack');
+    var rawThumb = document.getElementById('taRawScrollThumb');
+    if (rawBox && rawTrack && rawThumb && window.SLScroll) {
+      AP_RAW_SCROLL = window.SLScroll(rawBox, rawTrack, rawThumb);
+      rawBox.addEventListener('input', function() { AP_RAW_SCROLL.update(); });
+    }
+  }
+}
+
+function apToggleStage(name) {
+  var wrapEl  = document.getElementById('apOutputWrap-' + name);
+  var stageEl = document.getElementById('apStage-' + name);
+  if (!wrapEl) return;
+  var isOpen = wrapEl.style.display !== 'none';
+  wrapEl.style.display = isOpen ? 'none' : 'flex';
+  if (!isOpen) {
+    apInitScrolls();
+    requestAnimationFrame(function() {
+      if (AP_SCROLLS[name]) AP_SCROLLS[name].update();
+    });
+  }
+  var chevron = stageEl ? stageEl.querySelector('.ap-chevron') : null;
+  if (chevron) chevron.style.transform = isOpen ? '' : 'rotate(180deg)';
+  if (isOpen) { AP_USER_COLLAPSED.add(name); } else { AP_USER_COLLAPSED.delete(name); }
+}
+
+function apExpandStage(name) {
+  var wrapEl = document.getElementById('apOutputWrap-' + name);
+  if (wrapEl && wrapEl.style.display === 'none') apToggleStage(name);
+}
+
+function apShowError(msg) {
+  var errEl = document.getElementById('apError');
+  if (errEl) { errEl.style.display = ''; errEl.textContent = '❌ ' + msg; }
+}
+
+function apShowQuotaError() {
+  var el = document.getElementById('apQuotaError');
+  if (el) el.style.display = '';
+  if (el && el.scrollIntoView) el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+
+function apOpenWriteModal() {
+  var id = AP_CURRENT_ID;
+  if (!id) return;
+  var modal     = document.getElementById('apWriteModal');
+  var fileList  = document.getElementById('apWriteModalFileList');
+  var repoEl    = document.getElementById('apWriteModalRepoPath');
+  var errEl     = document.getElementById('apWriteModalError');
+  var confirmBtn = document.getElementById('apBtnWriteConfirm');
+  if (!modal) return;
+
+  if (repoEl) repoEl.textContent = AP_REPO_PATH || '';
+  if (fileList) fileList.innerHTML = '<span style="color:var(--ta-muted);font-size:12px;">Wird geladen…</span>';
+  if (errEl) errEl.style.display = 'none';
+  if (confirmBtn) confirmBtn.disabled = true;
+  modal.style.display = '';
+
+  fetch('/api/agent-pipeline/' + id + '/write-files')
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      if (d.error) {
+        if (fileList) fileList.innerHTML = '';
+        if (errEl) { errEl.style.display = ''; errEl.textContent = d.error; }
+        return;
+      }
+      if (d.repoPath && repoEl) repoEl.textContent = d.repoPath;
+      var files = d.files || [];
+      if (files.length === 0) {
+        if (fileList) fileList.innerHTML = '<span style="color:var(--ta-muted);font-size:12px;">' + t('ticket_implementation.ap_write_no_files', 'Keine Dateien erkannt.') + '</span>';
+        return;
+      }
+      var html = files.map(function(f) {
+        return '<div style="display:flex;align-items:center;gap:8px;padding:4px 0;border-bottom:1px solid var(--ta-line);">' +
+          '<i class="bi bi-file-earmark-code" style="color:#7c5cbf;font-size:13px;flex-shrink:0;"></i>' +
+          '<span style="font-family:monospace;font-size:11px;word-break:break-all;">' + escapeHtml(f.path) + '</span>' +
+          '<span style="margin-left:auto;font-size:10px;color:var(--ta-muted);white-space:nowrap;">' + Math.round(f.size / 1024 * 10) / 10 + ' KB</span>' +
+          '</div>';
+      }).join('');
+      if (fileList) fileList.innerHTML = html;
+      if (confirmBtn) confirmBtn.disabled = false;
+    })
+    .catch(function(e) {
+      if (errEl) { errEl.style.display = ''; errEl.textContent = e.message || 'Fehler'; }
+    });
+}
+
+function apCloseWriteModal() {
+  var modal = document.getElementById('apWriteModal');
+  if (modal) modal.style.display = 'none';
+}
+
+function apConfirmWriteFiles() {
+  var id = AP_CURRENT_ID;
+  if (!id) return;
+  var confirmBtn = document.getElementById('apBtnWriteConfirm');
+  var errEl      = document.getElementById('apWriteModalError');
+  var writeResult = document.getElementById('apWriteResult');
+  if (confirmBtn) confirmBtn.disabled = true;
+
+  fetch('/api/agent-pipeline/' + id + '/write-files', { method: 'POST' })
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      if (d.error) {
+        if (errEl) { errEl.style.display = ''; errEl.textContent = d.error; }
+        if (confirmBtn) confirmBtn.disabled = false;
+        return;
+      }
+      apCloseWriteModal();
+      var count = (d.written || []).length;
+      var errList = d.errors || [];
+      if (writeResult) {
+        writeResult.textContent = errList.length === 0
+          ? '✅ ' + count + ' ' + t('ticket_implementation.ap_write_success', 'Datei(en) geschrieben')
+          : '⚠️ ' + count + ' ' + t('ticket_implementation.ap_write_success', 'Datei(en) geschrieben') + ', ' + errList.length + ' Fehler: ' + errList.join(' | ');
+      }
+    })
+    .catch(function(e) {
+      if (errEl) { errEl.style.display = ''; errEl.textContent = e.message || 'Fehler'; }
+      if (confirmBtn) confirmBtn.disabled = false;
+    });
+}
+
+
+
+function apTimerStart() {
+  apTimerReset();
+  AP_TIMER_START = Date.now();
+  var el = document.getElementById('apTimer');
+  if (el) { el.className = 'ap-timer'; el.style.display = ''; }
+  apTimerTick();
+  AP_TIMER_INTERVAL = setInterval(apTimerTick, 1000);
+}
+
+function apTimerEnsureRunning(createdAtMs) {
+  if (AP_TIMER_INTERVAL) return;
+  var anchor = (typeof createdAtMs === 'number' && createdAtMs > 0) ? createdAtMs : Date.now();
+  AP_TIMER_START = anchor;
+  var el = document.getElementById('apTimer');
+  if (el) { el.className = 'ap-timer'; el.style.display = ''; }
+  apTimerTick();
+  AP_TIMER_INTERVAL = setInterval(apTimerTick, 1000);
+}
+
+function apTimerTick() {
+  if (!AP_TIMER_START) return;
+  var elapsed = Math.floor((Date.now() - AP_TIMER_START) / 1000);
+  var displayEl = document.getElementById('apTimerDisplay');
+  if (displayEl) displayEl.textContent = apTimerFormat(elapsed);
+}
+
+function apTimerFormat(seconds) {
+  var h  = Math.floor(seconds / 3600);
+  var m  = Math.floor((seconds % 3600) / 60);
+  var s  = seconds % 60;
+  var ss = s < 10 ? '0' + s : '' + s;
+  if (h > 0) {
+    var mm = m < 10 ? '0' + m : '' + m;
+    return h + ':' + mm + ':' + ss;
+  }
+  return m + ':' + ss;
+}
+
+function apTimerStop(success) {
+  if (AP_TIMER_INTERVAL) { clearInterval(AP_TIMER_INTERVAL); AP_TIMER_INTERVAL = null; }
+  apTimerTick();
+  var el = document.getElementById('apTimer');
+  if (el) el.className = 'ap-timer ' + (success ? 'ap-timer-done' : 'ap-timer-error');
+}
+
+function apTimerReset() {
+  if (AP_TIMER_INTERVAL) { clearInterval(AP_TIMER_INTERVAL); AP_TIMER_INTERVAL = null; }
+  AP_TIMER_START = null;
+  var el = document.getElementById('apTimer');
+  if (el) { el.className = 'ap-timer'; el.style.display = 'none'; }
+  var displayEl = document.getElementById('apTimerDisplay');
+  if (displayEl) displayEl.textContent = '0:00';
+}
+
+function apSetButtonsLocked(locked) {
+  var ids = ['btnStart', 'btnStartAgentPipeline'];
+  ids.forEach(function(id) {
+    var el = document.getElementById(id);
+    if (!el) return;
+    el.setAttribute('data-pipeline-locked', locked ? 'true' : 'false');
+    el.disabled = locked;
+    el.style.opacity = locked ? '0.4' : '';
+    el.style.pointerEvents = locked ? 'none' : '';
+  });
+  if (!locked && typeof taUpdateStartButtonState === 'function') {
+    taUpdateStartButtonState();
+  }
+}
+
+function apResetUI() {
+  var errEl = document.getElementById('apError');
+  if (errEl) errEl.style.display = 'none';
+  var quotaEl = document.getElementById('apQuotaError');
+  if (quotaEl) quotaEl.style.display = 'none';
+  var prBanner = document.getElementById('apPullRequestBanner');
+  if (prBanner) prBanner.style.display = 'none';
+  var writeSection = document.getElementById('apWriteSection');
+  if (writeSection) writeSection.style.display = 'none';
+  var slugEl = document.getElementById('apFeatureSlug');
+  if (slugEl) slugEl.textContent = '';
+  var writeResult = document.getElementById('apWriteResult');
+  if (writeResult) writeResult.textContent = '';
+  AP_FEATURE_SLUG = null;
+  AP_REPO_PATH = null;
+  AP_LAST_STAGE = null;
+  AP_VISITED_STAGES = {};
+  if (AP_EVENT_SOURCE) { AP_EVENT_SOURCE.close(); AP_EVENT_SOURCE = null; }
+  AP_USER_COLLAPSED.clear();
+  apTimerReset();
+  ['lena','nora','ivan','cole','max','finn','faye','tess','syd','quinn','sage','vera','rex'].forEach(function(name) {
+    var stageEl  = document.getElementById('apStage-' + name);
+    var iconEl   = document.getElementById('apIcon-' + name);
+    var badgeEl  = document.getElementById('apBadge-' + name);
+    var outputEl = document.getElementById('apOutput-' + name);
+    if (stageEl)  { stageEl.className = 'ap-stage'; if (name === 'lena') stageEl.style.display = 'none'; }
+    if (iconEl)   { iconEl.className = 'bi bi-hourglass'; iconEl.style.color = 'var(--ta-muted)'; }
+    if (badgeEl)  { badgeEl.className = 'ap-badge ap-badge-pending'; badgeEl.setAttribute('data-i18n', 'ticket_implementation.ap_pending'); badgeEl.textContent = t('ticket_implementation.ap_pending', 'Ausstehend'); }
+    if (outputEl) { outputEl.textContent = ''; }
+    var wrapEl = document.getElementById('apOutputWrap-' + name);
+    if (wrapEl) wrapEl.style.display = 'none';
+  });
+}
+
+function taClosePipelinePanel() {
+  var panel = document.getElementById('agentPipelineCard');
+  if (panel) panel.style.display = 'none';
+  if (AP_EVENT_SOURCE) { AP_EVENT_SOURCE.close(); AP_EVENT_SOURCE = null; }
+  apTimerStop(false);
+}
+
+function apCancelPipeline() {
+  var id = window._ta.pipelineId || AP_CURRENT_ID;
+  if (AP_EVENT_SOURCE) { AP_EVENT_SOURCE.close(); AP_EVENT_SOURCE = null; }
+  window._ta.pipelineId = null;
+  AP_CURRENT_ID = null;
+  apSetButtonsLocked(false);
+  var panel   = document.getElementById('agentPipelineCard');
+  var spinner = document.getElementById('apSpinner');
+  var statusText = document.getElementById('apStatusText');
+  if (spinner)    spinner.style.display = 'none';
+  if (statusText) statusText.textContent = t('ticket_implementation.ap_status_cancelled', '❌ Pipeline abgebrochen');
+  apTimerStop(false);
+  if (panel)      panel.style.display = 'none';
+  if (id) {
+    fetch('/api/agent-pipeline/' + id + '/cancel', { method: 'POST' })
+      .catch(function() {})
+      .finally(function() {
+        reloadHistory();
+        apPollUntilFinished(id);
+      });
+  } else {
+    reloadHistory();
+  }
+}
+
+function apDeletePipelineEntry() {
+  window._ta.pipelineId = null;
+  AP_CURRENT_ID = null;
+  var panel = document.getElementById('agentPipelineCard');
+  if (panel) panel.style.display = 'none';
+  reloadHistory();
+}
+
+function apShowPipelineRun(id) {
+  var panel = document.getElementById('agentPipelineCard');
+  if (panel) panel.style.display = '';
+  if (panel) panel.scrollIntoView({ behavior: 'smooth' });
+  apResetUI();
+  AP_CURRENT_ID = id;
+  window._ta.pipelineId = id;
+  fetch('/api/agent-pipeline/' + id)
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      apRenderStatus(d);
+      if (d.status === 'RUNNING' || d.status === 'PENDING') {
+        apStartPolling(id);
+      }
+    })
+    .catch(function() {});
+}
+
+function apCancelPipelineById(id) {
+  if (AP_CURRENT_ID === id || (window._ta && window._ta.pipelineId === id)) {
+    apCancelPipeline();
+  } else {
+    var row = document.getElementById('taHistoryPipelineRow-' + id);
+    if (row) {
+      var cancelBtn = row.querySelector('[onclick*="apCancelPipelineById"]');
+      if (cancelBtn) {
+        cancelBtn.disabled = true;
+        cancelBtn.style.opacity = '0.5';
+        cancelBtn.title = 'Wird abgebrochen…';
+      }
+    }
+    fetch('/api/agent-pipeline/' + id + '/cancel', { method: 'POST' })
+      .catch(function() {})
+      .finally(function() {
+        reloadHistory();
+        apPollUntilFinished(id);
+      });
+  }
+}
+
+function apPollUntilFinished(id) {
+  var attempts = 0;
+  var maxAttempts = 30;
+  var iv = setInterval(function() {
+    attempts++;
+    fetch('/api/agent-pipeline/' + id)
+      .then(function(r) { return r.json(); })
+      .then(function(d) {
+        if (d.status !== 'RUNNING' && d.status !== 'PENDING') {
+          clearInterval(iv);
+          if (!AP_CURRENT_ID || AP_CURRENT_ID === id) reloadHistory();
+        } else if (attempts >= maxAttempts) {
+          clearInterval(iv);
+          if (!AP_CURRENT_ID || AP_CURRENT_ID === id) reloadHistory();
+        }
+      })
+      .catch(function() { clearInterval(iv); });
+  }, 2000);
+}
+
+function apDeletePipelineById(id) {
+  if (AP_CURRENT_ID === id || (window._ta && window._ta.pipelineId === id)) {
+    window._ta.pipelineId = null;
+    AP_CURRENT_ID = null;
+    var panel = document.getElementById('agentPipelineCard');
+    if (panel) panel.style.display = 'none';
+    if (AP_EVENT_SOURCE) { AP_EVENT_SOURCE.close(); AP_EVENT_SOURCE = null; }
+    fetch('/api/agent-pipeline/' + id, { method: 'DELETE' })
+      .then(function(r) {
+        if (r.status === 409) {
+          if (panel) panel.style.display = '';
+          AP_CURRENT_ID = id;
+          window._ta.pipelineId = id;
+          apSetButtonsLocked(true);
+          apStartPolling(id);
+        }
+        reloadHistory();
+      })
+      .catch(function() { reloadHistory(); });
+  } else {
+    fetch('/api/agent-pipeline/' + id, { method: 'DELETE' })
+      .then(function(r) {
+        if (r.status === 409) return;
+        var row = document.getElementById('taHistoryPipelineRow-' + id);
+        if (row) row.remove();
+      })
+      .catch(function() {});
+  }
+}
+
+window.taStartAgentPipeline         = taStartAgentPipeline;
+window.taStartAgentPipelineWithText = taStartAgentPipelineWithText;
+window.taClosePipelinePanel  = taClosePipelinePanel;
+window.apToggleStage         = apToggleStage;
+window.apExpandStage         = apExpandStage;
+window.apCancelPipeline      = apCancelPipeline;
+window.apCancelPipelineById  = apCancelPipelineById;
+window.apDeletePipelineEntry = apDeletePipelineEntry;
+window.apDeletePipelineById  = apDeletePipelineById;
+window.apShowPipelineRun     = apShowPipelineRun;
+window.apOpenWriteModal      = apOpenWriteModal;
+window.apCloseWriteModal     = apCloseWriteModal;
+window.apConfirmWriteFiles   = apConfirmWriteFiles;
+window.taMockupFileSelected  = taMockupFileSelected;
+window.taMockupClear         = taMockupClear;
+
+(function setupKiChatForTicketImplementation(){
+  function gatherContext(){
+    var parts = [];
+    try {
+      var sel = document.querySelector('.ta-local-repo-card.selected, .ta-local-repo-card[data-selected="true"]');
+      if (sel) {
+        var name = sel.querySelector('.ta-local-repo-name'); name = name ? name.textContent.trim() : '';
+        var path = sel.querySelector('.ta-local-repo-path'); path = path ? path.textContent.trim() : '';
+        if (name || path) parts.push('Aktuell ausgewähltes Repository: ' + name + (path ? ' (' + path + ')' : ''));
+      }
+    } catch(e){}
+    try {
+      var jira = document.getElementById('taJiraInputSection');
+      var text = document.getElementById('taTextInputSection');
+      if (jira && jira.style.display !== 'none') {
+        var key = (document.getElementById('inputTicketKey')||{}).value || '';
+        var cfg = document.getElementById('selectJiraConfig');
+        var cfgLabel = cfg && cfg.options[cfg.selectedIndex] ? cfg.options[cfg.selectedIndex].text : '';
+        parts.push('Modus: Jira-Ticket. Key=' + (key||'(leer)') + ', Config=' + (cfgLabel||'(keine)'));
+      } else if (text && text.style.display !== 'none') {
+        var raw = (document.getElementById('inputRawText')||{}).value || '';
+        parts.push('Modus: Freitext-Anforderung. Inhalt:\n' + raw.slice(0, 4000));
+      }
+    } catch(e){}
+    try {
+      if (typeof AP_CURRENT_ID !== 'undefined' && AP_CURRENT_ID) {
+        parts.push('Aktive Pipeline-Run-ID: #' + AP_CURRENT_ID);
+        ['lena','nora','ivan','cole','max','finn','faye','tess','syd','quinn','sage','vera','rex'].forEach(function(name){
+          var o = document.getElementById('apOutput-' + name);
+          var t = o ? (o.textContent||'').trim() : '';
+          if (t) parts.push('## Pipeline-Stage ' + name + ' (Auszug)\n' + t.slice(0, 2000));
+        });
+      }
+    } catch(e){}
+    return parts.join('\n\n');
+  }
+  function getSelectedRepoPath(){
+    try {
+      if (typeof AP_REPO_PATH !== 'undefined' && AP_REPO_PATH) return AP_REPO_PATH;
+      var sel = document.querySelector('.ta-local-repo-card.selected, .ta-local-repo-card[data-selected="true"]');
+      if (sel) {
+        var p = sel.querySelector('.ta-local-repo-path');
+        if (p) return (p.textContent || '').trim();
+      }
+    } catch(e){}
+    return '';
+  }
+  window.kiChatConfig = {
+    tabId: 'ticket-implementation',
+    tabLabel: 'Ticket-Analyse',
+    tabLabelKey: 'ki_chat.ticket_implementation.tab_label',
+    introMessage: 'Hi! Ich helfe dir bei Ticket-Analyse, Pipeline-Outputs und PHP-Code. Du kannst mich auch ohne laufende Pipeline fragen — ich kenne das ausgewählte Repository. Tipp: nutze die ▶-Chips um Befehle direkt im Repo auszuführen, die Live-Ausgabe siehst du in einem Extra-Fenster und kannst sie danach an mich weiterreichen.',
+    introMessageKey: 'ki_chat.ticket_implementation.intro',
+    plainSuggestionsKey: 'ki_chat.ticket_implementation.plain_suggestions',
+    suggestions: [
+      { label: '▶ make test', action: 'make', target: 'test', titleKey: 'ki_chat.ticket_implementation.action_chips.make_test', title: 'Führt `make test` im ausgewählten Repository aus und zeigt die Live-Ausgabe', repoPathProvider: getSelectedRepoPath },
+      { label: '▶ make lint', action: 'make', target: 'lint', titleKey: 'ki_chat.ticket_implementation.action_chips.make_lint', title: 'Führt `make lint` aus', repoPathProvider: getSelectedRepoPath },
+      { label: '▶ make phpstan', action: 'make', target: 'phpstan', titleKey: 'ki_chat.ticket_implementation.action_chips.make_phpstan', title: 'Statische Analyse mit PHPStan', repoPathProvider: getSelectedRepoPath },
+    ],
+    systemHint: 'You support a PHP development workflow. The user can analyse Jira tickets, run a 13-stage code-generation pipeline, and write generated files into a local repo. When asked about generated code, refer to the pipeline-stage outputs in the context. The user can run `make test`, `make lint`, `make phpstan` directly from chips — when test output is pasted, give precise advice on failures.',
+    contextProvider: gatherContext,
+  };
+})();
+
+apInitScrolls();
+document.addEventListener('DOMContentLoaded', function() { apInitScrolls(); });
+
+(function() {
+  if (window._apNavigateHandler) document.removeEventListener('app:navigate', window._apNavigateHandler);
+  window._apNavigateHandler = function(e) {
+    if (e.detail && e.detail.url && e.detail.url.indexOf('ticket-implementation') !== -1) return;
+    document.removeEventListener('app:navigate', window._apNavigateHandler);
+    window._apNavigateHandler = null;
+    if (window.AP_EVENT_SOURCE) { window.AP_EVENT_SOURCE.close(); window.AP_EVENT_SOURCE = null; }
+  };
+  document.addEventListener('app:navigate', window._apNavigateHandler);
+})();
+
+(function() {
+  var zone = document.getElementById('taMockupUploadZone');
+  if (zone) {
+    zone.addEventListener('dragover', function(e) { e.preventDefault(); });
+    zone.addEventListener('drop',     function(e) { e.preventDefault(); });
+  }
+})();
+
+</script>
+</th:block>
+</body>
+</html>

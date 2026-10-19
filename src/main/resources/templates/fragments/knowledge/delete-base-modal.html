@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.ultraq.net.nz/thymeleaf/layout" lang="de">
+<body>
+
+<th:block th:fragment="delete-base-modal">
+  <div class="modal" id="kbDeleteBaseModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+      <div class="modal-content cf-card border-0 shadow-sm kb-card-danger">
+        <div class="modal-header">
+          <h5 class="modal-title">
+            <i class="bi bi-fire me-2 text-danger"></i>
+            <span data-i18n="knowledge.bases.delete_title">Wissensdatenbank dauerhaft löschen</span>
+          </h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+        <div class="modal-body">
+          <p>
+            <span data-i18n="knowledge.bases.delete_intro_prefix">Du bist dabei, die Wissensdatenbank </span>
+            <strong id="kbDeleteBaseName">—</strong>
+            <span data-i18n="knowledge.bases.delete_intro_suffix"> dauerhaft zu löschen.</span>
+          </p>
+          <div class="alert alert-danger d-flex gap-2 align-items-start" role="alert">
+            <i class="bi bi-exclamation-octagon-fill flex-shrink-0 mt-1"></i>
+            <div>
+              <strong data-i18n="knowledge.bases.delete_warning_title">Achtung — nicht widerrufbar!</strong>
+              <ul class="mb-0 mt-1 small">
+                <li data-i18n="knowledge.bases.delete_warning_sources">Alle Quellen dieser Base werden entfernt</li>
+                <li data-i18n="knowledge.bases.delete_warning_documents">Alle Dokumente und Chunks werden gelöscht</li>
+                <li data-i18n="knowledge.bases.delete_warning_vectors">Die gespeicherten Embedding-Vektoren gehen verloren</li>
+                <li data-i18n="knowledge.bases.delete_warning_reindex">Der Lucene-Index wird geleert</li>
+              </ul>
+            </div>
+          </div>
+          <div id="kbDeleteBaseStats" class="small text-muted" style="display:none;">
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-sm btn-outline-secondary" data-bs-dismiss="modal" onclick="kbCancelDeleteBase()">
+            <i class="bi bi-x-lg me-1"></i>
+            <span data-i18n="common.cancel">Abbrechen</span>
+          </button>
+          <button
+            class="btn btn-sm btn-danger"
+            id="kbDeleteBaseConfirmBtn"
+            onclick="kbConfirmDeleteBase()">
+            <i class="bi bi-trash3-fill me-1"></i>
+            <span data-i18n="knowledge.bases.delete_permanently">Endgültig löschen</span>
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+</th:block>
+</body>
+</html>

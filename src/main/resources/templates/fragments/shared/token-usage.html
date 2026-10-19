@@ -1,0 +1,528 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" lang="de">
+<body>
+
+<th:block th:fragment="styles">
+<style id="tug-styles">
+.tug-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 10px 20px;
+  background: linear-gradient(90deg,
+    rgba(124, 92, 191, .07) 0%,
+    rgba(91, 142, 240, .04) 100%);
+  border-bottom: 1px solid var(--app-border);
+  font-size: 12px;
+  color: var(--app-text);
+}
+html[data-theme="dark"] .tug-bar {
+  background: linear-gradient(90deg,
+    rgba(160, 126, 245, .16) 0%,
+    rgba(126, 174, 245, .10) 100%);
+}
+html[data-theme="popos"] .tug-bar {
+  background: linear-gradient(90deg,
+    rgba(250, 164, 26, .12) 0%,
+    rgba(72, 185, 199, .08) 100%);
+}
+html[data-theme="legacy"] .tug-bar {
+  background: linear-gradient(90deg,
+    rgba(18, 106, 90, .07) 0%,
+    rgba(26, 148, 120, .04) 100%);
+}
+
+.tug-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  border-radius: 999px;
+  background: var(--app-cream);
+  border: 1px solid var(--app-border);
+  color: var(--app-text);
+  font-size: 11.5px;
+  font-weight: 600;
+  white-space: nowrap;
+  transition: transform .15s, box-shadow .15s;
+}
+.tug-pill:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 3px 8px rgba(0, 0, 0, .08);
+}
+.tug-pill i {
+  color: var(--app-accent-purple);
+  font-size: 13px;
+}
+.tug-pill strong {
+  color: var(--app-accent-purple);
+  font-weight: 800;
+}
+.tug-pill.tug-pill--model {
+  background: rgba(124, 92, 191, .10);
+  border-color: rgba(124, 92, 191, .25);
+  color: #5a3da3;
+}
+.tug-pill.tug-pill--model strong { color: #5a3da3; }
+html[data-theme="dark"] .tug-pill.tug-pill--model {
+  background: rgba(160, 126, 245, .20);
+  border-color: rgba(160, 126, 245, .45);
+  color: #d4c5ff;
+}
+html[data-theme="dark"] .tug-pill.tug-pill--model strong { color: #fff; }
+html[data-theme="popos"] .tug-pill.tug-pill--model {
+  background: rgba(250, 164, 26, .15);
+  border-color: rgba(250, 164, 26, .45);
+  color: #ffd99a;
+}
+html[data-theme="popos"] .tug-pill.tug-pill--model strong { color: #fff; }
+html[data-theme="legacy"] .tug-pill.tug-pill--model {
+  background: #d6eae5;
+  border-color: #7fb8a8;
+  color: #0a4639;
+}
+html[data-theme="legacy"] .tug-pill.tug-pill--model strong { color: #0a4639; }
+.tug-pill.tug-pill--saved {
+  background: rgba(74, 222, 128, .12);
+  border-color: rgba(74, 222, 128, .35);
+  color: #146c43;
+}
+.tug-pill.tug-pill--saved i { color: #146c43; }
+.tug-pill.tug-pill--saved strong { color: #146c43; }
+html[data-theme="dark"] .tug-pill.tug-pill--saved {
+  background: rgba(74, 222, 128, .15);
+  border-color: rgba(74, 222, 128, .40);
+  color: #bbf7d0;
+}
+html[data-theme="dark"] .tug-pill.tug-pill--saved i,
+html[data-theme="dark"] .tug-pill.tug-pill--saved strong { color: #bbf7d0; }
+html[data-theme="popos"] .tug-pill.tug-pill--saved {
+  background: rgba(72, 185, 199, .18);
+  border-color: rgba(72, 185, 199, .45);
+  color: #b3e8f1;
+}
+html[data-theme="popos"] .tug-pill.tug-pill--saved i { color: #48b9c7; }
+html[data-theme="popos"] .tug-pill.tug-pill--saved strong { color: #d4f3f8; }
+html[data-theme="legacy"] .tug-pill.tug-pill--saved {
+  background: #d1e7dd;
+  border-color: #a3cfbb;
+  color: #0a3622;
+}
+html[data-theme="legacy"] .tug-pill.tug-pill--saved i,
+html[data-theme="legacy"] .tug-pill.tug-pill--saved strong { color: #0a3622; }
+.tug-pill.tug-pill--empty {
+  font-style: italic;
+  color: var(--app-text-muted);
+}
+
+.tug-provider {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 6px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: .04em;
+  background: #1a1726;
+  color: #fff;
+  margin-right: 4px;
+}
+html[data-theme="dark"] .tug-provider {
+  background: #0f0e17;
+  color: #a07ef5;
+  border: 1px solid #3a3550;
+}
+html[data-theme="popos"] .tug-provider {
+  background: #0f0e17;
+  color: #faa41a;
+  border: 1px solid #363650;
+}
+html[data-theme="legacy"] .tug-provider {
+  background: #212529;
+  color: #7eeccb;
+  border: 1px solid #1a9478;
+}
+
+.tug-info {
+  margin-left: auto;
+  color: var(--app-text-muted);
+  font-size: 11px;
+  font-style: italic;
+}
+</style>
+</th:block>
+
+<th:block th:fragment="scripts">
+<script>
+(function () {
+  'use strict';
+  var STORAGE_KEY = 'dev_show_token_usage';
+  var EVENT_NAME = 'cf:dev-toggle-changed';
+  var BAR_ID = 'tug-bar';
+  var POLL_MS = 4000;
+  var pollTimer = null;
+  var currentCtx = null;
+  var instanceSeq = (window.__cfTuSeq = (window.__cfTuSeq || 0) + 1);
+  var ownerKind = null;
+  var requestSeq = 0;
+  var ownedBars = [];
+  window.__cfTuLive = instanceSeq;
+
+  function isLiveInstance() {
+    return window.__cfTuLive === instanceSeq;
+  }
+
+  function claimOwnership() {
+    window.__cfTuLive = instanceSeq;
+  }
+
+  function ownsKind(kind) {
+    if (ownerKind === null) {
+      ownerKind = kind;
+      return true;
+    }
+    return ownerKind === kind;
+  }
+
+  function t(key, args) {
+    if (!window.i18n || !window.i18n.t) return key;
+    if (args && args.length) return window.i18n.t(key, args);
+    return window.i18n.t(key);
+  }
+
+  function enabled() {
+    var v = null;
+    try { v = localStorage.getItem(STORAGE_KEY); } catch (e) {}
+    if (v === 'true' || v === '1') return true;
+    if (v === 'false' || v === '0') return false;
+    return true;
+  }
+
+  function fmt(n) {
+    if (n == null) return '0';
+    return String(n).replace(/\B(?=(\d{3})+(?!\d))/g, '\u202F');
+  }
+
+  function fmtDuration(ms) {
+    if (!ms || ms < 0) return '0 s';
+    var sec = Math.round(ms / 1000);
+    if (sec < 60) return sec + ' s';
+    var m = Math.floor(sec / 60);
+    var s = sec % 60;
+    return m + ':' + (s < 10 ? '0' : '') + s + ' min';
+  }
+
+  function computeSavingsPct(saved, total) {
+    if (!saved || saved <= 0 || !total || total <= 0) return 0;
+    return Math.round((saved / (total + saved)) * 100);
+  }
+
+
+  function buildBar(ctx, usage) {
+    var bar = document.createElement('div');
+    bar.id = BAR_ID;
+    bar.className = 'tug-bar';
+    if (ctx) {
+      bar.setAttribute('data-tug-kind', ctx.kind);
+      bar.setAttribute('data-tug-id', String(ctx.id));
+    }
+
+    if (!usage) {
+      var span = document.createElement('span');
+      span.className = 'tug-pill tug-pill--empty';
+      span.setAttribute('data-i18n', 'config.token_usage.no_data');
+      span.innerHTML = '<i class="bi bi-hourglass-split"></i> ' +
+        escapeHtml(t('config.token_usage.no_data'));
+      bar.appendChild(span);
+      if (window.i18n && window.i18n.apply) window.i18n.apply(bar);
+      return bar;
+    }
+
+    var modelPill = document.createElement('span');
+    modelPill.className = 'tug-pill tug-pill--model';
+    modelPill.title = 'Modell · Provider';
+    var prov = usage.provider ? String(usage.provider).toUpperCase() : '';
+    var provSpan = prov
+      ? '<span class="tug-provider">' + escapeHtml(prov) + '</span>'
+      : '';
+    modelPill.innerHTML =
+      '<i class="bi bi-cpu"></i>' +
+      provSpan +
+      '<strong>' + escapeHtml(usage.model || '?') + '</strong>';
+    bar.appendChild(modelPill);
+
+    var totalPill = document.createElement('span');
+    totalPill.className = 'tug-pill';
+    totalPill.title = 'Tokens gesamt (Input + Output)';
+    totalPill.innerHTML =
+      '<i class="bi bi-lightning-charge-fill"></i>' +
+      '<strong>' + fmt(usage.totalTokens) + '</strong> ' +
+      escapeHtml(t('config.token_usage.total_label'));
+    bar.appendChild(totalPill);
+
+    var ioPill = document.createElement('span');
+    ioPill.className = 'tug-pill';
+    ioPill.title = 'Prompt · Completion';
+    ioPill.innerHTML =
+      '<i class="bi bi-arrow-down-up"></i>' +
+      '<strong>' + fmt(usage.promptTokens) + '</strong> ' +
+      escapeHtml(t('config.token_usage.input_label')) +
+      ' \u00b7 <strong>' + fmt(usage.completionTokens) + '</strong> ' +
+      escapeHtml(t('config.token_usage.output_label'));
+    bar.appendChild(ioPill);
+
+    if (usage.filterTokensSaved && usage.filterTokensSaved > 0) {
+      var savedPill = document.createElement('span');
+      savedPill.className = 'tug-pill tug-pill--saved';
+      var pct = computeSavingsPct(usage.filterTokensSaved, usage.totalTokens);
+      savedPill.title = 'rtk-Filter hat Tokens aus dem Prompt entfernt';
+      savedPill.innerHTML =
+        '<i class="bi bi-piggy-bank-fill"></i>' +
+        '\u2212 <strong>' + fmt(usage.filterTokensSaved) + '</strong> ' +
+        escapeHtml(t('config.token_usage.saved_label')) +
+        ' (' + escapeHtml(t('config.token_usage.saved_pct', [pct])) + ')';
+      bar.appendChild(savedPill);
+    }
+
+    var durPill = document.createElement('span');
+    durPill.className = 'tug-pill';
+    durPill.title = 'Analyse-Dauer';
+    durPill.innerHTML =
+      '<i class="bi bi-stopwatch"></i>' +
+      '<strong>' + fmtDuration(usage.durationMs) + '</strong> ' +
+      escapeHtml(t('config.token_usage.duration_label'));
+    bar.appendChild(durPill);
+
+    return bar;
+  }
+
+  function readUsage(data) {
+    if (!data) return null;
+    if (!data.totalTokens && !data.promptTokens && !data.completionTokens) return null;
+    return data;
+  }
+
+  function fetchUsage(ctx, cb) {
+    if (!ctx || !ctx.id) { cb(null); return; }
+    var url = '/api/ai-usage/' + encodeURIComponent(ctx.kind) +
+              '/' + encodeURIComponent(ctx.id);
+    var token = ++requestSeq;
+    fetch(url, { credentials: 'same-origin' })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (data) {
+        if (token !== requestSeq) return;
+        cb(readUsage(data));
+      })
+      .catch(function () {
+        if (token === requestSeq) cb(null);
+      });
+  }
+
+  function attachBar(ctx, bar) {
+    if (!bar || !ctx || !ctx.anchor) return;
+    if (!document.contains(ctx.anchor)) return;
+    var parent = ctx.anchor.parentNode;
+    if (!parent || !document.contains(parent)) return;
+    pruneOwnedBars();
+    ownedBars.push(bar);
+    if (ctx.anchor.nextSibling !== bar) {
+      parent.insertBefore(bar, ctx.anchor.nextSibling);
+    }
+  }
+
+  function pruneOwnedBars() {
+    ownedBars = ownedBars.filter(function (bar) {
+      if (bar && bar.parentNode) bar.remove();
+      return false;
+    });
+  }
+
+  function invalidateInFlightRequests() {
+    requestSeq++;
+  }
+
+  function refresh() {
+    if (!currentCtx || !enabled()) { pruneOwnedBars(); return; }
+    var ctx = { kind: currentCtx.kind, id: currentCtx.id, anchor: currentCtx.anchor };
+    fetchUsage(ctx, function (usage) {
+      if (!currentCtx || !enabled()) { pruneOwnedBars(); return; }
+      attachBar(ctx, buildBar(ctx, usage));
+    });
+  }
+
+  function startPolling() {
+    stopPolling();
+    if (!currentCtx) return;
+    pollTimer = setInterval(refresh, POLL_MS);
+  }
+
+  function stopPolling() {
+    if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+  }
+
+  function init(kind, id, opts) {
+    opts = opts || {};
+    var name = String(kind);
+    if (!ownsKind(name)) return;
+    claimOwnership();
+    stopPolling();
+    invalidateInFlightRequests();
+    var numericId = Number(id);
+    if (!isNaN(numericId)) numericId = Math.max(0, Math.floor(numericId));
+    else numericId = 0;
+    currentCtx = {
+      kind: name,
+      id: numericId,
+      anchor: opts.anchor || findDefaultAnchor()
+    };
+
+    refresh();
+    if (currentCtx.id > 0) startPolling();
+  }
+
+  function teardown() {
+    stopPolling();
+    invalidateInFlightRequests();
+    pruneOwnedBars();
+    currentCtx = null;
+  }
+
+  function applyToggle() {
+    if (!enabled()) {
+      pruneOwnedBars();
+      stopPolling();
+    } else if (currentCtx) {
+      refresh();
+      startPolling();
+    }
+  }
+
+  function findDefaultAnchor() {
+    var selectors = [
+      '[data-cf-token-usage-anchor]',
+      '.lt-result-sticky-top',
+      '.ca-result-header',
+      '.pa-result-header',
+      '.sa-result-header',
+      '.sa-page-tabs',
+      '.sqla-result-header',
+      '.ga-result-header',
+      '.ra-result-header',
+      '.tca-result-header',
+      '.tra-result-header',
+      '.tia-result-header',
+      '.tsa-result-header',
+      '.ja-result-header',
+      '.ba-main',
+      '.tooling-result-header',
+      '.search-result-header',
+      '.sp-form-card',
+      '.ta-form-card',
+      '.sl-page-header'
+    ];
+    for (var i = 0; i < selectors.length; i++) {
+      var el = document.querySelector(selectors[i]);
+      if (el) return el;
+    }
+    return null;
+  }
+
+  window.addEventListener('storage', function (e) {
+    if (e.key === STORAGE_KEY) applyToggle();
+  });
+  document.addEventListener(EVENT_NAME, function (e) {
+    if (!e || !e.detail || e.detail.key === STORAGE_KEY) applyToggle();
+  });
+
+  var watchers = [];
+
+  function watch(kind, idGetter, opts) {
+    opts = opts || {};
+    ownsKind(String(kind));
+    var intervalMs = opts.intervalMs || 500;
+    var lastId = null;
+    var tick = function () {
+      try {
+        var id = idGetter();
+        if (id && id !== lastId) {
+          lastId = id;
+          init(kind, id, opts);
+        }
+      } catch (e) {}
+    };
+    tick();
+    var handle = setInterval(tick, intervalMs);
+    watchers.push(handle);
+  }
+
+  function stopWatchers() {
+    watchers.forEach(function (h) { clearInterval(h); });
+    watchers = [];
+  }
+
+  function teardownAll() {
+    stopWatchers();
+    teardown();
+  }
+
+  function handleNavigate() {
+    if (isLiveInstance()) return;
+    stopWatchers();
+    teardown();
+  }
+
+  document.addEventListener('app:navigate', handleNavigate);
+
+  window.cfTokenUsage = {
+    init: init,
+    teardown: teardown,
+    teardownAll: teardownAll,
+    refresh: refresh,
+    watch: watch,
+    enabled: enabled
+  };
+})();
+
+window.slTokenUsageBinder = (function () {
+  'use strict';
+
+  var descriptors = {};
+
+  function bind(kind, id, anchor) {
+    if (!window.cfTokenUsage) return;
+    window.cfTokenUsage.init(kind, id, { anchor: anchor || null });
+  }
+
+  function register(descriptor) {
+    descriptors[descriptor.kind] = descriptor;
+    if (descriptor.eager !== false) bind(descriptor.kind, null, descriptor.anchor);
+    return descriptor;
+  }
+
+  function rebind(kind, resolveId, anchor, initWhenUnresolved) {
+    var descriptor = descriptors[kind] || {};
+    descriptor.kind = kind;
+    if (typeof resolveId === 'function') descriptor.resolveId = resolveId;
+    if (anchor) descriptor.anchor = anchor;
+    if (initWhenUnresolved !== undefined) descriptor.initWhenUnresolved = initWhenUnresolved;
+    descriptors[kind] = descriptor;
+    var id = typeof descriptor.resolveId === 'function' ? descriptor.resolveId() : null;
+    if (!id && descriptor.initWhenUnresolved !== true) return;
+    bind(kind, id || null, descriptor.anchor);
+  }
+
+  return { register: register, rebind: rebind };
+})();
+
+window.slTokenUsagePage = function (descriptor) {
+  return window.slTokenUsageBinder.register(descriptor);
+};
+
+window.slTokenUsageRebind = function (kind, resolveId, anchor, initWhenUnresolved) {
+  window.slTokenUsageBinder.rebind(kind, resolveId, anchor, initWhenUnresolved);
+};
+</script>
+</th:block>
+</body>
+</html>

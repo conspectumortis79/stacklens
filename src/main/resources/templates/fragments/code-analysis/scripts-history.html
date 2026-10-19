@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" lang="de">
+<body>
+<th:block th:fragment="scripts-history">
+<script>
+  var _caHistory = null;
+  var _caHistoryLiveSync = null;
+
+  function caHistoryRepoName(a) {
+    if (a.gitlabProjectPath) return a.gitlabProjectPath;
+    if (a.monorepoAppName) return a.monorepoAppName;
+    if (a.repoConfigId) {
+      var card = document.getElementById('repoCard-' + a.repoConfigId);
+      return card ? (card.getAttribute('data-repo-name') || ('Lokal #' + a.repoConfigId)) : ('Lokal #' + a.repoConfigId);
+    }
+    if (a.githubRepoConfigId) {
+      var gh = document.getElementById('caGhCard-' + a.githubRepoConfigId);
+      return gh ? (gh.getAttribute('data-github-repo-name') || ('GitHub #' + a.githubRepoConfigId)) : ('GitHub #' + a.githubRepoConfigId);
+    }
+    return '#' + a.id;
+  }
+
+  function caHistoryRepoRef(a) {
+    if (a.gitlabProjectPath) return 'GitLab';
+    if (a.githubRepoConfigId) return 'GitHub';
+    if (a.repoConfigId) return 'Lokal';
+    return '';
+  }
+
+  function caHistoryFindings(a) {
+    if (window.slHistory.status(a.status) !== 'COMPLETED') return '';
+    if (!a.findingsJson) return '0';
+    try {
+      var parsed = JSON.parse(a.findingsJson);
+      return Array.isArray(parsed) ? String(parsed.length) : '';
+    } catch (_) { return ''; }
+  }
+
+  function caHistory() {
+    if (_caHistory) return _caHistory;
+    _caHistory = window.slHistory.mount({
+      root: 'hxCard-code-analysis',
+      page: 'code-analysis',
+      titleKey: 'code_analysis.history_title',
+      emptyKey: 'code_analysis.history_none_entries',
+      columns: {
+        title: { key: 'code_analysis.col_repo', fallback: 'Repository' },
+        metric: { key: 'common.history_col_findings', fallback: 'Befunde' }
+      },
+      map: {
+        id: function(a) { return a.id; },
+        status: function(a) { return a.status; },
+        createdAt: function(a) { return a.createdAt; },
+        typeIcon: function(a) {
+          if (a.gitlabProjectPath) return 'bi-gitlab';
+          if (a.githubRepoConfigId) return 'bi-github';
+          return 'bi-repo';
+        },
+        title: caHistoryRepoName,
+        subtitle: caHistoryRepoRef,
+        metric: caHistoryFindings,
+        note: function(a) { return a.errorMessage || ''; },
+        isCurrent: function(a) { return caCurrentAnalysisId === a.id; }
+      },
+      actions: {
+        open: function(a) { caShowHistoryItem(a.id); },
+        cancel: function(a) { caCancelHistoryItem(a.id); },
+        remove: function(a) { caDeleteHistoryItem(a.id); },
+        deleteAll: function() { caDeleteAllHistory(); }
+      }
+    });
+    return _caHistory;
+  }
+
+  function caLoadHistory() {
+    fetch('/api/code-analysis/all')
+      .then(function(r) { return r.json(); })
+      .then(function(all) {
+        var list = (all || []).slice().sort(function(x, y) { return y.id - x.id; });
+        caHistory().setData(list);
+      })
+      .catch(function() {});
+  }
+
+  function caRefreshHistory() {
+    if (_caHistory) _caHistory.refresh();
+  }
+
+  function caSyncHistoryProgress(data) {
+    if (!_caHistoryLiveSync) {
+      _caHistoryLiveSync = window.slHistory.createLiveSync({ reload: caLoadHistory });
+    }
+    return _caHistoryLiveSync(data);
+  }
+
+  function caShowHistoryItem(analysisId) {
+    caStopPolling();
+    caCurrentAnalysisId = analysisId;
+    fetch('/api/code-analysis/analysis/' + analysisId + '/status')
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        caCurrentAnalysisId = data.id;
+        if (data.repoConfigId) {
+          caCurrentRepoId = data.repoConfigId;
+          caGitlabConfigId = null;
+          caGitlabProjectId = null;
+          caGithubRepoConfigId = null;
+        } else if (data.githubRepoConfigId) {
+          caCurrentRepoId = 0;
+          caGitlabConfigId = null;
+          caGitlabProjectId = null;
+          caGithubRepoConfigId = data.githubRepoConfigId;
+        } else if (data.gitlabConfigId) {
+          caCurrentRepoId = 0;
+          caGitlabConfigId = data.gitlabConfigId;
+          caGitlabProjectId = data.gitlabProjectId;
+          caGithubRepoConfigId = null;
+        }
+        caApplyData(data);
+        var summaryBtn = document.querySelector('.ca-tab-btn');
+        caSwitch('tabSummary', summaryBtn);
+        caInitTokenUsageBar();
+        caRefreshHistory();
+      })
+      .catch(function() {});
+  }
+
+  function caCancelHistoryItem(analysisId) {
+    fetch('/api/code-analysis/analysis/' + analysisId + '/cancel', { method: 'POST' })
+      .then(function() { caLoadHistory(); })
+      .catch(function() {});
+  }
+
+  function caDeleteHistoryItem(analysisId) {
+    fetch('/api/code-analysis/analysis/' + analysisId, { method: 'DELETE' })
+      .then(function() {
+        if (caCurrentAnalysisId === analysisId) {
+          caCurrentAnalysisId = null;
+          caResetContent();
+        }
+        caLoadHistory();
+      })
+      .catch(function() {});
+  }
+
+  function caDeleteAllHistory() {
+    fetch('/api/code-analysis/all')
+      .then(function(r) { return (window.slHelpers || {}).jsonArray ? (window.slHelpers || {}).jsonArray(r) : r.json(); })
+      .then(function(all) {
+        var chain = Promise.resolve();
+        all.forEach(function(item) {
+          if (item.status === 'RUNNING' || item.status === 'PENDING') return;
+          chain = chain.then(function() {
+            return fetch('/api/code-analysis/analysis/' + item.id, { method: 'DELETE' }).catch(function() {});
+          });
+        });
+        return chain;
+      })
+      .then(function() {
+        caCurrentAnalysisId = null;
+        caResetContent();
+        caLoadHistory();
+      })
+      .catch(function(e) {
+        caShowError(((e && e.message) || String(e)));
+      });
+  }
+
+  (function() {
+    if (document.getElementById('gitlabConfigList')) {
+      SLScroll(
+        document.getElementById('caRepoScrollContent'),
+        document.getElementById('caRepoScrollTrack'),
+        document.getElementById('caRepoScrollThumb')
+      );
+      caLoadGitlabConfigs(); caRestoreLocalRepo();
+    }
+  })();
+
+  document.addEventListener('app:navigate', function() {
+    SLScroll(
+      document.getElementById('caRepoScrollContent'),
+      document.getElementById('caRepoScrollTrack'),
+      document.getElementById('caRepoScrollThumb')
+    );
+    caLoadGitlabConfigs(); caRestoreLocalRepo();
+  }, { once: true });
+
+  if (window._caNavigateCardStatusHandler) document.removeEventListener('app:navigate', window._caNavigateCardStatusHandler);
+  window._caNavigateCardStatusHandler = function() {
+    if (!document.getElementById('gitlabConfigList')) return;
+    _caStopStatusPoll(); caRefreshCardStatuses();
+  };
+  document.addEventListener('app:navigate', window._caNavigateCardStatusHandler);
+
+  document.addEventListener('DOMContentLoaded', function() {
+    SLScroll(
+      document.getElementById('caRepoScrollContent'),
+      document.getElementById('caRepoScrollTrack'),
+      document.getElementById('caRepoScrollThumb')
+    );
+    caLoadGitlabConfigs();
+    caRefreshCardStatuses();
+    caRestoreLocalRepo();
+  });
+</script>
+</th:block>
+</body>
+</html>

@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" lang="de">
+<body>
+<th:block th:fragment="scripts-io-browser">
+<script th:inline="none">
+var CF_IMPORT_EXTS = 'json';
+var __cfImportFilePath = null;
+
+function cfTogglePw(inputId, btn) {
+    const input = document.getElementById(inputId);
+    const isPw = input.type === 'password';
+    input.type = isPw ? 'text' : 'password';
+    btn.querySelector('i').className = isPw ? 'bi bi-eye-slash' : 'bi bi-eye';
+}
+
+function openExportModal() {
+    document.getElementById('cfExportPw1').value = '';
+    document.getElementById('cfExportPw2').value = '';
+    document.getElementById('cfExportPwError').style.display = 'none';
+    const btn = document.getElementById('cfExportPwConfirmBtn');
+    btn.disabled = false;
+    btn.innerHTML = '<i class="bi bi-download me-1"></i>Exportieren';
+    document.getElementById('cfExportPwOverlay').style.setProperty('display', 'flex', 'important');
+    document.body.style.overflow = 'hidden';
+    setTimeout(() => document.getElementById('cfExportPw1').focus(), 50);
+}
+
+function cfCloseExportPwOverlay() {
+    document.getElementById('cfExportPwOverlay').style.display = 'none';
+    document.body.style.overflow = '';
+}
+
+function cfExportBrowserPreferences() {
+    var read = function(key, fallback) {
+        try {
+            var value = localStorage.getItem(key);
+            return value == null ? fallback : value;
+        } catch (e) {
+            return fallback;
+        }
+    };
+    return {
+        theme: read('stacklens-theme', 'modern'),
+        dev_show_prompt_buttons: read('dev_show_prompt_buttons', 'false'),
+        text_filter_enabled: read('dev_text_filter_enabled', 'true'),
+        dev_show_token_usage: read('dev_show_token_usage', 'true'),
+        dev_docker_test_env: read('dev_docker_test_env', 'false'),
+        dev_docker_auto_start: read('dev_docker_auto_start', 'false')
+    };
+}
+
+async function doExportConfig() {
+    const pw1 = document.getElementById('cfExportPw1').value;
+    const pw2 = document.getElementById('cfExportPw2').value;
+    const errorEl = document.getElementById('cfExportPwError');
+    const btn = document.getElementById('cfExportPwConfirmBtn');
+    errorEl.style.display = 'none';
+    if (!pw1) {
+        errorEl.textContent = _t('config.export_password_required');
+        errorEl.style.display = 'block';
+        return;
+    }
+    if (pw1 !== pw2) {
+        errorEl.textContent = _t('config.export_passwords_mismatch');
+        errorEl.style.display = 'block';
+        return;
+    }
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Exportiert…';
+    const today = new Date().toISOString().slice(0, 10);
+    const filename = `stacklens-config-${today}.json`;
+    let exportText = null;
+    try {
+        const res = await fetch('/api/config/export', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ password: pw1, uiPreferences: cfExportBrowserPreferences() })
+        });
+        if (!res.ok) {
+            const text = await res.text();
+            errorEl.textContent = text || _t('config.export_failed');
+            errorEl.style.display = 'block';
+            return;
+        }
+        exportText = await res.text();
+    } catch (e) {
+        errorEl.textContent = _t('config.export_network_error');
+        errorEl.style.display = 'block';
+        return;
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="bi bi-download me-1"></i>Exportieren';
+    }
+    cfCloseExportPwOverlay();
+    cfOpenSaveBrowser(filename, exportText);
+}
+
+function cfOpenSaveBrowser(filename, content) {
+    __kiChatOpenDirBrowser(function (dir, pickedName) {
+        if (!dir) return;
+        var name = String(pickedName || '').trim();
+        if (!name) {
+            showAlert(window.i18n ? window.i18n.t('config.filename_empty') : 'Dateiname darf nicht leer sein.', 'danger');
+            return;
+        }
+        cfSaveConfigTo(dir, name, content);
+    }, {
+        saveAs: { filename: filename },
+        storageKey: 'stacklens.fb.last.configExport',
+        titleKey: 'common.save_location',
+        titleFallback: 'Speicherort wählen',
+        load: cfLoadSaveDirectoryEntries
+    });
+}
+
+function cfLoadSaveDirectoryEntries(path) {
+    return SLBrowseFiles({ path: path, directoriesOnly: true, silent: true }).then(function (result) {
+        if (!result.ok) throw new Error(result.message);
+        return {
+            current: result.data.currentPath || '',
+            parent: result.data.parentPath || null,
+            directories: (result.data.items || []).filter(function (item) { return item.type === 'directory'; }),
+            files: []
+        };
+    });
+}
+
+async function cfSaveConfigTo(dir, filename, content) {
+    try {
+        const res = await fetch('/api/config/save-to-path', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ path: dir, filename: filename, content: content })
+        });
+        const data = await res.json();
+        if (data.error) {
+            showAlert(data.error, 'danger');
+            return;
+        }
+        showAlert(_t('config.export_saved') + data.savedPath, 'success');
+    } catch (e) {
+        showAlert((window.i18n ? window.i18n.t('common.network_error') : 'Netzwerkfehler: ') + ((e && e.message) ? e.message : ''), 'danger');
+    }
+}
+
+function openImportModal() {
+    __kiChatOpenDirBrowser(function (path) {
+        if (path) return cfReadImportFile(path);
+    }, {
+        files: CF_IMPORT_EXTS.split(','),
+        acceptHint: 'JSON',
+        storageKey: 'stacklens.fb.last.configImport',
+        titleKey: 'config.import_file_select_title',
+        titleFallback: 'Konfigurationsdatei auswählen',
+        awaitSelection: true,
+        load: cfLoadImportEntries
+    });
+}
+
+function cfLoadImportEntries(path) {
+    return SLBrowseFiles({ path: path, fileExtensions: CF_IMPORT_EXTS, silent: true }).then(function (result) {
+        if (!result.ok) throw new Error(result.message);
+        const items = result.data.items || [];
+        return {
+            current: result.data.currentPath || '',
+            parent: result.data.parentPath || null,
+            directories: items.filter(function (item) { return item.type === 'directory'; }),
+            files: items.filter(function (item) { return item.type !== 'directory'; })
+        };
+    });
+}
+
+function cfReadImportFile(path) {
+    return fetch('/api/prompts/read-file?path=' + encodeURIComponent(path))
+        .then(function (r) { return r.json(); })
+        .then(function (data) {
+            if (data.error) {
+                showAlert(data.error, 'danger');
+                return;
+            }
+            __cfImportFilePath = path;
+            cfOpenImportConfirm(data.content, cfImportFileName(path));
+        })
+        .catch(function (e) {
+            showAlert((window.i18n ? window.i18n.t('common.network_error') : 'Netzwerkfehler: ') + ((e && e.message) ? e.message : ''), 'danger');
+        });
+}
+
+function cfImportFileName(path) {
+    return String(path).replace(/\\/g, '/').split('/').filter(Boolean).pop() || path;
+}
+
+function cfOpenImportConfirm(content, filename) {
+    document.getElementById('cfImportConfirmFilename').textContent = filename;
+    document.getElementById('cfImportConfirmError').style.display = 'none';
+    document.getElementById('cfImportConfirmPreview').style.display = 'none';
+    document.getElementById('cfImportConfirmPwRow').style.display = 'none';
+    document.getElementById('cfImportPw').value = '';
+    const confirmBtn = document.getElementById('cfImportConfirmBtn');
+    confirmBtn.disabled = true;
+    confirmBtn.innerHTML = '<i class="bi bi-upload me-1"></i>Importieren';
+    try {
+        const d = JSON.parse(content);
+        if (d.encrypted === true) {
+            const algo = d.algorithm || 'AES-256-GCM';
+            const kdf = d.kdf || 'PBKDF2WithHmacSHA256';
+            const iter = d.iterations ? ' · ' + d.iterations.toLocaleString() + ' Iterationen' : '';
+            document.getElementById('cfImportConfirmEncInfo').textContent = algo + ' / ' + kdf + iter;
+            document.getElementById('cfImportConfirmPwRow').style.display = 'block';
+            const pwInput = document.getElementById('cfImportPw');
+            pwInput.oninput = function() { confirmBtn.disabled = pwInput.value.trim() === ''; };
+        } else {
+            const rows = [
+                ['GitLab', (d.gitlab || []).length],
+                [window.i18n.t('config.databases_label', 'Datenbanken'), (d.databases || []).length],
+                ['Confluence', (d.confluence || []).length],
+                ['Grafana', (d.grafana || []).length],
+                ['Jira', (d.jira || []).length],
+                ['GitHub', (d.github || []).length],
+                ['MCP', (d.mcp || []).length],
+                [window.i18n.t('config.ai.import_label', 'KI'), d.ai ? 1 : 0],
+                [window.i18n.t('config.language_section', 'Sprache'), d.language ? 1 : 0],
+                [window.i18n.t('config.developer.section', 'Entwickleroptionen'), d.developerOptions ? 1 : 0],
+                [window.i18n.t('config.theme.section', 'Theme'), d.theme ? 1 : 0]
+            ].filter(([, count]) => count > 0);
+            const errorEl = document.getElementById('cfImportConfirmError');
+            if (rows.length === 0) {
+                errorEl.textContent = _t('config.import_no_configs');
+                errorEl.style.display = 'block';
+            } else {
+                let tableRows = rows.map(([label, count]) =>
+                    `<tr><td>${label}</td><td class="text-center fw-semibold">${count}</td></tr>`
+                ).join('');
+                if (d.exportedAt) {
+                    tableRows += `<tr><td class="text-muted small" colspan="2" style="background:#f4efe4;">Exportiert am: ${d.exportedAt}</td></tr>`;
+                }
+                document.getElementById('cfImportConfirmPreviewBody').innerHTML = tableRows;
+                document.getElementById('cfImportConfirmPreview').style.display = 'block';
+                confirmBtn.disabled = false;
+            }
+        }
+    } catch (err) {
+        const errorEl = document.getElementById('cfImportConfirmError');
+        errorEl.textContent = _t('config.import_invalid_json') + err.message;
+        errorEl.style.display = 'block';
+    }
+    document.getElementById('cfImportConfirmOverlay').style.setProperty('display', 'flex', 'important');
+    document.body.style.overflow = 'hidden';
+}
+
+function cfCloseImportConfirm() {
+    document.getElementById('cfImportConfirmOverlay').style.display = 'none';
+    document.body.style.overflow = '';
+    __cfImportFilePath = null;
+}
+
+async function doImportConfig() {
+    if (!__cfImportFilePath) return;
+    const confirmBtn = document.getElementById('cfImportConfirmBtn');
+    const errorEl = document.getElementById('cfImportConfirmError');
+    const pwInput = document.getElementById('cfImportPw');
+    confirmBtn.disabled = true;
+    confirmBtn.innerHTML = `<span class="spinner-border spinner-border-sm me-1"></span>${_t('config.import_importing')}`;
+    errorEl.style.display = 'none';
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 60000);
+    try {
+        const res = await fetch('/api/config/import-from-path', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ path: __cfImportFilePath, password: pwInput.value.trim() || null }),
+            signal: controller.signal
+        });
+        clearTimeout(timeout);
+        const data = await res.json();
+        if (data.success) {
+            cfCloseImportConfirm();
+            showAlert(_t('config.import_success'), 'success');
+            setTimeout(() => location.reload(), 800);
+            return;
+        }
+        errorEl.textContent = data.error || _t('config.import_failed');
+        errorEl.style.display = 'block';
+    } catch (e) {
+        clearTimeout(timeout);
+        errorEl.textContent = e && e.name === 'AbortError'
+            ? (window.i18n ? window.i18n.t('config.import_timeout') : 'Import-Anfrage abgebrochen (Zeitüberschreitung).')
+            : (_t('config.import_network_error') + (e && e.message ? ': ' + e.message : ''));
+        errorEl.style.display = 'block';
+    } finally {
+        confirmBtn.disabled = false;
+        confirmBtn.innerHTML = '<i class="bi bi-upload me-1"></i>Importieren';
+    }
+}
+</script>
+</th:block>
+</body>
+</html>

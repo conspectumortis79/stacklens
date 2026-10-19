@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" lang="de">
+<body>
+<th:block th:fragment="scripts-local-repo">
+<script th:inline="javascript">
+/*<![CDATA[*/
+
+(function () {
+  if (!window.localRepoConfig) {
+    window.localRepoConfig = {
+      scope: 'CODE_ANALYSIS',
+      listContainerId: 'repoList',
+      cardClass: 'ca-repo-card',
+      refreshCard: function () {},
+      onDeleted: function () {}
+    };
+  }
+  var cfg = window.localRepoConfig;
+
+  function _lrEsc(s) {
+    if (window._lrEsc && window._lrEsc !== _lrEsc) return window._lrEsc(s);
+    return String(s == null ? '' : s)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+
+  function _lrHideModal(id) {
+    if (typeof window.hideModalById === 'function') { window.hideModalById(id); return; }
+    var el = document.getElementById(id);
+    if (!el) return;
+    if (typeof bootstrap !== 'undefined' && bootstrap.Modal) {
+      var inst = bootstrap.Modal.getInstance(el) || new bootstrap.Modal(el);
+      inst.hide();
+    } else {
+      el.classList.remove('show');
+      el.style.display = 'none';
+    }
+  }
+  function _lrShowModal(id) {
+    if (typeof window.showModalById === 'function') { window.showModalById(id); return; }
+    var el = document.getElementById(id);
+    if (!el) return;
+    if (typeof bootstrap !== 'undefined' && bootstrap.Modal) {
+      var inst = bootstrap.Modal.getInstance(el) || new bootstrap.Modal(el);
+      inst.show();
+    }
+  }
+  function _lrAlert(msg, kind) {
+    if (typeof window.showAlert === 'function') { window.showAlert(msg, kind || 'danger'); return; }
+    alert(msg);
+  }
+  function _lrConfirm(msg, title, onYes) {
+    if (typeof window.showConfirm === 'function') { window.showConfirm(msg, title, onYes); return; }
+    if (confirm(title ? title + '\n\n' + msg : msg)) onYes();
+  }
+
+
+  window._fbReturnToModal = window._fbReturnToModal || false;
+  window._fbTargetInputId = window._fbTargetInputId || null;
+
+  function fbDerivedName(path) {
+    return String(path).replace(/\\/g, '/').split('/').filter(Boolean).pop() || '';
+  }
+
+  function fbRepoPathValue() {
+    var el = document.getElementById('repoPath');
+    return el ? String(el.value || '').trim() : '';
+  }
+
+  function fbApplyPickedPath(path) {
+    var derivedName = fbDerivedName(path);
+    if (window._fbTargetInputId) {
+      var inputId = window._fbTargetInputId;
+      window._fbTargetInputId = null;
+      var el = document.getElementById(inputId);
+      if (el) el.value = path;
+      if (typeof showModalById === 'function') showModalById('cloneModal');
+      return;
+    }
+    if (window._fbReturnToModal) {
+      window._fbReturnToModal = false;
+      fetch('/api/local-repos', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: null, name: derivedName, path: path, active: true, scope: window.localRepoConfig.scope
+        })
+      })
+        .then(function (r) { return r.json(); })
+        .then(function (data) {
+          if (data.error) {
+            _lrAlert((window.i18n ? window.i18n.t('common.error') : 'Fehler') + ': ' + data.error, 'danger');
+            return;
+          }
+          try { window.localRepoConfig.refreshCard(data); } catch (_) {}
+        });
+      return;
+    }
+    var repoPathEl = document.getElementById('repoPath');
+    if (repoPathEl) repoPathEl.value = path;
+    var nameEl = document.getElementById('repoName');
+    if (nameEl && !nameEl.value.trim()) nameEl.value = derivedName;
+  }
+
+  function fbOpenBrowser(startPath) {
+    __kiChatOpenDirBrowser(function (path) {
+      if (path) fbApplyPickedPath(path);
+    }, {
+      startPath: startPath || fbRepoPathValue(),
+      storageKey: 'stacklens.fb.last.localRepo',
+    });
+  }
+
+  function browseDirectory() {
+    window._fbReturnToModal = false;
+    fbOpenBrowser();
+  }
+
+  function openFileBrowserForNewRepo() {
+    var idEl = document.getElementById('repoId');
+    if (idEl) idEl.value = '';
+    var nameEl = document.getElementById('repoName');
+    if (nameEl) nameEl.value = '';
+    var pathEl = document.getElementById('repoPath');
+    if (pathEl) pathEl.value = '';
+    var activeEl = document.getElementById('repoActive');
+    if (activeEl) activeEl.checked = true;
+    var titleEl = document.getElementById('repoModalTitle');
+    if (titleEl) {
+      titleEl.innerHTML = '<i class="bi bi-folder-plus me-2"></i>'
+        + (window.i18n ? window.i18n.t('common.repo_add_title') : 'Repository hinzufügen');
+    }
+    var errEl = document.getElementById('repoModalError');
+    if (errEl) {
+      errEl.className = (errEl.className || '').replace(/\bd-none\b/g, '').trim() + ' d-none';
+    }
+    window._fbReturnToModal = true;
+    fbOpenBrowser();
+  }
+
+  function editRepo(id) {
+    var card = document.getElementById((window.localRepoConfig.cardIdPrefix || '') + id);
+    if (!card) return;
+    document.getElementById('repoId').value     = card.getAttribute('data-repo-id') || '';
+    document.getElementById('repoName').value   = card.getAttribute('data-repo-name') || '';
+    document.getElementById('repoPath').value   = card.getAttribute('data-repo-path') || '';
+    document.getElementById('repoActive').checked = card.getAttribute('data-repo-active') === 'true';
+    var titleEl = document.getElementById('repoModalTitle');
+    if (titleEl) {
+      titleEl.innerHTML = '<i class="bi bi-pencil me-2"></i>'
+        + (window.i18n ? window.i18n.t('common.repo_edit_title') : 'Repository bearbeiten');
+    }
+    var errEl = document.getElementById('repoModalError');
+    if (errEl) {
+      errEl.className = (errEl.className || '').replace(/\bd-none\b/g, '').trim() + ' d-none';
+    }
+    _lrShowModal('repoModal');
+  }
+
+  function deleteRepo(id) {
+    _lrConfirm(
+      window.i18n ? window.i18n.t('common.repo_delete_confirm') : 'Repository löschen?',
+      window.i18n ? window.i18n.t('common.repo_delete_title')  : 'Repository löschen',
+      function () {
+        fetch('/api/local-repos/' + id, { method: 'DELETE' })
+          .then(function () {
+            var card = document.getElementById((window.localRepoConfig.cardIdPrefix || '') + id);
+            if (card && card.parentNode) card.parentNode.removeChild(card);
+            try { window.localRepoConfig.onDeleted(id); } catch (_) {}
+          });
+      }
+    );
+  }
+
+  function saveRepo() {
+    var id     = document.getElementById('repoId').value;
+    var name   = document.getElementById('repoName').value.trim();
+    var path   = document.getElementById('repoPath').value.trim();
+    var active = document.getElementById('repoActive').checked;
+    var errEl  = document.getElementById('repoModalError');
+    errEl.className = (errEl.className || '').replace(/\bd-none\b/g, '').trim() + ' d-none';
+
+    if (!name || !path) {
+      errEl.textContent = window.i18n ? window.i18n.t('common.fill_required') : 'Name und Pfad sind Pflichtfelder.';
+      errEl.className = (errEl.className || '').replace(/\bd-none\b/g, '').trim();
+      return;
+    }
+
+    fetch('/api/local-repos', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        id: id ? parseInt(id, 10) : null,
+        name: name, path: path, active: active, scope: window.localRepoConfig.scope
+      })
+    })
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        if (data.error) {
+          errEl.textContent = data.error;
+          errEl.className = (errEl.className || '').replace(/\bd-none\b/g, '').trim();
+          return;
+        }
+        _lrHideModal('repoModal');
+        try { window.localRepoConfig.refreshCard(data); } catch (_) {}
+      })
+      .catch(function (e) {
+        errEl.textContent = (window.i18n ? window.i18n.t('common.error') : 'Fehler') + ': ' + (e.message || e);
+        errEl.className = (errEl.className || '').replace(/\bd-none\b/g, '').trim();
+      });
+  }
+
+  window.fbOpenBrowser          = fbOpenBrowser;
+  window.browseDirectory        = browseDirectory;
+  window.openFileBrowserForNewRepo = openFileBrowserForNewRepo;
+  window.editRepo               = editRepo;
+  window.deleteRepo             = deleteRepo;
+  window.saveRepo               = saveRepo;
+})();
+/*]]>*/
+</script>
+</th:block>
+</body>
+</html>

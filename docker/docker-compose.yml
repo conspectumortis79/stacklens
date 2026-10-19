@@ -1,0 +1,136 @@
+
+services:
+
+  fake-atlassian:
+    build: ./demo-atlassian/fake-atlassian
+    image: stacklens/fake-atlassian:local
+    container_name: fake-atlassian
+    ports:
+      - "8081:8081"
+    restart: always
+    healthcheck:
+      test: ["CMD", "/app/healthcheck.sh"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  fake-gitlab:
+    build: ./demo-gitlab/fake-gitlab
+    image: stacklens/fake-gitlab:local
+    container_name: fake-gitlab
+    ports:
+      - "3080:3080"
+    restart: always
+    healthcheck:
+      test: ["CMD", "/app/healthcheck.sh"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  fake-github:
+    build: ./demo-github/fake-github
+    image: stacklens/fake-github:local
+    container_name: fake-github
+    ports:
+      - "8082:8082"
+    restart: always
+    healthcheck:
+      test: ["CMD", "/app/healthcheck.sh"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  fake-exporter:
+    build: ./demo-monitoring/fake-exporter
+    image: stacklens/fake-exporter:local
+    container_name: stacklens-demo-exporter
+    ports:
+      - "9100:9100"
+    restart: always
+
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: stacklens-demo-prometheus
+    restart: always
+    ports:
+      - "9090:9090"
+    volumes:
+      - ${STACKLENS_HOST_DOCKER_DIR:-.}/demo-monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--web.console.libraries=/etc/prometheus/console_libraries"
+      - "--web.console.templates=/etc/prometheus/consoles"
+    depends_on:
+      - fake-exporter
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: stacklens-demo-grafana
+    restart: always
+    ports:
+      - "${GRAFANA_DEMO_PORT:-3000}:3000"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://localhost:3000/api/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=stacklens
+      - GF_SECURITY_ALLOW_EMBEDDING=true
+      - GF_AUTH_ANONYMOUS_ENABLED=true
+      - GF_AUTH_ANONYMOUS_ORG_ROLE=Viewer
+      - GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH=/var/lib/grafana/dashboards/stacklens-demo.json
+      - GF_ANALYTICS_REPORTING_ENABLED=false
+      - GF_ANALYTICS_CHECK_FOR_UPDATES=false
+      - GF_PLUGINS_AUTO_UPDATE=false
+      - GF_LOG_LEVEL=warn
+    volumes:
+      - ${STACKLENS_HOST_DOCKER_DIR:-.}/demo-monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ${STACKLENS_HOST_DOCKER_DIR:-.}/demo-monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
+    depends_on:
+      - prometheus
+
+  mysql-demo:
+    image: mysql:8.0
+    container_name: stacklens-demo-mysql
+    ports:
+      - "3306:3306"
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpassword
+      MYSQL_USER: stacklens
+      MYSQL_PASSWORD: stacklens
+    command: >
+      --innodb-buffer-pool-size=256M
+      --innodb-log-buffer-size=32M
+      --max-connections=100
+      --performance-schema=OFF
+    volumes:
+      - ${STACKLENS_HOST_DOCKER_DIR:-.}/demo-mysql/initdb:/docker-entrypoint-initdb.d:ro
+      - mysql-data:/var/lib/mysql
+    restart: always
+    healthcheck:
+      test: ["CMD", "mysql", "-h", "127.0.0.1", "-u", "stacklens", "-pstacklens", "-e", "SELECT 1", "auth_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  fake-backend:
+    build: ./demo-loadtest/fake-backend
+    image: stacklens/fake-backend:local
+    container_name: stacklens-demo-backend
+    ports:
+      - "8085:8085"
+    restart: always
+    healthcheck:
+      test: ["CMD", "/app/healthcheck.sh"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+volumes:
+  grafana-data:
+  mysql-data:

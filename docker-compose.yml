@@ -1,0 +1,213 @@
+services:
+
+  stacklens:
+    build:
+      context: .
+      dockerfile: docker/stacklens/Dockerfile
+    image: stacklens:latest
+    pull_policy: build
+    container_name: stacklens
+    restart: unless-stopped
+
+    ports:
+      - "${SERVER_PORT:-8090}:${SERVER_PORT:-8090}"
+
+    environment:
+      GITHUB_TOKEN: "${GITHUB_TOKEN:-}"
+      GH_TOKEN: "${GH_TOKEN:-}"
+      COPILOT_GITHUB_TOKEN: "${COPILOT_GITHUB_TOKEN:-}"
+      AI_PROVIDER: "${AI_PROVIDER:-auto}"
+
+      ANTHROPIC_API_KEY: "${ANTHROPIC_API_KEY:-}"
+      CLAUDE_CODE_OAUTH_TOKEN: "${CLAUDE_CODE_OAUTH_TOKEN:-}"
+      ANTHROPIC_MODEL: "${ANTHROPIC_MODEL:-}"
+      COPILOT_MODEL: "${COPILOT_MODEL:-}"
+      SERVER_PORT: "${SERVER_PORT:-8090}"
+      SERVER_ADDRESS: "${SERVER_ADDRESS:-0.0.0.0}"
+      JAVA_MAX_HEAP: "${JAVA_MAX_HEAP:-4g}"
+      LOG_LEVEL: "${LOG_LEVEL:-INFO}"
+      SPRING_DATASOURCE_URL: "${SPRING_DATASOURCE_URL:-jdbc:h2:file:/home/stacklens/.stacklens/data/stacklens;MODE=PostgreSQL;WRITE_DELAY=0;AUTO_SERVER=TRUE}"
+      OLLAMA_URL: "${OLLAMA_URL:-http://host.docker.internal:11434}"
+      LM_STUDIO_URL: "${LM_STUDIO_URL:-http://host.docker.internal:1234}"
+      STACKLENS_DATA_DIR: /home/stacklens/.stacklens
+      STACKLENS_HOST_HOME: "${HOME}"
+      STACKLENS_HOST_USER: "${USER}"
+      HOST_UID: "${UID:-1000}"
+      HOST_GID: "${GID:-1000}"
+      STACKLENS_HOST_DOCKER_DIR: "${PWD}/docker"
+      STACKLENS_SEED_DEMO_DATA: "${STACKLENS_SEED_DEMO_DATA:-true}"
+      GRAFANA_DEMO_PORT: "${GRAFANA_DEMO_PORT:-3000}"
+      STACKLENS_RUNNING_IN_CONTAINER: "true"
+
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+    volumes:
+      - stacklens-data:/home/stacklens/.stacklens
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./docker:/home/stacklens/.stacklens/docker
+      - ./mcp-server:/home/stacklens/.stacklens/mcp-server
+      - ${HOME}:${HOME}
+
+    group_add:
+      - "${DOCKER_GID:-999}"
+
+    healthcheck:
+      test:
+        - "CMD-SHELL"
+        - "curl -sf http://localhost:${SERVER_PORT:-8090}/ -o /dev/null --max-time 5 || exit 1"
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 90s
+
+  fake-atlassian:
+    profiles: [demo]
+    build: docker/demo-atlassian/fake-atlassian
+    container_name: fake-atlassian
+    ports:
+      - "8081:8081"
+    restart: always
+    healthcheck:
+      test: ["CMD", "/app/healthcheck.sh"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  fake-gitlab:
+    profiles: [demo]
+    build: docker/demo-gitlab/fake-gitlab
+    container_name: fake-gitlab
+    ports:
+      - "3080:3080"
+    restart: always
+    healthcheck:
+      test: ["CMD", "/app/healthcheck.sh"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  fake-exporter:
+    profiles: [demo]
+    build: docker/demo-monitoring/fake-exporter
+    container_name: stacklens-demo-exporter
+    ports:
+      - "9100:9100"
+    restart: always
+
+  prometheus:
+    profiles: [demo]
+    image: prom/prometheus:latest
+    container_name: stacklens-demo-prometheus
+    restart: always
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./docker/demo-monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+    depends_on:
+      - fake-exporter
+
+  grafana:
+    profiles: [demo]
+    image: grafana/grafana:latest
+    container_name: stacklens-demo-grafana
+    restart: always
+    ports:
+      - "${GRAFANA_DEMO_PORT:-3000}:3000"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://localhost:3000/api/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=stacklens
+      - GF_SECURITY_ALLOW_EMBEDDING=true
+      - GF_AUTH_ANONYMOUS_ENABLED=true
+      - GF_AUTH_ANONYMOUS_ORG_ROLE=Viewer
+      - GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH=/var/lib/grafana/dashboards/stacklens-demo.json
+      - GF_ANALYTICS_REPORTING_ENABLED=false
+      - GF_ANALYTICS_CHECK_FOR_UPDATES=false
+      - GF_PLUGINS_AUTO_UPDATE=false
+      - GF_LOG_LEVEL=warn
+    volumes:
+      - ./docker/demo-monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./docker/demo-monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
+    depends_on:
+      - prometheus
+
+  mysql-demo:
+    profiles: [demo]
+    image: mysql:8.0
+    container_name: stacklens-demo-mysql
+    ports:
+      - "3306:3306"
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpassword
+      MYSQL_USER: stacklens
+      MYSQL_PASSWORD: stacklens
+    command: >
+      --innodb-buffer-pool-size=256M
+      --innodb-log-buffer-size=32M
+      --max-connections=100
+      --performance-schema=OFF
+    volumes:
+      - ./docker/demo-mysql/initdb:/docker-entrypoint-initdb.d:ro
+      - mysql-data:/var/lib/mysql
+    restart: always
+    healthcheck:
+      test: ["CMD", "mysql", "-h", "127.0.0.1", "-u", "stacklens", "-pstacklens", "-e", "SELECT 1", "auth_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  fake-backend:
+    profiles: [demo]
+    build: docker/demo-loadtest/fake-backend
+    container_name: stacklens-demo-backend
+    ports:
+      - "8085:8085"
+    restart: always
+    healthcheck:
+      test: ["CMD", "/app/healthcheck.sh"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  stacklens-mcp:
+    build:
+      context: mcp-server
+    container_name: stacklens-mcp
+    ports:
+      - "7456:7456"
+    environment:
+      MCP_PORT: "7456"
+      MCP_HOST: "0.0.0.0"
+      MCP_AUTH_TOKEN: "${MCP_AUTH_TOKEN:-}"
+      JIRA_BASE_URL: "${JIRA_BASE_URL:-}"
+      JIRA_USERNAME: "${JIRA_USERNAME:-}"
+      JIRA_API_TOKEN: "${JIRA_API_TOKEN:-}"
+      CONFLUENCE_BASE_URL: "${CONFLUENCE_BASE_URL:-}"
+      CONFLUENCE_USERNAME: "${CONFLUENCE_USERNAME:-}"
+      CONFLUENCE_API_TOKEN: "${CONFLUENCE_API_TOKEN:-}"
+      GITLAB_BASE_URL: "${GITLAB_BASE_URL:-https://gitlab.com}"
+      GITLAB_ACCESS_TOKEN: "${GITLAB_ACCESS_TOKEN:-}"
+      GITHUB_TOKEN: "${GITHUB_TOKEN:-}"
+      NODE_OPTIONS: "--max-old-space-size=256"
+    mem_limit: 384m
+    mem_reservation: 128m
+    restart: always
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+volumes:
+  stacklens-data:
+    driver: local
+  grafana-data:
+  mysql-data:
+

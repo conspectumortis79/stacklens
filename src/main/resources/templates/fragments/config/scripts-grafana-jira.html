@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" lang="de">
+<body>
+<th:block th:fragment="scripts-grafana-jira">
+<script th:inline="none">
+function openGrafanaModal(cfg) {
+    resetForm(['grId','grName','grUrl','grUser','grPassword']);
+    document.getElementById('grOrg').value=1; document.getElementById('grScanQueries').checked=true; document.getElementById('grActive').checked=true;
+    document.getElementById('grModalTitle').textContent = cfg ? _t('config.grafana.edit') : _t('config.grafana.new');
+    var grTestResult = document.getElementById('grTestResult');
+    if (grTestResult) { grTestResult.style.display = 'none'; grTestResult.innerHTML = ''; }
+    if (cfg) { document.getElementById('grId').value=cfg.id; document.getElementById('grName').value=cfg.name; document.getElementById('grUrl').value=cfg.baseUrl; document.getElementById('grUser').value=cfg.username; document.getElementById('grPassword').value=cfg.password; document.getElementById('grOrg').value=cfg.orgId; document.getElementById('grScanQueries').checked=cfg.scanPanelQueries; document.getElementById('grActive').checked=cfg.active; }
+    showModalById('grafanaModal');
+}
+function editGrafana(id) { openGrafanaModal(grafanaConfigs[id]); }
+async function saveGrafana() {
+    const p = { id:+document.getElementById('grId').value||null, name:document.getElementById('grName').value.trim(), baseUrl:document.getElementById('grUrl').value.trim(), username:document.getElementById('grUser').value.trim(), password:document.getElementById('grPassword').value, orgId:+document.getElementById('grOrg').value, scanPanelQueries:document.getElementById('grScanQueries').checked, active:document.getElementById('grActive').checked };
+    if (!p.name||!p.baseUrl||!p.username||!p.password) { showAlert(_t('config.fill_required'),'danger'); return; }
+    const res = await fetch('/api/config/grafana', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(p) });
+    if (res.ok) { showAlert(_t('config.grafana.saved'),'success'); location.reload(); } else showAlert(_t('config.error_save'),'danger');
+}
+function deleteGrafana(id) { showConfirm(_t('config.grafana.delete_confirm'), _t('config.grafana.delete_title'), async function() { const res=await fetch(`/api/config/grafana/${id}`,{method:'DELETE'}); if(res.ok){showAlert(_t('config.deleted'),'success');location.reload();}else showAlert(_t('config.error_delete'),'danger'); }); }async function testGrafanaConnection() {
+  await window.slHelpers.testConnection({ idElement: 'grId', resultElement: 'grTestResult', buttonElement: 'grTestBtn', endpoint: '/api/config/grafana/{id}/test' });
+}
+function openJiraModal(cfg) {
+    resetForm(['jrId','jrName','jrUrl','jrProject','jrUser','jrToken','jrVisibilityRole']);
+    document.getElementById('jrCloud').checked=true; document.getElementById('jrActive').checked=true;
+    document.getElementById('jrModalTitle').textContent = cfg ? _t('config.jira.edit') : _t('config.jira.new');
+    if (cfg) { document.getElementById('jrId').value=cfg.id; document.getElementById('jrName').value=cfg.name; document.getElementById('jrUrl').value=cfg.baseUrl; document.getElementById('jrProject').value=cfg.projectKey||''; document.getElementById('jrUser').value=cfg.username; document.getElementById('jrToken').value=cfg.apiToken; document.getElementById(cfg.cloudMode?'jrCloud':'jrServer').checked=true; document.getElementById('jrVisibilityRole').value=cfg.commentVisibilityRole||''; document.getElementById('jrActive').checked=cfg.active; }
+    showModalById('jiraModal');
+}
+function editJira(id) { openJiraModal(jiraConfigs[id]); }
+async function saveJira() {
+  const p = { id:+document.getElementById('jrId').value||null, name:document.getElementById('jrName').value.trim(), baseUrl:document.getElementById('jrUrl').value.trim(), projectKey:(document.getElementById('jrProject').value||'').trim(), username:document.getElementById('jrUser').value.trim(), apiToken:document.getElementById('jrToken').value, cloudMode:document.getElementById('jrCloud').checked, commentVisibilityRole:(document.getElementById('jrVisibilityRole').value||'').trim(), active:document.getElementById('jrActive').checked };
+    if (!p.name||!p.baseUrl||!p.apiToken) { showAlert(_t('config.fill_required'),'danger'); return; }
+    const res = await fetch('/api/config/jira', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(p) });
+    if (res.ok) { showAlert(_t('config.jira.saved'),'success'); location.reload(); } else showAlert(_t('config.error_save'),'danger');
+}
+async function testJiraConnection() {
+  await window.slHelpers.testConnection({ idElement: 'jrId', resultElement: 'jrTestResult', buttonElement: 'jrTestBtn', successElement: 'jrTestKeywordRow', endpoint: '/api/config/jira/{id}/test', networkErrorKey: 'config.jira.network_error', networkErrorIcon: false });
+}
+async function testJiraSearch() {
+  const id = +document.getElementById('jrId').value || null;
+  if (!id) return;
+  const keyword = document.getElementById('jrTestKeyword').value.trim();
+  if (!keyword) return;
+  const resultDiv = document.getElementById('jrSearchResult');
+  resultDiv.style.display = 'none';
+  try {
+    const res = await fetch(`/api/config/jira/${id}/test?keyword=${encodeURIComponent(keyword)}`, { method: 'POST' });
+    const data = await res.json();
+    resultDiv.style.display = '';
+    if (data.success && data.keywordSearch) {
+      const ks = data.keywordSearch;
+      if (ks.count === 0) {
+        resultDiv.innerHTML = `<div class="alert alert-warning py-2 mb-0"><i class="bi bi-exclamation-circle me-1"></i>${_t('config.jira.search_0_tickets')} <strong>${escHtml(keyword)}</strong>.<br><small class="text-muted">JQL: ${escHtml(ks.jql)}</small></div>`;
+      } else {
+        const examples = (ks.examples||[]).map(e=>`<li>${escHtml(e)}</li>`).join('');
+        resultDiv.innerHTML = `<div class="alert alert-success py-2 mb-0"><i class="bi bi-check-circle me-1"></i><strong>${ks.count}</strong> ${_t('config.jira.search_n_tickets')} <strong>${escHtml(keyword)}</strong>.<br><ul class="mb-0 mt-1 ps-3">${examples}</ul><small class="text-muted">JQL: ${escHtml(ks.jql)}</small></div>`;
+      }
+    } else if (!data.success) {
+      resultDiv.innerHTML = `<div class="alert alert-danger py-2 mb-0"><i class="bi bi-x-circle me-1"></i>${escHtml(data.message)}</div>`;
+    }
+  } catch(e) {
+    resultDiv.style.display = '';
+    resultDiv.innerHTML = `<div class="alert alert-danger py-2 mb-0">${_t('config.jira.network_error')}${escHtml(e.message)}</div>`;
+  }
+}
+function deleteJira(id) { showConfirm(_t('config.jira.delete_confirm'), _t('config.jira.delete_title'), async function() { const res=await fetch(`/api/config/jira/${id}`,{method:'DELETE'}); if(res.ok){showAlert(_t('config.deleted'),'success');location.reload();}else showAlert(_t('config.error_delete'),'danger'); }); }
+</script>
+</th:block>
+</body>
+</html>

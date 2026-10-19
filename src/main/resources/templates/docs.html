@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org"
+      xmlns:layout="http://www.ultraq.net.nz/thymeleaf/layout"
+      layout:decorate="~{layout}" lang="en">
+<head>
+  <title>Documentation</title>
+</head>
+<body>
+
+<th:block layout:fragment="page-title"><span data-i18n="page_titles.documentation">Documentation</span></th:block>
+
+<div layout:fragment="content">
+
+  <div class="doc-card">
+  <div class="doc-tabs d-flex gap-2">
+    <button id="tabBtnGuide" class="doc-tab-btn active" onclick="docSwitchTab('guide')">
+      <i class="bi bi-book me-2"></i><span data-i18n="docs.tab_guide">User Guide</span>
+    </button>
+    <button id="tabBtnDocs" class="doc-tab-btn" onclick="docSwitchTab('docs')">
+      <i class="bi bi-file-earmark-code me-2"></i><span data-i18n="docs.tab_docs">Application Documentation</span>
+    </button>
+  </div>
+
+  <div class="doc-search-bar">
+    <i class="bi bi-search"></i>
+    <input type="search" id="docSearchInput" class="sl-search-input" autocomplete="off"
+           data-i18n-placeholder="docs.search_placeholder"
+           placeholder="Im Dokument suchen…"
+           oninput="docSearchRun(this.value)"
+           onkeydown="if(event.key==='Enter'||event.keyCode===13){event.shiftKey?docSearchPrev():docSearchNext();}if(event.key==='Escape'||event.key==='Esc'||event.keyCode===27){this.value='';docSearchRun('');}">
+    <span id="docSearchCount" class="doc-search-count"></span>
+    <button class="doc-search-btn" onclick="docSearchPrev()" data-i18n-title="docs.prev_match" title="Vorheriger Treffer (Shift+Enter)"><i class="bi bi-chevron-up"></i></button>
+    <button class="doc-search-btn" onclick="docSearchNext()" data-i18n-title="docs.next_match" title="Nächster Treffer (Enter)"><i class="bi bi-chevron-down"></i></button>
+    <button class="doc-search-btn" onclick="document.getElementById('docSearchInput').value='';docSearchRun('');" data-i18n-title="docs.clear_search" title="Suche leeren"><i class="bi bi-x-lg"></i></button>
+  </div>
+
+  <div id="docPaneGuide" class="doc-pane active">
+    <div id="docGuideLoading" class="doc-loading">
+      <div class="spinner-border spinner-border-sm text-secondary" role="status"></div>
+      <span data-i18n="docs.loading_guide">Loading User Guide…</span>
+    </div>
+    <div id="docGuideContent" class="doc-markdown-body" style="display:none;"></div>
+    <div id="docGuideError" class="doc-error" style="display:none;">
+      <i class="bi bi-exclamation-circle me-2"></i><span data-i18n="docs.error_guide">Failed to load User Guide.</span>
+    </div>
+  </div>
+
+  <div id="docPaneDocs" class="doc-pane">
+    <div id="docDocsLoading" class="doc-loading">
+      <div class="spinner-border spinner-border-sm text-secondary" role="status"></div>
+      <span data-i18n="docs.loading_docs">Loading Documentation…</span>
+    </div>
+    <div id="docDocsContent" class="doc-markdown-body" style="display:none;"></div>
+    <div id="docDocsError" class="doc-error" style="display:none;">
+      <i class="bi bi-exclamation-circle me-2"></i><span data-i18n="docs.error_docs">Failed to load Application Documentation.</span>
+    </div>
+  </div>
+  </div>
+</div>
+
+<th:block layout:fragment="scripts">
+  <script>
+    (function () {
+      var _loaded = {};
+      var _lang = null;
+      var _activeTab = 'guide';
+      var _searchMatches = [];
+      var _searchIdx = -1;
+      var _originalHtml = {};
+
+      function activeContentEl() {
+        var id = _activeTab === 'guide' ? 'docGuideContent' : 'docDocsContent';
+        return document.getElementById(id);
+      }
+
+      function docSearchClear() {
+        var el = activeContentEl();
+        if (el && _originalHtml[_activeTab] !== undefined) {
+          el.innerHTML = _originalHtml[_activeTab];
+        }
+        _searchMatches = [];
+        _searchIdx = -1;
+        var ctr = document.getElementById('docSearchCount');
+        if (ctr) ctr.textContent = '';
+      }
+
+      function collectTextNodes(root) {
+        var result = [];
+        (function walk(node) {
+          var child = node.firstChild;
+          while (child) {
+            var next = child.nextSibling;
+            if (child.nodeType === 3) {
+              result.push(child);
+            } else if (child.nodeType === 1) {
+              walk(child);
+            }
+            child = next;
+          }
+        })(root);
+        return result;
+      }
+
+      function docSearchRun(query) {
+        docSearchClear();
+        if (!query || !query.trim()) return;
+        var el = activeContentEl();
+        if (!el || el.style.display === 'none') return;
+        var re = new RegExp(query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi');
+        var nodes = collectTextNodes(el);
+        nodes.forEach(function(node) {
+          if (!node.parentNode) return;
+          var text = node.textContent;
+          re.lastIndex = 0;
+          if (!re.test(text)) return;
+          re.lastIndex = 0;
+          var frag = document.createDocumentFragment();
+          var last = 0, m;
+          while ((m = re.exec(text)) !== null) {
+            if (m.index > last) frag.appendChild(document.createTextNode(text.slice(last, m.index)));
+            var mark = document.createElement('mark');
+            mark.className = 'doc-hl';
+            mark.textContent = m[0];
+            _searchMatches.push(mark);
+            frag.appendChild(mark);
+            last = re.lastIndex;
+          }
+          if (last < text.length) frag.appendChild(document.createTextNode(text.slice(last)));
+          node.parentNode.replaceChild(frag, node);
+        });
+        var ctr = document.getElementById('docSearchCount');
+        if (_searchMatches.length === 0) {
+          if (ctr) ctr.textContent = window.i18n ? window.i18n.t('docs.search_no_results') : '0 Treffer';
+          return;
+        }
+        docSearchGoTo(0);
+      }
+
+      function docSearchGoTo(idx) {
+        _searchMatches.forEach(function(m) { m.classList.remove('doc-hl-active'); });
+        if (idx < 0 || idx >= _searchMatches.length) return;
+        _searchIdx = idx;
+        var match = _searchMatches[idx];
+        match.classList.add('doc-hl-active');
+        match.scrollIntoView({ block: 'center', behavior: 'smooth' });
+        var ctr = document.getElementById('docSearchCount');
+        if (ctr) ctr.textContent = (idx + 1) + ' / ' + _searchMatches.length;
+      }
+
+      function docSearchNext() {
+        if (!_searchMatches.length) return;
+        docSearchGoTo((_searchIdx + 1) % _searchMatches.length);
+      }
+
+      function docSearchPrev() {
+        if (!_searchMatches.length) return;
+        docSearchGoTo((_searchIdx - 1 + _searchMatches.length) % _searchMatches.length);
+      }
+
+      window.docSearchRun  = docSearchRun;
+      window.docSearchNext = docSearchNext;
+      window.docSearchPrev = docSearchPrev;
+
+      document.addEventListener('keydown', function(e) {
+        if (e.key === 'Escape' || e.key === 'Esc' || e.keyCode === 27) {
+          var input = document.getElementById('docSearchInput');
+          if (!input) return;
+          if (input.value) {
+            input.value = '';
+            docSearchRun('');
+            input.blur();
+          }
+        }
+      });
+
+      function getLanguage(cb) {
+        if (_lang !== null) { cb(_lang); return; }
+        fetch('/api/config/language')
+          .then(function (r) { return r.json(); })
+          .then(function (d) { _lang = d.language || 'en'; cb(_lang); })
+          .catch(function () { _lang = 'en'; cb('en'); });
+      }
+
+      function ensureMarked(cb) {
+        if (typeof marked !== 'undefined') { cb(); return; }
+        var s = document.createElement('script');
+        s.src = '/js/marked.min.js';
+        s.onload = cb;
+        s.onerror = cb;
+        document.head.appendChild(s);
+      }
+
+      function docSwitchTab(tab) {
+        document.querySelectorAll('.doc-pane').forEach(function (p) {
+          p.classList.remove('active');
+        });
+        document.querySelectorAll('.doc-tab-btn').forEach(function (b) {
+          b.classList.remove('active');
+        });
+        var paneId = tab === 'guide' ? 'docPaneGuide' : 'docPaneDocs';
+        var btnId  = tab === 'guide' ? 'tabBtnGuide'  : 'tabBtnDocs';
+        document.getElementById(paneId).classList.add('active');
+        document.getElementById(btnId).classList.add('active');
+        _activeTab = tab;
+        docSearchClear();
+        var q = document.getElementById('docSearchInput');
+        if (q && q.value.trim()) { docSearchRun(q.value); }
+        if (!_loaded[tab]) {
+          docLoad(tab);
+        }
+      }
+
+      function docLoad(tab) {
+        var loadingId = tab === 'guide' ? 'docGuideLoading' : 'docDocsLoading';
+        var contentId = tab === 'guide' ? 'docGuideContent' : 'docDocsContent';
+        var errorId   = tab === 'guide' ? 'docGuideError'   : 'docDocsError';
+
+        document.getElementById(loadingId).style.display = 'flex';
+        document.getElementById(contentId).style.display = 'none';
+        document.getElementById(errorId).style.display   = 'none';
+
+        getLanguage(function (lang) {
+          var suffix = lang === 'de' ? '-de' : '';
+          var url = tab === 'guide'
+            ? '/docs/user-guide' + suffix + '.md'
+            : '/docs/app-documentation' + suffix + '.md';
+
+          ensureMarked(function () {
+            fetch(url)
+              .then(function (r) {
+                if (!r.ok) { throw new Error('HTTP ' + r.status); }
+                return r.text();
+              })
+              .then(function (md) {
+                var html = (typeof marked !== 'undefined')
+                  ? marked.parse(md)
+                  : '<pre>' + md.replace(/</g, '&lt;') + '</pre>';
+                _originalHtml[tab] = html;
+                document.getElementById(contentId).innerHTML = html;
+                document.getElementById(loadingId).style.display = 'none';
+                document.getElementById(contentId).style.display = 'block';
+                _loaded[tab] = true;
+                var q = document.getElementById('docSearchInput');
+                if (q && q.value.trim()) { docSearchRun(q.value); }
+              })
+              .catch(function () {
+                document.getElementById(loadingId).style.display = 'none';
+                document.getElementById(errorId).style.display   = 'block';
+              });
+          });
+        });
+      }
+
+      window.docSwitchTab = docSwitchTab;
+
+      if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', function () { docLoad('guide'); });
+      } else {
+        docLoad('guide');
+      }
+    })();
+  </script>
+</th:block>
+
+</body>
+</html>

@@ -1,0 +1,415 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" lang="de">
+<body>
+<th:block th:fragment="scripts-fix">
+<script th:inline="none">
+/*<![CDATA[*/
+
+var LG_FIX_POLL_INTERVAL_MS = 1500;
+
+function lgStartFix() {
+  var activeCount = lgGetActiveBadgeCount();
+  if (activeCount === 0) {
+    lgShowToast('error', window.i18n ? window.i18n.t('logging.fix_no_selection') : 'Bitte zuerst ein Problem-Badge aktivieren.');
+    return;
+  }
+  if (!_lgLastResult) {
+    lgShowToast('error', window.i18n ? window.i18n.t('logging.btn_analyze') + '?' : 'Bitte zuerst analysieren.');
+    return;
+  }
+  var text = document.getElementById('lgInput').value;
+  var categories = Array.prototype.map.call(
+    document.querySelectorAll('#lgSummaryBadges .lg-summary-badge-active'),
+    function (b) { return b.getAttribute('data-category'); }
+  );
+  var lang = (window.i18n && window.i18n.getLang) ? window.i18n.getLang() : 'de';
+  var repoId = lgGetSelectedRepoId();
+
+  lgOpenFixPanel();
+  lgResetFixStages();
+  lgStartTimer();
+
+  fetch('/api/logging/fix', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      logText: text,
+      selectedCategories: categories,
+      localRepoConfigId: repoId,
+      language: lang
+    })
+  }).then(function (r) { return r.json().then(function (d) { return { ok: r.ok, data: d }; }); })
+    .then(function (resp) {
+      if (!resp.ok) {
+        lgShowFixError((resp.data && resp.data.error) || 'Fehler beim Starten');
+        lgStopTimer();
+        return;
+      }
+      window._lgFix.runId = resp.data.id;
+      window._lgFix.cancelled = false;
+      lgStartFixPolling();
+      if (window.cfTokenUsage) {
+        window.cfTokenUsage.init('logging_fix', resp.data.id, {
+          anchor: document.querySelector('.sl-page-header')
+        });
+      }
+    })
+    .catch(function (e) {
+      lgShowFixError(String(e));
+      lgStopTimer();
+    });
+}
+
+function lgOpenFixPanel() {
+  var panel = document.getElementById('lgFixPanel');
+  if (panel) panel.style.display = 'block';
+}
+
+function lgResetFixStages() {
+  ['diagnose', 'plan', 'code', 'tests'].forEach(function (s) {
+    var stage = document.querySelector('.lg-fix-stage[data-stage="' + s + '"]');
+    if (!stage) return;
+    var head = stage.querySelector('.lg-fix-stage-head');
+    var body = stage.querySelector('.lg-fix-stage-body');
+    var badge = stage.querySelector('.lg-fix-stage-badge');
+    var icon = stage.querySelector('.lg-fix-stage-icon');
+    stage.classList.remove('lg-fix-stage-open');
+    if (head) head.className = 'lg-fix-stage-head lg-fix-stage-pending';
+    if (body) body.textContent = '';
+    if (badge) {
+      badge.className = 'lg-fix-stage-badge lg-fix-stage-badge-pending';
+      badge.textContent = lgFixStatusLabel('logging.fix_status_pending', 'Ausstehend');
+    }
+    if (icon) icon.className = 'bi bi-hourglass lg-fix-stage-icon';
+  });
+  var err = document.getElementById('lgFixError');
+  if (err) { err.style.display = 'none'; err.textContent = ''; }
+  var writeBtn = document.getElementById('lgBtnFixWrite');
+  if (writeBtn) writeBtn.disabled = true;
+}
+
+function lgStartTimer() {
+  window._lgFix.timerStartedAt = Date.now();
+  if (window._lgFix.timerInterval) clearInterval(window._lgFix.timerInterval);
+  window._lgFix.timerInterval = setInterval(function () {
+    var elapsed = Math.floor((Date.now() - window._lgFix.timerStartedAt) / 1000);
+    var m = Math.floor(elapsed / 60);
+    var s = elapsed % 60;
+    var display = document.getElementById('lgFixTimerDisplay');
+    if (display) display.textContent = m + ':' + (s < 10 ? '0' + s : s);
+  }, 500);
+}
+
+function lgStopTimer() {
+  if (window._lgFix.timerInterval) {
+    clearInterval(window._lgFix.timerInterval);
+    window._lgFix.timerInterval = null;
+  }
+}
+
+function lgStartFixPolling() {
+  if (window._lgFix.pollTimer) clearInterval(window._lgFix.pollTimer);
+  lgPollFix();
+  window._lgFix.pollTimer = setInterval(lgPollFix, LG_FIX_POLL_INTERVAL_MS);
+}
+
+function lgStopFixPolling() {
+  if (window._lgFix.pollTimer) {
+    clearInterval(window._lgFix.pollTimer);
+    window._lgFix.pollTimer = null;
+  }
+}
+
+function lgPollFix() {
+  var id = window._lgFix.runId;
+  if (!id) return;
+  fetch('/api/logging/fix/' + id).then(function (r) {
+    if (!r.ok) { throw { status: r.status }; }
+    return r.json();
+  }).then(function (data) {
+    window._lgFix.pollFailures = 0;
+    if (data && data.stages) {
+      Object.keys(data.stages).forEach(function (name) {
+        var st = data.stages[name];
+        lgRenderFixStage(name, st.status, st.output);
+      });
+    }
+    lgRenderFixStatus(data.status, data.currentStage);
+    if (data.status === 'DONE') {
+      lgStopFixPolling();
+      lgStopTimer();
+      lgEnableFixWriteButton();
+    } else if (data.status === 'ERROR') {
+      lgStopFixPolling();
+      lgStopTimer();
+      if (data.errorMessage) lgShowFixError(data.errorMessage);
+    } else if (data.status === 'CANCELLED') {
+      lgStopFixPolling();
+      lgStopTimer();
+    }
+  }).catch(function (err) {
+    lgHandleFixPollFailure(err);
+  });
+}
+
+var LG_FIX_MAX_POLL_FAILURES = 5;
+
+function lgHandleFixPollFailure(err) {
+  if (err && err.status === 404) {
+    lgStopFixPolling();
+    lgStopTimer();
+    lgShowFixError(lgFixStatusLabel(
+      'logging.fix_poll_gone',
+      'Diese Analyse existiert nicht mehr — Server neu gestartet oder Analyse gelöscht.',
+    ));
+    return;
+  }
+  var failures = (window._lgFix.pollFailures || 0) + 1;
+  window._lgFix.pollFailures = failures;
+  if (failures >= LG_FIX_MAX_POLL_FAILURES) {
+    lgStopFixPolling();
+    lgStopTimer();
+    lgShowFixError(lgFixStatusLabel(
+      'logging.fix_poll_lost',
+      'Keine Antwort vom Server — die Pipeline-Anzeige wird nicht mehr aktualisiert.',
+    ));
+  }
+}
+
+function lgRenderFixStage(name, status, output) {
+  var stage = document.querySelector('.lg-fix-stage[data-stage="' + name + '"]');
+  if (!stage) return;
+  var head = stage.querySelector('.lg-fix-stage-head');
+  var body = stage.querySelector('.lg-fix-stage-body');
+  var badge = stage.querySelector('.lg-fix-stage-badge');
+  var icon = stage.querySelector('.lg-fix-stage-icon');
+  if (!head || !body || !badge || !icon) return;
+  if (status === 'RUNNING') {
+    head.className = 'lg-fix-stage-head lg-fix-stage-running';
+    badge.className = 'lg-fix-stage-badge lg-fix-stage-badge-running';
+    badge.textContent = lgFixStatusLabel('logging.fix_status_running', 'Läuft…');
+    icon.className = 'bi bi-hourglass-split lg-fix-stage-icon';
+  } else if (status === 'DONE') {
+    head.className = 'lg-fix-stage-head lg-fix-stage-done';
+    badge.className = 'lg-fix-stage-badge lg-fix-stage-badge-done';
+    badge.textContent = lgFixStatusLabel('logging.fix_status_done', 'Abgeschlossen');
+    icon.className = 'bi bi-check-circle-fill lg-fix-stage-icon';
+    stage.classList.add('lg-fix-stage-open');
+  } else if (status === 'SKIPPED') {
+    head.className = 'lg-fix-stage-head lg-fix-stage-skipped';
+    badge.className = 'lg-fix-stage-badge lg-fix-stage-badge-skipped';
+    badge.textContent = lgFixStatusLabel('logging.fix_status_skipped', 'Übersprungen');
+    icon.className = 'bi bi-slash-circle-fill lg-fix-stage-icon';
+    stage.classList.add('lg-fix-stage-skipped', 'lg-fix-stage-open');
+  } else if (status === 'ERROR') {
+    head.className = 'lg-fix-stage-head lg-fix-stage-error';
+    badge.className = 'lg-fix-stage-badge lg-fix-stage-badge-error';
+    badge.textContent = lgFixStatusLabel('logging.fix_status_error', 'Fehler');
+    icon.className = 'bi bi-exclamation-triangle-fill lg-fix-stage-icon';
+  } else if (status === 'CANCELLED') {
+    head.className = 'lg-fix-stage-head lg-fix-stage-cancelled';
+    badge.className = 'lg-fix-stage-badge lg-fix-stage-badge-cancelled';
+    badge.textContent = lgFixStatusLabel('logging.fix_status_cancelled', 'Abgebrochen');
+    icon.className = 'bi bi-stop-circle-fill lg-fix-stage-icon';
+  } else {
+    head.className = 'lg-fix-stage-head lg-fix-stage-pending';
+    badge.className = 'lg-fix-stage-badge lg-fix-stage-badge-pending';
+    badge.textContent = lgFixStatusLabel('logging.fix_status_pending', 'Ausstehend');
+    icon.className = 'bi bi-hourglass lg-fix-stage-icon';
+  }
+  if (typeof output === 'string') body.textContent = output;
+  lgRefreshFixStageScrollbar(stage);
+}
+
+function lgFixStatusLabel(key, fallback) {
+  if (!window.i18n || typeof window.i18n.t !== 'function') return fallback;
+  var label = window.i18n.t(key);
+  return label === key ? fallback : label;
+}
+
+function lgRenderFixStatus(terminal, currentStage) {
+  var statusText = document.getElementById('lgFixStatusText');
+  if (!statusText) return;
+  if (terminal === 'DONE') {
+    statusText.textContent = lgFixStatusLabel('logging.fix_status_done', 'Abgeschlossen');
+  } else if (terminal === 'ERROR') {
+    statusText.textContent = lgFixStatusLabel('logging.fix_status_error', 'Fehler');
+  } else if (terminal === 'CANCELLED') {
+    statusText.textContent = lgFixStatusLabel('logging.fix_status_cancelled', 'Abgebrochen');
+  } else if (terminal === 'RUNNING' || terminal === 'PENDING') {
+    var labels = {
+      diagnose: 'logging.fix_stage_diagnose',
+      plan: 'logging.fix_stage_plan',
+      code: 'logging.fix_stage_code',
+      tests: 'logging.fix_stage_tests',
+    };
+    var stageKey = currentStage && labels[currentStage] ? labels[currentStage] : null;
+    if (stageKey) {
+      statusText.textContent = lgFixStatusTemplate(
+        'logging.fix_status_running_with_stage',
+        'Stage läuft: {0}',
+        lgFixStatusLabel(stageKey, currentStage),
+      );
+    } else {
+      statusText.textContent = lgFixStatusLabel('logging.fix_status_running', 'Läuft…');
+    }
+  }
+}
+
+function lgFixStatusTemplate(key, fallback, stageLabel) {
+  var template = fallback;
+  if (window.i18n && typeof window.i18n.t === 'function') {
+    var translated = window.i18n.t(key, stageLabel);
+    if (translated !== key) template = translated;
+  }
+  return template.replace('{0}', stageLabel);
+}
+
+function lgShowFixError(msg) {
+  var err = document.getElementById('lgFixError');
+  if (err) { err.textContent = msg; err.style.display = ''; }
+}
+
+function lgShowToast(level, message) {
+  var container = document.getElementById('lgToastContainer');
+  if (!container) return null;
+  var i18n = window.i18n ? window.i18n.t.bind(window.i18n) : function (k, d) { return d || k; };
+  var key = 'logging.toast_close';
+  var closeLabel = i18n(key, 'Schließen');
+  var iconClass =
+    level === 'error' ? 'bi-x-circle-fill' :
+    level === 'info' ? 'bi-info-circle-fill' :
+    'bi-check-circle-fill';
+  var toast = document.createElement('div');
+  toast.className = 'lg-toast lg-toast-' + (level === 'error' ? 'error' : level === 'info' ? 'info' : 'success');
+  toast.setAttribute('role', level === 'error' ? 'alert' : 'status');
+  toast.innerHTML =
+    '<i class="bi ' + iconClass + ' icon"></i>' +
+    '<div class="body"></div>' +
+    '<button class="close" type="button" aria-label="' + closeLabel + '">&times;</button>';
+  toast.querySelector('.body').textContent = String(message == null ? '' : message);
+  var closeBtn = toast.querySelector('.close');
+  var dismissTimer = null;
+  function dismiss() {
+    if (toast.classList.contains('visible')) toast.classList.remove('visible');
+    window.setTimeout(function () { if (toast.parentNode) toast.parentNode.removeChild(toast); }, 220);
+  }
+  closeBtn.addEventListener('click', function () {
+    if (dismissTimer) { window.clearTimeout(dismissTimer); dismissTimer = null; }
+    dismiss();
+  });
+  container.appendChild(toast);
+  void toast.offsetWidth;
+  toast.classList.add('visible');
+  dismissTimer = window.setTimeout(dismiss, 4500);
+  return toast;
+}
+
+function lgEnableFixWriteButton() {
+  var btn = document.getElementById('lgBtnFixWrite');
+  if (btn && lgGetSelectedRepoId()) btn.disabled = false;
+}
+
+function lgToggleFixStage(head) {
+  head.parentElement.classList.toggle('lg-fix-stage-open');
+  lgRefreshFixStageScrollbar(head.parentElement);
+}
+
+function lgRefreshFixStageScrollbar(stageEl) {
+  if (!stageEl) return;
+  var body = stageEl.querySelector('.lg-fix-stage-body');
+  if (!body || !body.__lgFixStageScroll) return;
+  var apply = function () { body.__lgFixStageScroll.update(); };
+  if (typeof window.requestAnimationFrame === 'function') {
+    window.requestAnimationFrame(function () {
+      window.requestAnimationFrame(apply);
+    });
+  } else {
+    setTimeout(apply, 0);
+  }
+}
+
+function lgInitFixStageScrollbars() {
+  if (typeof window.SLScroll !== 'function') return;
+  ['diagnose', 'plan', 'code', 'tests'].forEach(function (s) {
+    var stage = document.querySelector('.lg-fix-stage[data-stage="' + s + '"]');
+    if (!stage) return;
+    var body = stage.querySelector('.lg-fix-stage-body');
+    var track = stage.querySelector('.lg-fix-stage-body-track');
+    var thumb = stage.querySelector('.sl-scroll-thumb');
+    if (!body || !track || !thumb) return;
+    if (body.__lgFixStageScroll) return;
+    body.__lgFixStageScroll = window.SLScroll(body, track, thumb);
+  });
+}
+
+function lgCancelFix() {
+  var id = window._lgFix.runId;
+  if (!id) return;
+  fetch('/api/logging/fix/' + id + '/cancel', { method: 'POST' }).then(function () {
+    window._lgFix.cancelled = true;
+  });
+}
+
+function lgOpenFixWriteModal() {
+  var id = window._lgFix.runId;
+  if (!id) return;
+  fetch('/api/logging/fix/' + id + '/write-files-preview').then(function (r) { return r.json(); }).then(function (data) {
+    if (!data || !data.files || !data.files.length) {
+      lgShowToast('error', window.i18n ? window.i18n.t('logging.fix_write_empty') : 'Keine Dateien zum Schreiben erkannt.');
+      return;
+    }
+    document.getElementById('lgFixWriteError').classList.remove('visible');
+    document.getElementById('lgFixWriteError').textContent = '';
+    document.getElementById('lgFixWriteRepoPath').textContent = data.repoPath || '';
+    var list = document.getElementById('lgFixWriteFileList');
+    list.innerHTML = data.files.map(function (f) {
+      return '<div class="lg-fix-modal-file-row">' +
+        '<div class="lg-fix-modal-file-path">' + lgEscAttr(f.path) + '</div>' +
+        (f.description ? '<div class="lg-fix-modal-file-desc">' + lgEscAttr(f.description) + '</div>' : '') +
+      '</div>';
+    }).join('');
+    document.getElementById('lgBtnFixWriteConfirm').setAttribute('data-run-id', String(id));
+    document.getElementById('lgFixWriteModal').classList.add('visible');
+  });
+}
+
+function lgCloseFixWriteModal() {
+  document.getElementById('lgFixWriteModal').classList.remove('visible');
+}
+
+function lgConfirmFixWriteFiles() {
+  var id = window._lgFix.runId;
+  if (!id) return;
+  var btn = document.getElementById('lgBtnFixWriteConfirm');
+  btn.disabled = true;
+  fetch('/api/logging/fix/' + id + '/write-files', { method: 'POST' }).then(function (r) { return r.json(); }).then(function (data) {
+    btn.disabled = false;
+    if (data.success) {
+      lgCloseFixWriteModal();
+      lgShowToast('success', window.i18n ? window.i18n.t('logging.fix_write_success', String((data.writtenFiles || []).length)) : (data.writtenFiles.length + ' Datei(en) geschrieben.'));
+    } else {
+      var err = document.getElementById('lgFixWriteError');
+      err.textContent = data.error || 'Fehler beim Schreiben';
+      err.classList.add('visible');
+    }
+  }).catch(function (e) {
+    btn.disabled = false;
+    var err = document.getElementById('lgFixWriteError');
+    err.textContent = String(e);
+    err.classList.add('visible');
+  });
+}
+
+window.lgStartFix = lgStartFix;
+window.lgCancelFix = lgCancelFix;
+window.lgOpenFixWriteModal = lgOpenFixWriteModal;
+window.lgCloseFixWriteModal = lgCloseFixWriteModal;
+window.lgConfirmFixWriteFiles = lgConfirmFixWriteFiles;
+window.lgUpdateFixButtonState = lgUpdateFixButtonState;
+window.lgShowToast = lgShowToast;
+/*]]>*/
+</script>
+</th:block>
+</body>
+</html>

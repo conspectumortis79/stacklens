@@ -1,0 +1,297 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org"
+      xmlns:layout="http://www.ultraq.net.nz/thymeleaf/layout"
+      layout:decorate="~{layout}" lang="de">
+<head><title th:text="${tool.name}">Tool</title></head>
+<body>
+
+<th:block layout:fragment="page-title">
+  <span id="tvTitleIcon" class="tl-tool-icon-badge tl-tool-icon-badge-lg me-3"
+        style="vertical-align:middle">
+    <i th:class="${'bi ' + (tool.icon ?: 'bi-play-circle')}"></i>
+  </span><span th:text="${tool.name}">Tool</span>
+</th:block>
+
+<th:block layout:fragment="page-subtitle">
+  <p class="page-subtitle" style="margin-top:4px;font-size:13px;color:#6a665f">
+    <i class="bi bi-cpu me-1"></i>
+    <span th:if="${tool.confluencePageUrl == 'SCRIPT'}" data-i18n="tooling.type_script">Skript/Code</span>
+    <span th:if="${tool.confluencePageUrl == 'IMPORTED'}" data-i18n="tooling.type_imported">Importiert</span>
+    <span th:if="${tool.confluencePageUrl != 'SCRIPT' and tool.confluencePageUrl != 'IMPORTED'}"
+          th:text="${tool.confluencePageUrl}"></span>
+    · <span data-i18n="tooling.created_at">Erstellt</span>
+    <span th:text="${#temporals.format(tool.createdAt, 'dd.MM.yyyy HH:mm')}"></span>
+  </p>
+</th:block>
+
+<th:block layout:fragment="page-actions">
+  <div id="tvActionBar" class="d-flex gap-2 flex-wrap"
+       th:data-tool-id="${tool.id}"
+       th:data-tool-name="${tool.name}"
+       th:data-tool-status="${tool.status}"
+       th:data-tool-has-prompt="${tool.generationPrompt != null}">
+  </div>
+</th:block>
+
+<div layout:fragment="content">
+<th:block th:replace="~{fragments/tooling/styles :: styles}"></th:block>
+
+<div class="tl-page">
+  <div class="tl-card">
+
+    <div class="d-flex align-items-center gap-3 mb-3 flex-wrap">
+      <span id="tvStatusBadge"
+            th:class="${'tl-badge tl-badge-' + #strings.toLowerCase(tool.status)}"
+            th:text="${tool.status}"></span>
+      <span class="tl-tool-meta" style="font-size:12px;color:#6a665f">
+        <span data-i18n="tooling.created_at">Erstellt:</span>
+        <span th:text="${#temporals.format(tool.createdAt, 'dd.MM.yyyy HH:mm')}"></span>
+        <th:block th:if="${tool.lastRunAt != null}">
+          · <span data-i18n="tooling.last_run">Zuletzt ausgeführt:</span>
+          <span th:text="${#temporals.format(tool.lastRunAt, 'dd.MM.yyyy HH:mm')}"></span>
+        </th:block>
+      </span>
+    </div>
+
+    <div id="tvErrorMsg"
+         th:if="${tool.errorMessage != null and (tool.status == 'FAILED' or tool.status == 'CANCELLED')}"
+         class="alert alert-danger py-2 mb-3"
+         style="font-size:13px;border-radius:8px"
+         th:text="${tool.errorMessage}"></div>
+
+    <div id="tvRunArea" style="display:none" class="mb-3">
+      <div class="tl-label mb-1" data-i18n="tooling.output">Ausgabe</div>
+      <pre id="tvRunOutput" class="tl-output"></pre>
+    </div>
+
+    <th:block th:if="${tool.generatedCode != null}">
+      <div class="d-flex align-items-center gap-2 mb-2 flex-wrap">
+        <span class="tl-label" style="margin:0" data-i18n="tooling.generated_code_title">Generierter Kotlin-Code</span>
+        <button class="tl-btn-outline" style="padding:3px 10px;font-size:12px" onclick="tvCopyCode()">
+          <i class="bi bi-clipboard me-1"></i><span data-i18n="tooling.copy">Kopieren</span>
+        </button>
+        <button class="tl-btn-outline" style="padding:3px 10px;font-size:12px" id="tvCodeToggle" onclick="tvToggleCode()">
+          <i class="bi bi-chevron-down me-1"></i><span data-i18n="tooling.show_code">Einblenden</span>
+        </button>
+      </div>
+      <pre class="tl-code" id="tvCodePre" style="display:none" th:text="${tool.generatedCode}"></pre>
+    </th:block>
+
+    <div class="tv-output-section mt-3" th:if="${tool.lastRunOutput != null}">
+      <div class="tl-label mb-1" data-i18n="tooling.last_output">Letzte Ausgabe</div>
+      <pre class="tl-output" id="tvLastOutput" th:text="${tool.lastRunOutput}"></pre>
+    </div>
+
+  </div>
+</div>
+
+<div id="editOverlay" class="tl-overlay" style="display:none" onclick="if(event.target===this)closeEditOverlay()">
+  <div class="tl-overlay-win">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+      <h4 style="margin:0;font-size:1.1rem;font-weight:700"><i class="bi bi-pencil-square me-2" style="color:var(--tl-accent)"></i><span data-i18n="tooling.edit_tool_title">Tool bearbeiten</span></h4>
+      <button onclick="closeEditOverlay()" class="btn-close" data-i18n-title="common.close" title="Schließen"></button>
+    </div>
+    <div class="d-flex gap-2 mb-4" id="editModeTabs">
+      <button id="editModeManualBtn" class="tl-mode-tab active" onclick="switchEditMode('manual')">
+        <i class="bi bi-pencil me-1"></i><span data-i18n="tooling.edit_manual">Manuell bearbeiten</span>
+      </button>
+      <button id="editModeAiBtn" class="tl-mode-tab" onclick="switchEditMode('ai')">
+        <i class="bi bi-cpu me-1"></i><span data-i18n="tooling.edit_ai">Mit KI überarbeiten</span>
+      </button>
+    </div>
+    <div id="editOverlayAlert" class="alert alert-danger py-2 mb-3" style="display:none;font-size:13px;border-radius:8px;"></div>
+    <div class="mb-3">
+      <label style="font-size:13px;font-weight:700;margin-bottom:6px;display:block;" data-i18n="tooling.tool_name">Tool-Name</label>
+      <input id="editOverlayName" type="text" class="tl-input" autocomplete="off"/>
+    </div>
+    <div id="editManualSection" class="mb-4">
+      <label style="font-size:13px;font-weight:700;margin-bottom:6px;display:block;" data-i18n="tooling.kotlin_code_label">Kotlin-Code</label>
+      <textarea id="editOverlayCode" rows="22" class="tl-overlay-code" spellcheck="false"></textarea>
+    </div>
+    <div id="editAiSection" style="display:none" class="mb-4">
+      <label style="font-size:13px;font-weight:700;margin-bottom:6px;display:block;" data-i18n="tooling.ai_instructions_label">Überarbeitungsanweisungen für die KI</label>
+      <textarea id="editAiInstructions" rows="10" class="tl-overlay-code" spellcheck="false"
+                data-i18n-placeholder="tooling.ai_instructions_placeholder"
+                placeholder="Beschreibe, welche Änderungen die KI am Code vornehmen soll..."></textarea>
+      <div class="mt-2 p-2 rounded" style="background:var(--tl-bg);border:1px solid var(--tl-line);font-size:12px;color:var(--tl-muted)">
+        <i class="bi bi-info-circle me-1"></i>
+        <span data-i18n="tooling.ai_edit_hint">Die KI erhält den aktuellen Code + deine Anweisungen und generiert eine überarbeitete Version.</span>
+      </div>
+    </div>
+    <div class="d-flex gap-2 justify-content-end">
+      <button class="tl-btn-outline" onclick="closeEditOverlay()"><i class="bi bi-x-lg me-1"></i><span data-i18n="common.cancel">Abbrechen</span></button>
+      <button id="editOverlaySaveBtn" class="tl-btn-primary" onclick="handleEditSave()"><i class="bi bi-floppy me-2"></i><span data-i18n="tooling.save_compile">Speichern &amp; Kompilieren</span></button>
+    </div>
+  </div>
+</div>
+
+<div id="promptOverlay" class="tl-overlay" style="display:none" onclick="if(event.target===this)closePromptOverlay()">
+  <div class="tl-overlay-win" style="max-width:640px">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+      <h4 style="margin:0;font-size:1.1rem;font-weight:700">
+        <i class="bi bi-chat-left-text me-2" style="color:var(--tl-accent)"></i><span data-i18n="tooling.gen_prompt_title">Generierungs-Prompt</span>
+      </h4>
+      <button onclick="closePromptOverlay()" class="btn-close" data-i18n-title="common.close" title="Schließen"></button>
+    </div>
+    <div class="mb-3" style="font-size:13px;color:var(--tl-muted)">
+      <i class="bi bi-info-circle me-1"></i>
+      <span data-i18n="tooling.gen_prompt_edit_hint">Prompt bearbeiten, speichern und die KI damit erneut ausführen, um den Code neu zu generieren.</span>
+    </div>
+    <div id="promptOverlayAlert" class="alert alert-danger py-2 mb-3" style="display:none;font-size:13px;border-radius:8px;"></div>
+    <textarea id="promptContent" class="tl-overlay-code" rows="20" spellcheck="false"></textarea>
+    <div class="d-flex gap-2 justify-content-end mt-4 flex-wrap">
+      <button class="tl-btn-outline" onclick="copyPrompt()"><i class="bi bi-clipboard me-1"></i><span data-i18n="tooling.copy">Kopieren</span></button>
+      <button class="tl-btn-outline" id="promptSaveBtn" onclick="savePrompt()"><i class="bi bi-floppy me-1"></i><span data-i18n="common.save">Speichern</span></button>
+      <button class="tl-btn-primary" id="promptRunBtn" onclick="runWithPrompt()"><i class="bi bi-cpu me-1"></i><span data-i18n="tooling.save_ki_run">Speichern &amp; KI ausführen</span></button>
+      <button class="tl-btn-outline" onclick="closePromptOverlay()"><i class="bi bi-x-lg me-1"></i><span data-i18n="tooling.close">Schließen</span></button>
+    </div>
+  </div>
+</div>
+
+<th:block th:replace="~{fragments/tooling/scripts :: scripts}"></th:block>
+
+<script th:inline="javascript">
+/*<![CDATA[*/
+var _tvId = /*[[${tool.id}]]*/ 0;
+
+
+renderFocusCard = function(t) { tvRefreshCard(t); };
+
+var _origReloadToolList = reloadToolList;
+reloadToolList = async function(autoExpand) {
+  try { await _origReloadToolList(autoExpand); } catch (_e) {}
+  try {
+    var r = await fetch('/api/tooling/' + _tvId);
+    if (r.ok) tvRefreshCard(await r.json());
+  } catch (_e) {}
+};
+
+function tvRefreshCard(t) {
+  var actionBar = document.getElementById('tvActionBar');
+  if (actionBar) actionBar.innerHTML = tvBuildActionButtons(t);
+
+  var badge = document.getElementById('tvStatusBadge');
+  if (badge) {
+    badge.className = 'tl-badge tl-badge-' + t.status.toLowerCase();
+    badge.textContent = t.status;
+  }
+
+  var codePre = document.getElementById('tvCodePre');
+  if (codePre && t.generatedCode != null) codePre.textContent = t.generatedCode;
+
+  var errEl = document.getElementById('tvErrorMsg');
+  if (errEl) {
+    var failed = t.status === 'FAILED' || t.status === 'CANCELLED';
+    errEl.textContent = (t.errorMessage && failed) ? t.errorMessage : '';
+    errEl.style.display = (t.errorMessage && failed) ? 'block' : 'none';
+  }
+
+  if (t.name) {
+    var h1 = document.querySelector('main h1');
+    if (h1) h1.textContent = t.name;
+    document.title = t.name;
+  }
+  var iconBadge = document.getElementById('tvTitleIcon');
+  if (iconBadge && t.icon) {
+    var iconEl = iconBadge.querySelector('i');
+    if (iconEl) iconEl.className = 'bi ' + t.icon;
+  }
+}
+
+function tvBuildActionButtons(t) {
+  var h = '';
+  var safeName = escHtml(t.name || '').replace(/'/g, "\\'");
+  if (t.status === 'READY') {
+    h += '<button class="tl-btn-run" id="tvBtnRun" onclick="tvRun()">'
+       + '<i class="bi bi-play-fill me-1"></i>'
+       + (window.i18n ? window.i18n.t('tooling.run') : 'Ausführen') + '</button>';
+    h += '<button class="tl-btn-outline" onclick="exportTool(' + t.id + ', \'' + safeName + '\')">'
+       + '<i class="bi bi-download me-1"></i>Export</button>';
+  }
+  if (t.status === 'READY' || t.status === 'FAILED' || t.status === 'CANCELLED') {
+    h += '<button class="tl-btn-outline" onclick="editTool(' + t.id + ')">'
+       + '<i class="bi bi-pencil me-1"></i>'
+       + (window.i18n ? window.i18n.t('tooling.edit') : 'Bearbeiten') + '</button>';
+  }
+  if (t.generationPrompt) {
+    h += '<button class="tl-btn-outline" onclick="showPrompt(' + t.id + ')">'
+       + '<i class="bi bi-chat-left-text me-1"></i>Prompt</button>';
+  }
+  h += '<button class="btn btn-sm btn-outline-danger" onclick="tvDelete()">'
+     + '<i class="bi bi-trash"></i></button>';
+  return h;
+}
+
+async function tvRun() {
+  var btn       = document.getElementById('tvBtnRun');
+  var runArea   = document.getElementById('tvRunArea');
+  var runOutput = document.getElementById('tvRunOutput');
+  if (btn) btn.disabled = true;
+  if (runArea) runArea.style.display = 'block';
+  if (runOutput) runOutput.textContent = window.i18n ? window.i18n.t('tooling.running_output') : 'Wird ausgeführt…';
+  try {
+    var res  = await fetch('/api/tooling/' + _tvId + '/run', { method: 'POST' });
+    var data = await res.json();
+    if (runOutput) runOutput.textContent = res.ok
+      ? (data.output || (window.i18n ? window.i18n.t('tooling.no_output') : '(Keine Ausgabe)'))
+      : ((window.i18n ? window.i18n.t('tooling.error_run') : 'Fehler:') + ' ' + (data.error || ''));
+  } catch (e) {
+    if (runOutput) runOutput.textContent = (window.i18n ? window.i18n.t('common.network_error') : 'Netzwerkfehler: ') + e.message;
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+function tvDelete() {
+  showConfirm(
+    window.i18n ? window.i18n.t('tooling.delete_confirm') : 'Tool und JAR-Datei löschen?',
+    window.i18n ? window.i18n.t('tooling.delete_title') : 'Tool löschen',
+    async function() {
+      await fetch('/api/tooling/' + _tvId, { method: 'DELETE' });
+      if (typeof loadSidebarTools === 'function') loadSidebarTools();
+      if (typeof window.navigateTo === 'function') {
+        await window.navigateTo('/tooling');
+      } else {
+        window.location.href = '/tooling';
+      }
+    }
+  );
+}
+
+function tvToggleCode() {
+  var pre = document.getElementById('tvCodePre');
+  var btn = document.getElementById('tvCodeToggle');
+  if (!pre) return;
+  var hidden = pre.style.display === 'none';
+  pre.style.display = hidden ? '' : 'none';
+  if (btn) btn.innerHTML = hidden
+    ? '<i class="bi bi-chevron-up me-1"></i>' + (window.i18n ? window.i18n.t('tooling.hide') : 'Ausblenden')
+    : '<i class="bi bi-chevron-down me-1"></i>' + (window.i18n ? window.i18n.t('tooling.show_code') : 'Einblenden');
+}
+
+async function tvCopyCode() {
+  var el = document.getElementById('tvCodePre');
+  if (!el) return;
+  try {
+    await navigator.clipboard.writeText(el.textContent || '');
+    showAlert(window.i18n ? window.i18n.t('tooling.copied_clipboard') : 'Code in Zwischenablage kopiert.', 'success');
+  } catch (_e) {
+    showAlert(window.i18n ? window.i18n.t('tooling.copy_failed') : 'Kopieren nicht möglich.', 'warning');
+  }
+}
+
+(function tvInit() {
+  fetch('/api/tooling/' + _tvId)
+    .then(function(r) { return r.json(); })
+    .then(function(t) {
+      var actionBar = document.getElementById('tvActionBar');
+      if (actionBar) actionBar.innerHTML = tvBuildActionButtons(t);
+    })
+    .catch(function() {});
+})();
+
+/*]]>*/
+</script>
+</div>
+</body>
+</html>

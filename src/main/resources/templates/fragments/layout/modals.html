@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" lang="de">
+<body>
+<th:block th:fragment="modals">
+<div class="modal fade" id="confirmModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered" style="max-width:400px">
+        <div class="modal-content" style="border-radius:18px;overflow:hidden;border:none;box-shadow:0 14px 43px rgba(0,0,0,.15)">
+            <div class="modal-header" style="background:#f4efe4;border-bottom:1px solid #ddd7cb;padding:15px 22px">
+                <h5 class="modal-title" style="font-size:15px;font-weight:700;display:flex;align-items:center;gap:0">
+                    <i id="confirmModalHeaderIcon" class="bi bi-trash me-2" style="color:#b91c1c"></i>
+                    <span id="confirmModalTitle" data-i18n="confirm.title">Bestätigung</span>
+                </h5>
+                <button type="button" class="btn-close" style="font-size:13px" onclick="__hideConfirmModal()"></button>
+            </div>
+            <div class="modal-body" style="padding:18px 22px;font-size:14px;color:#1f1f1f;background:#fffdf8">
+                <p id="confirmModalMessage" class="mb-0" style="line-height:1.55"></p>
+            </div>
+            <div class="modal-footer" style="background:#f9f6ee;border-top:1px solid #ddd7cb;padding:11px 18px;gap:10px;flex-wrap:nowrap;">
+                <button type="button" onclick="__hideConfirmModal()"
+                        style="background:transparent;color:var(--app-text-muted);border:1.5px solid var(--app-border);border-radius:999px;font-size:14px;font-weight:600;padding:6px 18px;cursor:pointer;line-height:1.4;">
+                    <span data-i18n="confirm.cancel">Abbrechen</span>
+                </button>
+                <button type="button" id="confirmModalOkBtn"
+                        style="background:#b91c1c;color:#fff;border:none;border-radius:999px;font-size:14px;font-weight:700;padding:6px 20px;cursor:pointer;line-height:1.4;display:inline-flex;align-items:center;gap:6px;">
+                    <i class="bi bi-trash me-1"></i><span data-i18n="confirm.ok">Löschen</span>
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal" id="promptEditorModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable" style="max-width:912px">
+        <div class="modal-content" style="border-radius:16px;overflow:hidden;border:1px solid #ddd7cb;box-shadow:0 12px 40px rgba(0,0,0,.18)">
+
+            <div class="modal-header" style="background:#ffffff;border-bottom:1px solid #ddd7cb;padding:16px 22px 14px;align-items:center;gap:12px">
+                <div style="display:flex;align-items:center;gap:8px;flex:1;min-width:0;">
+                    <i class="bi bi-chat-left-text" style="color:#7c5cbf;font-size:17px;flex-shrink:0;"></i>
+                    <span id="promptEditorTitle" style="font-size:16px;font-weight:800;color:#1f1f1f;" data-i18n="common.ai_prompt">KI-Prompt</span>
+                    <span id="promptEditorCustomBadge" class="badge ms-1" style="background:#7c5cbf;font-size:10px;font-weight:700;border-radius:6px;display:none;" data-i18n="common.customized_badge">Angepasst</span>
+                </div>
+                <button type="button" data-bs-dismiss="modal"
+                        style="background:none;border:none;font-size:20px;line-height:1;color:#6a665f;cursor:pointer;padding:2px 4px;flex-shrink:0;"
+                        aria-label="Schließen" data-i18n-aria-label="common.close">×</button>
+            </div>
+
+            <div id="promptEditorBodyScroll" class="modal-body" style="padding:16px 22px;background:#f5f2ea;overflow-y:auto;">
+                <p id="promptEditorSubtitle" style="margin:0 0 10px;font-size:13px;font-weight:600;color:#1f1f1f;line-height:1.5;">
+                    <i class="bi bi-info-circle me-1" style="color:#7c5cbf;"></i><span id="promptEditorSubtitleText" data-i18n="common.ai_prompt_subtitle">Prompt bearbeiten, speichern und die KI damit erneut ausführen.</span>
+                </p>
+                <div id="promptEditorTabWrap" style="display:none;margin-bottom:10px;">
+                  <div id="promptEditorTabBar" style="overflow-x:scroll;overflow-y:hidden;white-space:nowrap;padding-right:4px;scrollbar-width:none;-ms-overflow-style:none;"></div>
+                  <div class="sl-scroll-track-h" id="promptEditorTabScrollTrack" data-always-visible="true"><div class="sl-scroll-thumb-h" id="promptEditorTabScrollThumb"></div></div>
+                </div>
+                <div class="pe-textarea-wrap" id="promptEditorTextareaWrap">
+                    <textarea id="promptEditorTextarea" rows="20"
+                              style="flex:1;min-width:0;font-family:'Cascadia Code','Fira Code','Consolas',monospace;font-size:13px;line-height:1.6;resize:none;background:transparent;color:#cdd6f4;padding:14px 16px;outline:none;box-sizing:border-box;border:none;overflow-y:scroll;scrollbar-width:none;-ms-overflow-style:none;"></textarea>
+                    <div class="sl-scroll-track sl-dark" id="promptEditorScrollTrack" data-always-visible="true"><div class="sl-scroll-thumb" id="promptEditorScrollThumb"></div></div>
+                </div>
+
+                <div id="promptEditorDefaultSection" class="mt-3 d-none">
+                    <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+                        <span style="font-size:12px;font-weight:700;color:#6a665f;" data-i18n="common.default_prompt_label">Standard-Prompt:</span>
+                        <button style="background:transparent;border:1.5px solid #ddd7cb;border-radius:8px;padding:3px 10px;font-size:11px;font-weight:700;color:#6a665f;cursor:pointer;" onclick="__promptEditorReset()">
+                            <i class="bi bi-arrow-counterclockwise me-1"></i><span data-i18n="common.restore_default">Standard wiederherstellen</span>
+                        </button>
+                    </div>
+                    <pre id="promptEditorDefaultText"
+                         style="font-family:'Cascadia Code','Fira Code','Consolas',monospace;font-size:11px;max-height:120px;overflow-y:auto;background:#2a2a3e;color:#a6adc8;border:1px solid #313244;border-radius:8px;padding:10px 14px;white-space:pre-wrap;word-break:break-word;margin:0;"></pre>
+                </div>
+            </div>
+
+            <div class="modal-footer" style="border-top:1px solid #ddd7cb;padding:12px 22px;gap:8px;background:#ffffff;flex-wrap:wrap;">
+
+                <button type="button"
+                        style="background:#ffffff;border:1.5px solid #ddd7cb;border-radius:10px;padding:7px 15px;font-size:13px;font-weight:700;color:#1f1f1f;cursor:pointer;display:inline-flex;align-items:center;gap:6px;"
+                        onclick="__promptEditorCopy()">
+                    <i class="bi bi-clipboard"></i><span data-i18n="common.copy">Kopieren</span>
+                </button>
+                <button type="button"
+                        style="background:#ffffff;border:1.5px solid #ddd7cb;border-radius:10px;padding:7px 15px;font-size:13px;font-weight:700;color:#1f1f1f;cursor:pointer;display:inline-flex;align-items:center;gap:6px;"
+                        onclick="__promptEditorOpenExportBrowser()">
+                    <i class="bi bi-file-earmark-arrow-down"></i><span data-i18n="prompt.export_label">Exportieren (.ki)</span>
+                </button>
+                <button type="button"
+                        style="background:#ffffff;border:1.5px solid #ddd7cb;border-radius:10px;padding:7px 15px;font-size:13px;font-weight:700;color:#1f1f1f;cursor:pointer;display:inline-flex;align-items:center;gap:6px;"
+                        onclick="__promptEditorOpenImportBrowser()">
+                    <i class="bi bi-file-earmark-arrow-up"></i><span data-i18n="prompt.import_label">Importieren (.ki)</span>
+                </button>
+                <button type="button"
+                        style="background:#ffffff;border:1.5px solid #ddd7cb;border-radius:10px;padding:7px 15px;font-size:13px;font-weight:700;color:#1f1f1f;cursor:pointer;display:inline-flex;align-items:center;gap:6px;"
+                        onclick="__promptEditorSave()">
+                    <i class="bi bi-floppy"></i><span data-i18n="common.save">Speichern</span>
+                </button>
+                <button id="promptEditorSaveRunBtn" type="button"
+                        style="background:#7c5cbf;border:1.5px solid #7c5cbf;border-radius:10px;padding:7px 15px;font-size:13px;font-weight:700;color:#fff;cursor:pointer;display:none;align-items:center;gap:6px;"
+                        onclick="__promptEditorSaveAndRun()">
+                    <i class="bi bi-cpu"></i><span data-i18n="common.save_and_run">Speichern &amp; KI ausführen</span>
+                </button>
+                <button type="button" data-bs-dismiss="modal"
+                        style="background:transparent;border:1.5px solid #ddd7cb;border-radius:10px;padding:7px 15px;font-size:13px;font-weight:700;color:#6a665f;cursor:pointer;display:inline-flex;align-items:center;gap:5px;">
+                    × <span data-i18n="common.close">Schließen</span>
+                </button>
+            </div>
+
+        </div>
+    </div>
+</div>
+
+</th:block>
+</body>
+</html>

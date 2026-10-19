@@ -1,0 +1,468 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" lang="de">
+<body>
+<th:block th:fragment="scripts-diagrams">
+<script>
+
+  function caFixMermaidSyntax(code) {
+    var firstLine = code.trim().split(/\r?\n/).find(function(line) { return line.trim().length > 0; }) || '';
+    if (!/^(graph|flowchart)\b/i.test(firstLine.trim())) return code;
+    code = code.split(/\r?\n/).map(function(line) {
+      var classMatch = line.match(/^(\s*class\s+)([A-Za-z0-9_,\s]+?)\s+([A-Za-z0-9_]+)\s*;?\s*$/);
+      if (classMatch) {
+        var nodeIds = classMatch[2].trim().split(/\s*,\s*|\s+/).filter(Boolean).join(',');
+        return classMatch[1] + nodeIds + ' ' + classMatch[3] + ';';
+      }
+      var classDefMatch = line.match(/^(\s*classDef\s+[A-Za-z0-9_]+\s+.+?)(;?)\s*$/);
+      if (classDefMatch && !classDefMatch[2]) {
+        return classDefMatch[1] + ';';
+      }
+      return line;
+    }).join('\n');
+    return code;
+  }
+
+  var _CA_MERMAID_KEYWORDS = /^(graph|flowchart|sequenceDiagram|classDiagram|stateDiagram|erDiagram|journey|gantt|pie|gitGraph|requirementDiagram|mindmap|timeline|quadrantChart|xychart-beta|sankey-beta|block-beta|architecture-beta|packet-beta|C4Context|C4Container|C4Component|C4Dynamic|C4Deployment)\b/i;
+
+  async function caRenderMermaid(mermaidCode) {
+    if (!mermaidCode) return;
+    var firstLine = mermaidCode.trim().split(/\r?\n/).find(function(l) { return l.trim().length > 0; }) || '';
+    if (!_CA_MERMAID_KEYWORDS.test(firstLine.trim())) {
+      var emptyEl = document.getElementById('caMermaidEmpty');
+      if (emptyEl) { emptyEl.style.display = ''; emptyEl.innerHTML = '<i class="bi bi-diagram-3"></i><span data-i18n="code_analysis.mermaid_unavailable">Kein Mermaid-Diagramm verfügbar.</span>'; }
+      return;
+    }
+    var container = document.getElementById('caMermaidContainer');
+    if (!container) return;
+    container.className = container.className.replace(/\bd-none\b/g, '').trim();
+    container.innerHTML = '';
+    var emptyEl = document.getElementById('caMermaidEmpty');
+    if (emptyEl) emptyEl.style.display = 'none';
+    var actionsEl = document.getElementById('caMermaidActions');
+    if (actionsEl) actionsEl.className = actionsEl.className.replace(/\bd-none\b/g, '').trim();
+    if (!window.mermaid) {
+      await new Promise(function(resolve) {
+        var s = document.createElement('script');
+        s.src = '/js/mermaid.min.js';
+        s.onload = resolve;
+        s.onerror = resolve;
+        document.head.appendChild(s);
+      });
+    }
+    if (!window.svgPanZoom) {
+      await new Promise(function(resolve) {
+        var s = document.createElement('script');
+        s.src = '/js/svg-pan-zoom.min.js';
+        s.onload = s.onerror = resolve;
+        document.head.appendChild(s);
+      });
+    }
+    if (!window.mermaid) {
+      container.innerHTML = '<div class="text-danger p-3">' + (window.i18n ? window.i18n.t('code_analysis.mermaid_not_loaded') : 'Mermaid.js nicht geladen.') + '</div>';
+      return;
+    }
+    if (!_caMermaidInitialized) {
+      window.mermaid.initialize({ startOnLoad: false, theme: 'default', securityLevel: 'loose' });
+      _caMermaidInitialized = true;
+    }
+    container.style.cursor = 'pointer';
+    container.title = window.i18n ? window.i18n.t('code_analysis.click_zoom') : 'Klicken zum Vergrößern';
+    var _mermaidDragThreshold = 5;
+    var _mermaidMouseDownPos = null;
+    container.onmousedown = function(e) { _mermaidMouseDownPos = { x: e.clientX, y: e.clientY }; };
+    container.onclick = function(e) {
+      if (_mermaidMouseDownPos) {
+        var dx = e.clientX - _mermaidMouseDownPos.x;
+        var dy = e.clientY - _mermaidMouseDownPos.y;
+        if (Math.sqrt(dx * dx + dy * dy) > _mermaidDragThreshold) return;
+      }
+      openCaMermaidFullscreen();
+    };
+    var fixedCode = caFixMermaidSyntax(mermaidCode);
+    var _headStylesBefore = Array.from(document.head.querySelectorAll('style'));
+    function _removeMermaidLeakedStyles() {
+      document.head.querySelectorAll('style').forEach(function(s) {
+        if (_headStylesBefore.indexOf(s) === -1) s.remove();
+      });
+      document.querySelectorAll('[id^="mermaid-ca-"]').forEach(function(el) {
+        if (el !== container) el.remove();
+      });
+    }
+    try {
+      var id = 'mermaid-ca-' + Math.random().toString(36).substr(2, 9);
+      var result = await window.mermaid.render(id, fixedCode);
+      _caMermaidSvgCache = result.svg;
+      var host = document.createElement('div');
+      host.style.cssText = 'width:100%;height:100%;display:flex;justify-content:center;align-items:center;overflow:hidden;';
+      var shadow = host.attachShadow ? host.attachShadow({ mode: 'open' }) : null;
+      var svgRoot = shadow || host;
+      svgRoot.innerHTML = result.svg;
+      var _pSvg = svgRoot.querySelector ? svgRoot.querySelector('svg') : null;
+      if (_pSvg) {
+        _pSvg.querySelectorAll('text, tspan').forEach(function(el) {
+          if (!el.getAttribute('fill') || el.getAttribute('fill') === 'currentColor') {
+            el.setAttribute('fill', '#1f1f1f');
+          }
+        });
+        _pSvg.querySelectorAll('foreignObject *').forEach(function(el) {
+          el.style.setProperty('color', '#1f1f1f', 'important');
+        });
+      }
+      container.appendChild(host);
+      var svg = svgRoot.querySelector('svg');
+      if (svg) {
+        svg.removeAttribute('width');
+        svg.removeAttribute('height');
+        svg.style.width = '100%';
+        svg.style.height = '100%';
+        svg.style.display = 'block';
+        if (window.svgPanZoom) {
+          requestAnimationFrame(function() {
+            try {
+              window.svgPanZoom(svg, {
+                zoomEnabled: true,
+                panEnabled: true,
+                controlIconsEnabled: false,
+                fit: true,
+                center: true,
+                minZoom: 0.05,
+                maxZoom: 20
+              });
+            } catch(_) {}
+          });
+        }
+      }
+      _removeMermaidLeakedStyles();
+    } catch (e) {
+      _removeMermaidLeakedStyles();
+      var escaped = mermaidCode.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+      var errMsg = (e && (e.str || e.message || (typeof e === 'string' ? e : JSON.stringify(e)))) || 'Unbekannter Fehler';
+      container.innerHTML = '<div class="alert alert-warning small p-2 mb-0" style="all:revert;font-family:inherit;"><strong>Diagramm-Fehler:</strong> '
+        + errMsg.replace(/</g,'&lt;')
+        + '<pre class="mb-0 mt-2 p-2 rounded" style="font-size:.7rem;background:#f8f9fa;white-space:pre-wrap;">'
+        + escaped + '</pre></div>';
+    }
+  }
+
+  async function openCaMermaidFullscreen() {
+    if (!caMermaidStore) return;
+    showModalById('caMermaidFullModal');
+    var mc = document.getElementById('caMermaidFullContainer');
+    if (!mc) return;
+    mc.innerHTML = '';
+    if (!window.mermaid) {
+      mc.innerHTML = '<div class="text-danger p-4">' + (window.i18n ? window.i18n.t('code_analysis.mermaid_not_loaded') : 'Mermaid.js nicht geladen.') + '</div>';
+      return;
+    }
+    if (!_caMermaidInitialized) {
+      window.mermaid.initialize({ startOnLoad: false, theme: 'default', securityLevel: 'loose' });
+      _caMermaidInitialized = true;
+    }
+      try {
+        var fid = 'mermaid-ca-full-' + Math.random().toString(36).substr(2, 9);
+        var _fullStylesBefore = Array.from(document.head.querySelectorAll('style'));
+        var res = await window.mermaid.render(fid, caFixMermaidSyntax(caMermaidStore));
+      document.head.querySelectorAll('style').forEach(function(s) {
+        if (_fullStylesBefore.indexOf(s) === -1) s.remove();
+      });
+      document.querySelectorAll('[id^="mermaid-ca-full-"]').forEach(function(el) {
+        if (el !== mc) el.remove();
+      });
+      var fhost = document.createElement('div');
+      fhost.style.cssText = 'width:100%;height:100%;display:flex;justify-content:center;align-items:center;';
+      var fshadow = fhost.attachShadow ? fhost.attachShadow({ mode: 'open' }) : null;
+      var fsvgRoot = fshadow || fhost;
+      fsvgRoot.innerHTML = res.svg;
+      var _fpSvg = fsvgRoot.querySelector ? fsvgRoot.querySelector('svg') : null;
+      if (_fpSvg) {
+        _fpSvg.querySelectorAll('text, tspan').forEach(function(el) {
+          if (!el.getAttribute('fill') || el.getAttribute('fill') === 'currentColor') {
+            el.setAttribute('fill', '#1f1f1f');
+          }
+        });
+        _fpSvg.querySelectorAll('foreignObject *').forEach(function(el) {
+          el.style.setProperty('color', '#1f1f1f', 'important');
+        });
+      }
+      mc.appendChild(fhost);
+      var svg = fsvgRoot.querySelector('svg');
+      if (svg) {
+        svg.removeAttribute('width');
+        svg.removeAttribute('height');
+        svg.style.width  = '100%';
+        svg.style.height = '100%';
+        if (window.svgPanZoom) {
+          requestAnimationFrame(function() {
+            try {
+              var pz2 = window.svgPanZoom(svg, { zoomEnabled: true, controlIconsEnabled: true, fit: true, center: true, minZoom: 0.05, maxZoom: 20 });
+              pz2.fit();
+              pz2.center();
+            } catch(_) {}
+          });
+        }
+      }
+    } catch (ex) {
+      document.querySelectorAll('[id^="mermaid-ca-full-"]').forEach(function(el) {
+        if (el !== mc) el.remove();
+      });
+      mc.innerHTML = '<div class="alert alert-warning m-3" style="all:revert;font-family:inherit;">' + (ex.message || String(ex)).replace(/</g, '&lt;') + '</div>';
+    }
+  }
+
+  function caDownloadMermaid() {
+    if (!caMermaidStore) return;
+    var name = (caCurrentRepoName || 'diagram').replace(/[^a-z0-9_-]/gi, '_');
+    _caSaveContent  = caMermaidStore;
+    _caSaveFilename = name + '.mmd';
+    caOpenSaveOverlay(window.i18n ? window.i18n.t('code_analysis.save_mermaid') : 'Mermaid-Diagramm speichern');
+  }
+
+  function caEnsureGraphViewer() {
+    if (window.GraphViewer) return Promise.resolve(true);
+    if (window.__caGraphViewerLoadPromise) return window.__caGraphViewerLoadPromise;
+
+    window.__caGraphViewerLoadPromise = new Promise(function(resolve) {
+      var script = document.createElement('script');
+      script.src = '/js/viewer-static.min.js';
+      script.async = true;
+      script.setAttribute('data-stacklens-graph-viewer', 'true');
+      script.onload = function() {
+        var loaded = typeof window.GraphViewer === 'function';
+        if (!loaded) window.__caGraphViewerLoadPromise = null;
+        resolve(loaded);
+      };
+      script.onerror = function() {
+        window.__caGraphViewerLoadPromise = null;
+        if (script.parentNode) script.parentNode.removeChild(script);
+        resolve(false);
+      };
+      document.head.appendChild(script);
+    });
+    return window.__caGraphViewerLoadPromise;
+  }
+
+  function caNormalizeDrawioXml(xml) {
+    if (!xml) return xml;
+    function normalizeDrawioColors(xmlText) {
+      return xmlText.replace(/<mxCell\b([^>]*?)\sstyle="([^"]*)"([^>]*?)(\/?>)/g, function(match, beforeStyle, style, afterStyle, close) {
+        var normalizedStyle = style.split(';').map(function(part) {
+          var token = part.trim();
+          if (!token) return null;
+          var idx = token.indexOf('=');
+          if (idx < 0) return token;
+          var key = token.slice(0, idx);
+          var value = token.slice(idx + 1).trim();
+          if (/^(fillColor|strokeColor|fontColor|gradientColor|labelBackgroundColor|labelBorderColor)$/.test(key) && /^[0-9a-fA-F]{3,8}$/.test(value)) {
+            value = '#' + value;
+          }
+          return key + '=' + value;
+        }).filter(Boolean).join(';');
+        if (normalizedStyle && !/;\s*$/.test(normalizedStyle)) normalizedStyle += ';';
+        return '<mxCell' + beforeStyle + ' style="' + normalizedStyle + '"' + afterStyle + close;
+      });
+    }
+    var inlineDiagMatch = xml.match(/<diagram[^>]*>\s*(<mxGraphModel[\s\S]*?<\/mxGraphModel>)\s*<\/diagram>/i);
+    if (inlineDiagMatch) xml = inlineDiagMatch[1].trim();
+    xml = xml.replace(/<mxGraphModel\b([^>]*)>/i, function (match, attrs) {
+      var cleaned = attrs.replace(/\s+root\s*=\s*("[^"]*"|'[^']*')/gi, '');
+      return '<mxGraphModel' + cleaned + '>';
+    });
+    xml = xml.replace(/<Array\s+as="points"[^>]*>[\s\S]*?<\/Array>/gi, '');
+    xml = xml.replace(/<mxPoint\b[^>]*\/>/gi, '');
+    xml = normalizeDrawioColors(xml);
+    xml = xml.replace(/<mxGraphModel(\s*>|\s+(?!dx\b)[^>]*>)/, function(match, rest) {
+      if (match.indexOf('dx=') >= 0) return match;
+      var attrs = ' dx="1422" dy="762" grid="1" gridSize="10" guides="1" tooltips="1"' +
+        ' connect="1" arrows="1" fold="1" page="1" pageScale="1"' +
+        ' pageWidth="1654" pageHeight="1169" math="0" shadow="0"';
+      return '<mxGraphModel' + attrs + (rest.trim() === '>' ? '>' : ' ' + rest.trim());
+    });
+    xml = xml.replace(/<mxGeometry\b([^>]*?)(\/>|>)/g, function(m, attrs, end) {
+      if (!/\bas=/.test(attrs)) return '<mxGeometry' + attrs + ' as="geometry"' + end;
+      return m;
+    });
+    if (xml.indexOf('<root>') === -1 && xml.indexOf('<mxGraphModel') !== -1) {
+      xml = xml.replace(/(<mxGraphModel[^>]*>)([\s\S]*)(<\/mxGraphModel>)/, function(m, open, content, close) {
+        return open + '<root>' + content + '</root>' + close;
+      });
+    }
+    var _seenIds = {}, _dupCounter = 0;
+    xml = xml.replace(/<mxCell\b([^>]*)>/g, function(match) {
+      var idMatch = match.match(/\bid="([^"]*)"/);
+      if (!idMatch) return match;
+      var cellId = idMatch[1];
+      if (_seenIds[cellId]) {
+        return match.replace('id="' + cellId + '"', 'id="sl-' + (++_dupCounter) + '"');
+      }
+      _seenIds[cellId] = true;
+      return match;
+    });
+    if (xml.indexOf('<root>') !== -1) {
+      var hasCell0 = /<mxCell\b[^>]*\bid="0"/.test(xml);
+      var hasCell1 = /<mxCell\b[^>]*\bid="1"/.test(xml);
+      if (!hasCell0 || !hasCell1) {
+        xml = xml.replace('<root>', '<root>' + (!hasCell0 ? '<mxCell id="0"/>' : '') + (!hasCell1 ? '<mxCell id="1" parent="0"/>' : ''));
+      }
+
+      xml = xml.replace(/<mxCell\b([^>]*)>/g, function(match, attrs) {
+        if (attrs.indexOf('parent="0"') === -1) return match;
+        var idMatch = attrs.match(/\bid="([^"]*)"/);
+        var cellId = idMatch ? idMatch[1] : null;
+        if (cellId === '1') return match;
+        if (cellId === '0') return match.replace(/\s*parent="0"/, '');
+        return match.replace(/parent="0"/, 'parent="1"');
+      });
+    }
+    xml = xml.replace(/(<mxCell\b[^>]+\bedge="1"[^>]*>[\s\S]*?)<mxGeometry\b([^>]*?)(\/>|>)/g,
+      function(m, before, gAttrs, gEnd) {
+        var a = /\brelative=/.test(gAttrs) ? gAttrs : ' relative="1"' + gAttrs;
+        return before + '<mxGeometry' + a + gEnd;
+      });
+    return xml;
+  }
+
+  async function caRenderDrawio(xml) {
+    if (!xml) return;
+    var container = document.getElementById('caDrawioContainer');
+    if (!container) return;
+    container.className = container.className.replace(/\bd-none\b/g, '').trim();
+    container.innerHTML = '<div class="p-3 text-muted"><span class="spinner-border spinner-border-sm me-2"></span>' + (window.i18n ? window.i18n.t('code_analysis.drawio_viewer_loading') : 'Draw.io Viewer wird geladen…') + '</div>';
+    var emptyEl = document.getElementById('caDrawioEmpty');
+    if (emptyEl) emptyEl.style.display = 'none';
+    var actionsEl = document.getElementById('caDrawioActions');
+    if (actionsEl) actionsEl.className = actionsEl.className.replace(/\bd-none\b/g, '').trim();
+
+    var viewerLoaded = await caEnsureGraphViewer();
+    if (!document.documentElement.contains(container) || document.getElementById('caDrawioContainer') !== container) return;
+    if (!viewerLoaded || !window.GraphViewer) {
+      container.innerHTML = '<div class="text-danger p-3">' + (window.i18n ? window.i18n.t('code_analysis.graphviewer_not_loaded') : 'GraphViewer nicht geladen.') + '</div>';
+      return;
+    }
+
+    container.innerHTML = '';
+    try {
+      xml = caNormalizeDrawioXml(xml);
+      caDrawioNormalizedXml = xml;
+      var div = document.createElement('div');
+      div.className = 'mxgraph';
+      div.style.maxWidth = '100%';
+      div.setAttribute('data-mxgraph', JSON.stringify({ highlight: '#0000ff', nav: true, resize: true, toolbar: 'zoom layers tags', lightbox: false, xml: xml }));
+      container.appendChild(div);
+      window.GraphViewer.createViewerForElement(div);
+      container.style.cursor = 'pointer';
+      container.title = window.i18n ? window.i18n.t('code_analysis.click_zoom') : 'Klicken zum Vergrößern';
+      container.onclick = function(e) { openCaDrawioFullscreen(); };
+    } catch (e) {
+      var esc = function(s) { return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); };
+      container.innerHTML = '<div class="alert alert-warning p-3 mb-0"><strong><i class="bi bi-exclamation-triangle me-1"></i>' + (window.i18n ? window.i18n.t('code_analysis.diagram_render_error') : 'Diagramm konnte nicht gerendert werden') + '</strong>' +
+        '<div class="small text-muted mt-1">' + esc(e.message || String(e)) + '</div>' +
+        '<details class="mt-2"><summary class="small text-muted" style="cursor:pointer">XML anzeigen</summary>' +
+        '<pre style="font-size:10px;overflow:auto;max-height:200px;background:#f8f9fa;padding:8px;border-radius:4px;margin-top:6px;">' +
+        esc(xml) + '</pre></details></div>';
+    }
+  }
+
+  async function openCaDrawioFullscreen() {
+    if (!caDrawioXmlStore) return;
+    showModalById('caDrawioFullModal');
+    var mc = document.getElementById('caDrawioFullContainer');
+    if (!mc) return;
+    mc.innerHTML = '<div class="p-4 text-muted"><span class="spinner-border spinner-border-sm me-2"></span>' + (window.i18n ? window.i18n.t('code_analysis.drawio_viewer_loading') : 'Draw.io Viewer wird geladen…') + '</div>';
+
+    var viewerLoaded = await caEnsureGraphViewer();
+    if (!document.documentElement.contains(mc) || document.getElementById('caDrawioFullContainer') !== mc) return;
+    if (!viewerLoaded || !window.GraphViewer) {
+      mc.innerHTML = '<div class="text-danger p-4">' + (window.i18n ? window.i18n.t('code_analysis.graphviewer_not_loaded') : 'GraphViewer nicht geladen.') + '</div>';
+      return;
+    }
+
+    mc.innerHTML = '';
+    try {
+      var xml = caDrawioNormalizedXml || caDrawioXmlStore;
+      var div = document.createElement('div');
+      div.className = 'mxgraph';
+      div.style.cssText = 'width:100%;height:100%;';
+      div.setAttribute('data-mxgraph', JSON.stringify({ highlight: '#0000ff', nav: true, resize: true, toolbar: 'zoom layers tags', fit: true, xml: xml }));
+      mc.appendChild(div);
+      window.GraphViewer.createViewerForElement(div);
+    } catch (e) {
+      mc.innerHTML = '<div class="alert alert-warning m-3">' + (e.message || String(e)).replace(/</g, '&lt;') + '</div>';
+    }
+  }
+
+  function caOpenInDrawio() {
+    if (!caDrawioXmlStore) return;
+    var normalized = caDrawioNormalizedXml || caNormalizeDrawioXml(caDrawioXmlStore);
+    var doc = /^\s*<mxfile[\s>]/i.test(normalized)
+      ? normalized
+      : '<mxfile><diagram name="StackLens">' + normalized + '</diagram></mxfile>';
+    var url = 'https://app.diagrams.net/#R' + encodeURIComponent(doc);
+    if (window.desktopApp && typeof window.desktopApp.openInBrowser === 'function') {
+      window.desktopApp.openInBrowser(url);
+    } else {
+      fetch('/api/open-url', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url: url })
+      }).then(function(r) {
+        if (!r.ok) window.open(url, '_blank', 'noopener,noreferrer');
+      }).catch(function() {
+        window.open(url, '_blank', 'noopener,noreferrer');
+      });
+    }
+  }
+
+  function caDownloadDrawio() {
+    if (!caDrawioXmlStore) return;
+    var name = (caCurrentRepoName || 'diagram').replace(/[^a-z0-9_-]/gi, '_');
+    _caSaveContent  = caDrawioXmlStore;
+    _caSaveFilename = name + '.drawio';
+    caOpenSaveOverlay(window.i18n ? window.i18n.t('code_analysis.save_drawio') : 'Draw.io-Diagramm speichern');
+  }
+
+
+  var _caSaveContent  = null;
+  var _caSaveFilename = null;
+
+  function caLoadSaveDirectoryEntries(path) {
+    return window.slHelpers.browseDirectories('/api/tooling/files/browse', path);
+  }
+
+  function caOpenSaveOverlay(title) {
+    __kiChatOpenDirBrowser(function (dir, filename) {
+      if (dir) caSaveDiagramTo(dir, filename);
+    }, {
+      saveAs: { filename: _caSaveFilename || 'diagram' },
+      titleFallback: title,
+      load: caLoadSaveDirectoryEntries,
+    });
+  }
+
+  function caSaveDiagramTo(dir, filename) {
+    var name = (filename || '').trim() || _caSaveFilename;
+    if (!dir || !_caSaveContent || !name) {
+      showAlert(window.i18n ? window.i18n.t('common.no_dir_selected') : 'Kein Verzeichnis ausgewählt.', 'danger');
+      return;
+    }
+    fetch('/api/code-analysis/analysis/' + caCurrentAnalysisId + '/save-diagram', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path: dir, filename: name, content: _caSaveContent })
+    }).then(function (r) {
+      return r.json().then(function (data) { return { ok: r.ok, data: data }; });
+    }).then(function (res) {
+      if (!res.ok || res.data.error) {
+        showAlert(res.data.error || (window.i18n ? window.i18n.t('code_analysis.save_error') : 'Fehler beim Speichern.'), 'danger');
+        return;
+      }
+      _caSaveContent = null;
+      _caSaveFilename = null;
+      showAlert((window.i18n ? window.i18n.t('code_analysis.js_diagram_saved') : 'Diagramm gespeichert: ') + res.data.savedPath, 'success');
+    }).catch(function (e) {
+      showAlert((window.i18n ? window.i18n.t('common.network_error') : 'Netzwerkfehler: ') + (e.message || ''), 'danger');
+    });
+  }
+</script>
+</th:block>
+</body>
+</html>

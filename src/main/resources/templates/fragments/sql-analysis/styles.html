@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" lang="de">
+<body>
+<th:block th:fragment="styles">
+<style>
+  :root {
+    --sa-bg:      var(--app-cream-2);
+    --sa-paper:   var(--app-cream);
+    --sa-ink:     var(--app-text);
+    --sa-muted:   var(--app-text-muted);
+    --sa-line:    var(--app-border);
+    --sa-accent:  var(--app-accent-purple);
+    --sa-accent2: var(--app-accent-yellow);
+    --sa-danger:  var(--app-accent-red);
+    --sa-ok: #1a7a4a;
+    --sa-warn: #b06000;
+  }
+
+  .sa-page { margin: 0 auto; color: var(--sa-ink); }
+
+  .sa-card {
+    background: var(--sa-paper);
+    border: 1px solid var(--sa-line);
+    border-radius: 18px;
+    padding: 24px;
+    box-shadow: 0 8px 24px rgba(0,0,0,.06);
+    margin-bottom: 20px;
+  }
+  .sa-card h2 { font-size: 17px; font-weight: 700; margin: 0 0 16px; }
+  .sa-card h3 { font-size: 14px; font-weight: 700; margin: 14px 0 6px; color: var(--sa-muted); text-transform: uppercase; letter-spacing: .04em; }
+
+  .sa-label {
+    font-size: 13px; font-weight: 700; color: var(--sa-muted);
+    text-transform: uppercase; letter-spacing: .04em; margin-bottom: 4px;
+  }
+  .sa-textarea {
+    border: 1.5px solid var(--sa-line); border-radius: 10px; padding: 10px 14px;
+    font-size: 13px; font-family: 'SFMono-Regular', 'Consolas', monospace;
+    width: 100%; background: #fff; resize: vertical; min-height: 100px;
+    color: var(--sa-ink);
+  }
+  .sa-textarea:focus { outline: none; border-color: var(--sa-accent); box-shadow: 0 0 0 3px rgba(124, 92, 191,.12); }
+
+  .sa-btn {
+    background: var(--sa-accent); color: #fff; border: none; border-radius: 10px;
+    padding: 7px 16px; font-size: 13px; font-weight: 700; cursor: pointer; transition: opacity .15s;
+  }
+  .sa-btn:hover { opacity: .88; }
+  .sa-btn:disabled { opacity: .5; cursor: not-allowed; }
+  .sa-btn-danger {
+    background: #b91c1c; color: #fff; border: none; border-radius: 10px;
+    padding: 7px 16px; font-size: 13px; font-weight: 700; cursor: pointer; transition: opacity .15s;
+  }
+  .sa-btn-danger:hover { opacity: .88; }
+  .sa-btn-danger:disabled { opacity: .5; cursor: not-allowed; }
+
+  .sa-btn-test {
+    background: var(--sa-accent2); color: #1f1f1f; border: none; border-radius: 10px;
+    padding: 7px 16px; font-size: 13px; font-weight: 700; cursor: pointer; transition: opacity .15s;
+    display: inline-flex; align-items: center; gap: 6px;
+  }
+  .sa-btn-test:hover { opacity: .85; }
+  .sa-btn-test:disabled { opacity: .4; cursor: not-allowed; }
+
+  .sa-btn-secondary {
+    background: transparent; color: var(--sa-accent); border: 1.5px solid var(--sa-accent);
+    border-radius: 8px; padding: 5px 12px; font-size: 12px; font-weight: 700; cursor: pointer;
+    transition: background .15s;
+  }
+  .sa-btn-secondary:hover { background: rgba(124, 92, 191,.08); }
+
+  .sa-tab {
+    padding: 9px 18px; font-size: 14px; font-weight: 700; cursor: pointer; border: none;
+    background: none; color: var(--sa-muted); border-bottom: 2px solid transparent;
+    margin-bottom: -2px; transition: color .15s, border-color .15s; border-radius: 8px 8px 0 0;
+  }
+  .sa-tab:hover { color: var(--sa-ink); }
+  .sa-tab.active { color: var(--sa-accent); border-bottom-color: var(--sa-accent); }
+  .sa-tab-pane { display: none; }
+  .sa-tab-pane.active { display: block; }
+  .sa-rtab-pane { display: none; }
+  .sa-rtab-pane.active { display: block; }
+
+  .sa-collapse-btn {
+    background: none; border: 1px solid var(--sa-line); border-radius: 8px;
+    padding: 5px 12px; font-size: 12px; color: var(--sa-muted); cursor: pointer;
+    display: inline-flex; align-items: center; gap: 5px; margin-bottom: 8px;
+  }
+  .sa-collapse-btn:hover { border-color: var(--sa-accent); color: var(--sa-accent); }
+  .sa-collapsible { display: none; }
+  .sa-collapsible.open { display: block; }
+
+  .sa-code {
+    background: #1e1e2e; color: #cdd6f4; border-radius: 10px;
+    padding: 14px 16px; font-size: 12.5px; font-family: 'SFMono-Regular', 'Consolas', monospace;
+    white-space: pre; overflow-x: auto; margin: 6px 0 12px; position: relative;
+  }
+  .sa-code-header {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 4px;
+  }
+  .sa-code-label { font-size: 11px; color: var(--sa-muted); font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }
+
+  .sa-syntax-banner {
+    border-radius: 10px; padding: 12px 16px; display: flex; align-items: center; gap: 10px;
+    font-size: 14px; font-weight: 600; margin-bottom: 12px;
+  }
+  .sa-syntax-ok    { background: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
+  .sa-syntax-warn  { background: #fff3cd; color: #7a5a0a; border: 1px solid #eab308; }
+  .sa-syntax-error { background: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
+
+  .sa-optim-card {
+    border: 1px solid var(--sa-line); border-radius: 12px; padding: 14px 16px;
+    margin-bottom: 10px; background: #fff;
+  }
+  .sa-optim-header { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
+  .sa-optim-title { font-size: 14px; font-weight: 600; }
+  .sa-badge {
+    display: inline-block; padding: 2px 9px; border-radius: 20px;
+    font-size: 11px; font-weight: 700; text-transform: uppercase;
+  }
+  .sa-badge-high   { background: #f8d7da; color: #721c24; }
+  .sa-badge-medium { background: #fff3cd; color: #7a5a0a; }
+  .sa-badge-low    { background: #d4edda; color: #155724; }
+  .sa-badge-table  { background: #e2ecf8; color: #0d4f8c; font-size: 12px; font-weight: 600; padding: 3px 10px; }
+
+  .sa-optim-desc     { font-size: 13px; color: var(--sa-muted); margin-bottom: 6px; }
+  .sa-optim-suggest  { font-size: 13px; color: var(--sa-ink); font-style: italic; }
+
+  .sa-table-section {
+    border: 1px solid var(--sa-line); border-radius: 12px; overflow: hidden; margin-bottom: 16px;
+  }
+  .sa-table-header {
+    background: #f4efe4; padding: 10px 16px;
+    display: flex; align-items: center; justify-content: space-between;
+    border-bottom: 1px solid var(--sa-line);
+  }
+  .sa-table-body { padding: 14px 16px; }
+
+  .sa-alt-card {
+    border: 1px solid var(--sa-line); border-radius: 10px; padding: 14px 16px; margin-bottom: 10px;
+  }
+  .sa-alt-desc { font-size: 13px; color: var(--sa-muted); margin-bottom: 8px; font-style: italic; }
+
+  .sa-text-block {
+    background: #f9f6ee; border: 1px solid var(--sa-line); border-radius: 10px;
+    padding: 12px 16px; font-size: 13px; color: var(--sa-ink); line-height: 1.6;
+    white-space: pre-wrap;
+  }
+
+  .sa-loading {
+    display: none; align-items: center; gap: 10px;
+    padding: 14px 0; color: var(--sa-muted); font-size: 14px;
+  }
+  .sa-loading.visible { display: flex; }
+
+  .sa-status-pill {
+    display: none; align-items: center; gap: 8px;
+    padding: 6px 14px; border-radius: 20px; font-size: 13px; font-weight: 600;
+    border: 1.5px solid transparent;
+  }
+  .sa-status-pill.visible { display: inline-flex; }
+  .sa-status-analyzing {
+    background: rgba(240,180,76,.15); border-color: var(--sa-accent);
+    color: #8a6800;
+  }
+  .sa-status-analyzing .spinner-border { color: var(--sa-accent); }
+  .sa-status-data {
+    background: rgba(76,175,80,.12); border-color: #4caf50;
+    color: #2e7d32;
+  }
+  .sa-status-data .spinner-border { color: #4caf50; }
+  .sa-status-done {
+    background: rgba(124, 92, 191,.1); border-color: var(--sa-accent);
+    color: var(--sa-accent);
+  }
+
+  .sa-result { display: none; }
+  .sa-result.visible { display: block; }
+
+  .sa-result-table {
+    width: 100%; border-collapse: collapse;
+  }
+  .sa-result-th {
+    padding: 8px 12px; text-align: left;
+    border-bottom: 2px solid var(--sa-line);
+    white-space: nowrap; font-size: 12px; font-weight: 700;
+    background: var(--sa-bg);
+    color: var(--sa-ink);
+  }
+  .sa-result-tr-even { background: var(--sa-paper); }
+  .sa-result-tr-odd  { background: var(--sa-bg); }
+  .sa-result-td {
+    padding: 6px 12px; border-bottom: 1px solid var(--sa-line);
+    word-break: break-word; max-width: 260px; font-size: 12.5px;
+    color: var(--sa-ink);
+  }
+
+  .sa-error { display: none; border-radius: 10px; padding: 12px 16px; background: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; font-size: 14px; }
+  .sa-error.visible { display: block; }
+
+
+</style>
+</th:block>
+</body>
+</html>

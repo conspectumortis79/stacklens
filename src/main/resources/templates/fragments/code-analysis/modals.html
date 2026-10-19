@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" lang="de">
+<body>
+<th:block th:fragment="modals">
+
+<th:block th:replace="~{fragments/shared/modals-local-repo :: modals-local-repo}"></th:block>
+<div class="modal fade" id="snippetModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content" style="border:1px solid var(--ca-line);border-radius:16px;overflow:hidden;box-shadow:0 8px 32px rgba(0,0,0,.12);">
+      <div class="modal-header fb-modal-header" style="border-bottom:1px solid var(--ca-line);padding:14px 20px;">
+        <h5 class="modal-title" style="font-size:15px;font-weight:800;"><i class="bi bi-code-slash me-2" style="color:var(--ca-accent);"></i><span id="snippetModalTitle">Code-Vorschlag</span></h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body" style="padding:0;background:var(--ca-paper);">
+        <pre id="snippetModalCode" class="ca-code-block" style="margin:0;border-radius:0;max-height:70vh;overflow-y:auto;"></pre>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="modal fade" id="mrModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content" style="border:1px solid var(--ca-line);border-radius:16px;overflow:hidden;box-shadow:0 8px 32px rgba(0,0,0,.12);">
+      <div class="modal-header fb-modal-header" style="border-bottom:1px solid var(--ca-line);padding:14px 20px;">
+        <h5 class="modal-title" style="font-size:15px;font-weight:800;"><i class="bi bi-git me-2" style="color:var(--ca-accent);"></i>GitLab Merge Request erstellen</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body" style="background:var(--ca-paper);padding:20px 20px 16px;">
+        <p class="text-muted small" data-i18n="code_analysis.create_mr_desc">Wähle eine GitLab-Konfiguration und das Zielprojekt für den MR.</p>
+        <div class="mb-3">
+          <label class="form-label" style="font-weight:700;font-size:13px;color:var(--ca-ink);">GitLab-Konfiguration</label>
+          <select id="mrGitlabConfigSelect" class="form-select" style="border-color:var(--ca-line);border-radius:10px;background:#fff;font-size:14px;" onchange="caMrLoadProjects()">
+            <option value="" data-i18n="code_analysis.please_select_ph">— bitte wählen —</option>
+            <th:block th:each="gc : ${gitlabConfigs}">
+              <option th:value="${gc.id}" th:text="${gc.name}"></option>
+            </th:block>
+          </select>
+        </div>
+        <div class="mb-3" id="mrProjectRow" style="display:none;">
+          <label class="form-label" style="font-weight:700;font-size:13px;color:var(--ca-ink);">Projekt</label>
+          <select id="mrProjectSelect" class="form-select" style="border-color:var(--ca-line);border-radius:10px;background:#fff;font-size:14px;">
+            <option value="">Wird geladen…</option>
+          </select>
+        </div>
+        <div id="mrModalError" class="alert alert-danger d-none" style="border-radius:10px;font-size:13px;"></div>
+      </div>
+      <div class="modal-footer fb-modal-footer" style="border-top:1px solid var(--ca-line);padding:12px 20px;">
+        <button class="btn btn-outline-secondary" data-bs-dismiss="modal" style="border-radius:999px;font-size:13px;font-weight:600;">Abbrechen</button>
+        <button class="btn" style="background:#7c5cbf;color:#fff;border-radius:999px;font-size:13px;font-weight:700;padding:6px 20px;" onclick="caSubmitMr()">
+          <i class="bi bi-git me-1"></i>MR erstellen
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+  <div class="modal fade" id="caMermaidFullModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-xl modal-fullscreen-lg-down">
+      <div class="modal-content" style="height:90vh;border:1px solid var(--ca-line);border-radius:16px;overflow:hidden;box-shadow:0 8px 32px rgba(0,0,0,.12);">
+        <div class="modal-header fb-modal-header" style="border-bottom:1px solid var(--ca-line);padding:10px 18px;">
+          <h5 class="modal-title" style="font-size:15px;font-weight:800;"><i class="bi bi-diagram-3 me-2" style="color:var(--ca-accent);"></i>Mermaid-Diagramm</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body" style="padding:0;overflow:hidden;flex:1;display:flex;flex-direction:column;">
+          <div id="caMermaidFullContainer" class="ca-diagram-bg" style="flex:1;width:100%;height:100%;overflow:hidden;display:flex;align-items:center;justify-content:center;border:none;border-radius:0;"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal fade" id="caDrawioFullModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-xl modal-fullscreen-lg-down">
+      <div class="modal-content" style="height:90vh;border:1px solid var(--ca-line);border-radius:16px;overflow:hidden;box-shadow:0 8px 32px rgba(0,0,0,.12);">
+        <div class="modal-header fb-modal-header" style="border-bottom:1px solid var(--ca-line);padding:10px 18px;">
+          <h5 class="modal-title" style="font-size:15px;font-weight:800;"><i class="bi bi-bounding-box-circles me-2" style="color:var(--ca-accent);"></i>Draw.io-Diagramm</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body ca-diagram-bg" style="padding:0;overflow:hidden;flex:1;display:flex;flex-direction:column;border:none;border-radius:0;">
+          <div id="caDrawioFullContainer" style="flex:1;width:100%;height:100%;overflow:hidden;"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+<div id="glContextMenu" style="display:none;position:fixed;z-index:9999;background:#fff;border:1px solid var(--ca-line);border-radius:10px;box-shadow:0 4px 18px rgba(0,0,0,.15);min-width:230px;padding:4px 0;" role="menu">
+  <div class="ca-ctx-item"
+       onclick="caStartClone()">
+    <i class="bi bi-cloud-download" style="color:#7c5cbf;font-size:14px;"></i>
+    <span data-i18n="code_analysis.clone_add_repo">Klonen und als Repository hinzufügen</span>
+  </div>
+</div>
+
+<div class="modal fade" id="cloneModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content" style="border:1px solid var(--ca-line);border-radius:16px;overflow:hidden;box-shadow:0 8px 32px rgba(0,0,0,.12);">
+      <div class="modal-header fb-modal-header" style="border-bottom:1px solid var(--ca-line);padding:14px 20px;">
+        <h5 class="modal-title" style="font-size:15px;font-weight:800;"><i class="bi bi-cloud-download me-2" style="color:var(--ca-accent);"></i>Repository klonen</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body" style="background:var(--ca-paper);padding:20px 20px 16px;">
+        <p class="text-muted small mb-3">Projekt: <strong id="cloneProjectLabel"></strong></p>
+        <div class="mb-3">
+          <label class="form-label" style="font-weight:700;font-size:13px;color:var(--ca-ink);">Zielverzeichnis <span class="text-danger">*</span></label>
+          <div class="input-group">
+            <input type="text" id="cloneTargetDir" class="form-control" placeholder="/Users/me/code"
+                   style="border-color:var(--ca-line);border-radius:10px 0 0 10px;background:#fff;font-size:14px;font-family:monospace;"/>
+            <button class="btn fb-btn-browse" type="button" onclick="cloneBrowseDir()" data-i18n-title="code_analysis.browse" title="Durchsuchen"
+                    style="border:1px solid var(--ca-line);border-left:none;border-radius:0 10px 10px 0;color:var(--ca-accent);">
+              <i class="bi bi-folder2-open"></i>
+            </button>
+          </div>
+          <div class="form-text" style="font-size:12px;color:var(--ca-muted);margin-top:5px;"><span data-i18n="code_analysis.clone_form_pre">Das Repository wird als Unterordner</span> <code id="cloneSubfolderHint"></code> <span data-i18n="code_analysis.clone_form_post">in diesem Verzeichnis geklont und automatisch als Repository hinzugefügt.</span></div>
+        </div>
+        <div id="cloneError" class="alert alert-danger d-none mb-0" style="border-radius:10px;font-size:13px;"></div>
+        <div id="cloneProgress" class="d-none">
+          <div class="d-flex align-items-center gap-2 text-muted">
+            <span class="spinner-border spinner-border-sm"></span>
+            <span data-i18n="code_analysis.cloning_progress">Klone Repository … (kann einige Minuten dauern)</span>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer fb-modal-footer" style="border-top:1px solid var(--ca-line);padding:12px 20px;">
+        <button class="btn btn-outline-secondary" data-bs-dismiss="modal" style="border-radius:999px;font-size:13px;font-weight:600;"><span data-i18n="common.cancel">Abbrechen</span></button>
+        <button class="btn" id="cloneBtn" style="background:#7c5cbf;color:#fff;border-radius:999px;font-size:13px;font-weight:700;padding:6px 20px;" onclick="caDoClone()">
+          <i class="bi bi-cloud-download me-1"></i><span data-i18n="code_analysis.clone_btn">Klonen</span>
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+</th:block>
+</body>
+</html>
